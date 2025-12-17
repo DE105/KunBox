@@ -1543,21 +1543,36 @@ class ConfigRepository(private val context: Context) {
             )
         )
         
-        // 添加入站配置 (tun)
-        val inbounds = listOf(
-            Inbound(
-                type = "tun",
-                tag = "tun-in",
-                interfaceName = settings.tunInterfaceName,
-                inet4Address = listOf("172.19.0.1/30"),
-                mtu = settings.tunMtu,
-                autoRoute = settings.autoRoute,
-                strictRoute = settings.strictRoute,
-                stack = settings.tunStack.name.lowercase(), // gvisor/system/mixed/lwip
-                sniff = true,
-                sniffOverrideDestination = true
+        // 添加入站配置
+        val inbounds = mutableListOf<Inbound>()
+        if (settings.tunEnabled) {
+            inbounds.add(
+                Inbound(
+                    type = "tun",
+                    tag = "tun-in",
+                    interfaceName = settings.tunInterfaceName,
+                    inet4Address = listOf("172.19.0.1/30"),
+                    mtu = settings.tunMtu,
+                    autoRoute = settings.autoRoute,
+                    strictRoute = settings.strictRoute,
+                    stack = settings.tunStack.name.lowercase(), // gvisor/system/mixed/lwip
+                    sniff = true,
+                    sniffOverrideDestination = true
+                )
             )
-        )
+        } else {
+            // 如果禁用 TUN，则添加混合入站（HTTP+SOCKS），方便本地代理使用
+            inbounds.add(
+                Inbound(
+                    type = "mixed",
+                    tag = "mixed-in",
+                    listen = "127.0.0.1",
+                    listenPort = 2080,
+                    sniff = true,
+                    sniffOverrideDestination = true
+                )
+            )
+        }
         
         // 添加 DNS 配置
         val dnsServers = mutableListOf<DnsServer>()

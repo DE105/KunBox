@@ -14,8 +14,11 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.kunk.singbox.MainActivity
+import com.kunk.singbox.model.AppSettings
+import com.kunk.singbox.repository.SettingsRepository
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.net.NetworkInterface
 
@@ -45,6 +48,7 @@ class SingBoxService : VpnService() {
     
     private var vpnInterface: ParcelFileDescriptor? = null
     private var boxService: BoxService? = null
+    private var currentSettings: AppSettings? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
     // Network monitoring
@@ -64,9 +68,10 @@ class SingBoxService : VpnService() {
             Log.d(TAG, "openTun called")
             if (options == null) return -1
             
+            val settings = currentSettings
             val builder = Builder()
                 .setSession("SingBox VPN")
-                .setMtu(options.mtu)
+                .setMtu(if (options.mtu > 0) options.mtu else (settings?.tunMtu ?: 1500))
             
             // 添加地址
             builder.addAddress("172.19.0.1", 30)
@@ -74,9 +79,14 @@ class SingBoxService : VpnService() {
             // 添加路由 - 全局代理
             builder.addRoute("0.0.0.0", 0)
             
-            // 添加 DNS
-            builder.addDnsServer("8.8.8.8")
-            builder.addDnsServer("8.8.4.4")
+            // 添加 DNS (优先使用设置中的 DNS)
+            if (settings != null) {
+                builder.addDnsServer(settings.remoteDns)
+                builder.addDnsServer(settings.localDns)
+            } else {
+                builder.addDnsServer("8.8.8.8")
+                builder.addDnsServer("8.8.4.4")
+            }
             
             // 排除自己
             try {
@@ -288,6 +298,10 @@ class SingBoxService : VpnService() {
         
         serviceScope.launch {
             try {
+                // 加载最新设置
+                currentSettings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
+                Log.d(TAG, "Settings loaded: tunEnabled=${currentSettings?.tunEnabled}")
+
                 // 读取配置文件
                 val configFile = File(configPath)
                 if (!configFile.exists()) {
