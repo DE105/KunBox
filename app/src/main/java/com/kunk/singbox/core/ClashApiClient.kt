@@ -197,6 +197,8 @@ class ClashApiClient(
                 json
             )
 
+            Log.d(TAG, "Selecting proxy: selector=$selectorName, proxy=$proxyName, url=$url")
+
             val request = Request.Builder()
                 .url(url)
                 .apply {
@@ -210,12 +212,29 @@ class ClashApiClient(
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.e(TAG, "Failed to select proxy: ${response.code} ${response.message}")
+                } else {
+                    Log.d(TAG, "Successfully selected proxy: $proxyName")
                 }
                 response.isSuccessful
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error selecting proxy", e)
             false
+        }
+    }
+
+    /**
+     * 获取当前 selector 选中的代理
+     */
+    suspend fun getCurrentSelection(selectorName: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val proxies = getProxies() ?: return@withContext null
+            val selector = proxies.proxies[selectorName]
+            Log.d(TAG, "Current selection for $selectorName: ${selector?.now}")
+            selector?.now
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting current selection", e)
+            null
         }
     }
     /**

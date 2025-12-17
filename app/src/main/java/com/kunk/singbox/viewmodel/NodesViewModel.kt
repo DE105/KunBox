@@ -62,10 +62,25 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = null
         )
 
+    private val _switchResult = MutableStateFlow<String?>(null)
+    val switchResult: StateFlow<String?> = _switchResult.asStateFlow()
+
     fun setActiveNode(nodeId: String) {
         viewModelScope.launch {
-            configRepository.setActiveNode(nodeId)
+            val node = nodes.value.find { it.id == nodeId }
+            val success = configRepository.setActiveNode(nodeId)
+            if (com.kunk.singbox.service.SingBoxService.isRunning && node != null) {
+                _switchResult.value = if (success) {
+                    "已切换到 ${node.name}"
+                } else {
+                    "切换到 ${node.name} 失败"
+                }
+            }
         }
+    }
+
+    fun clearSwitchResult() {
+        _switchResult.value = null
     }
     
     fun testLatency(nodeId: String) {

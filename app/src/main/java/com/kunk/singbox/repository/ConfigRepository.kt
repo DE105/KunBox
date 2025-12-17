@@ -904,7 +904,7 @@ class ConfigRepository(private val context: Context) {
         saveProfiles()
     }
     
-    suspend fun setActiveNode(nodeId: String) {
+    suspend fun setActiveNode(nodeId: String): Boolean {
         _activeNodeId.value = nodeId
         
         // 如果 VPN 正在运行，尝试通过 API 热切换节点
@@ -912,17 +912,37 @@ class ConfigRepository(private val context: Context) {
             val node = _nodes.value.find { it.id == nodeId }
             if (node != null) {
                 try {
-                    val success = singBoxCore.getClashApiClient().selectProxy("PROXY", node.name)
+                    val clashApi = singBoxCore.getClashApiClient()
+                    
+                    // 先获取当前选中的节点
+                    val beforeSwitch = clashApi.getCurrentSelection("PROXY")
+                    Log.d(TAG, "Before switch: current selection = $beforeSwitch, target = ${node.name}")
+                    
+                    val success = clashApi.selectProxy("PROXY", node.name)
+                    
                     if (success) {
-                        Log.d(TAG, "Hot switched to node: ${node.name}")
+                        // 验证切换是否生效
+                        val afterSwitch = clashApi.getCurrentSelection("PROXY")
+                        Log.d(TAG, "After switch: current selection = $afterSwitch")
+                        
+                        if (afterSwitch == node.name) {
+                            Log.d(TAG, "Hot switched to node: ${node.name} - VERIFIED")
+                            return true
+                        } else {
+                            Log.e(TAG, "Switch verification failed! Expected: ${node.name}, Got: $afterSwitch")
+                            return false
+                        }
                     } else {
                         Log.e(TAG, "Failed to hot switch node: ${node.name}")
+                        return false
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error during hot switch", e)
+                    return false
                 }
             }
         }
+        return true
     }
     
     fun deleteProfile(profileId: String) {

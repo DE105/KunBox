@@ -37,6 +37,8 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -83,9 +85,20 @@ fun NodesScreen(
     val activeNodeId by viewModel.activeNodeId.collectAsState()
     val groups by viewModel.nodeGroups.collectAsState()
     val testingNodeIds by viewModel.testingNodeIds.collectAsState()
+    val switchResult by viewModel.switchResult.collectAsState()
+    
+    val snackbarHostState = remember { SnackbarHostState() }
     
     var selectedGroupIndex by remember { mutableStateOf(0) }
     val isTesting by viewModel.isTesting.collectAsState()
+    
+    // 显示节点切换结果
+    LaunchedEffect(switchResult) {
+        switchResult?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearSwitchResult()
+        }
+    }
     
     // 当groups变化时重置索引，避免越界
     LaunchedEffect(groups) {
@@ -158,6 +171,7 @@ fun NodesScreen(
     Scaffold(
         modifier = Modifier.background(AppBackground),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End) {
                 AnimatedVisibility(
