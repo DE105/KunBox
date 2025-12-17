@@ -42,6 +42,7 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
                 
                 allRuleSets.addAll(fetchFromSagerNet())
                 allRuleSets.addAll(fetchFromLyc8503())
+                allRuleSets.addAll(fetchFromMetaCubeX())
 
                 // 如果在线获取失败，使用预置规则集
                 if (allRuleSets.isEmpty()) {
@@ -150,6 +151,56 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
               emptyList()
           }
       }
+
+    // MetaCubeX/meta-rules-dat 规则集 (与 GUI.for.SingBox 相同的源)
+    private fun fetchFromMetaCubeX(): List<HubRuleSet> {
+        val result = mutableListOf<HubRuleSet>()
+        val baseUrl = "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing"
+        
+        // geosite 规则
+        val geositeRules = listOf(
+            "google", "youtube", "twitter", "facebook", "instagram", "tiktok",
+            "telegram", "whatsapp", "discord", "github", "microsoft", "apple",
+            "amazon", "netflix", "spotify", "bilibili", "zhihu", "baidu",
+            "tencent", "alibaba", "openai", "bing", "oracle", "nvidia",
+            "cloudflare", "steam", "epicgames", "huggingface", "google-play",
+            "cn", "geolocation-cn", "geolocation-!cn", "private", "category-ads-all"
+        )
+        
+        geositeRules.forEach { name ->
+            result.add(
+                HubRuleSet(
+                    name = "$name-geosite",
+                    ruleCount = 0,
+                    tags = listOf("MetaCubeX", "geosite"),
+                    description = "MetaCubeX 规则集 (jsdelivr CDN)",
+                    sourceUrl = "$baseUrl/geo/geosite/$name.json",
+                    binaryUrl = "$baseUrl/geo/geosite/$name.srs"
+                )
+            )
+        }
+        
+        // geoip 规则
+        val geoipRules = listOf(
+            "cn", "private", "google", "telegram", "twitter", "facebook", 
+            "netflix", "cloudflare"
+        )
+        
+        geoipRules.forEach { name ->
+            result.add(
+                HubRuleSet(
+                    name = "$name-geoip",
+                    ruleCount = 0,
+                    tags = listOf("MetaCubeX", "geoip"),
+                    description = "MetaCubeX IP 规则集 (jsdelivr CDN)",
+                    sourceUrl = "$baseUrl/geo/geoip/$name.json",
+                    binaryUrl = "$baseUrl/geo/geoip/$name.srs"
+                )
+            )
+        }
+        
+        return result
+    }
 
     data class GithubFile(
         val name: String,
