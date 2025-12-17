@@ -1,6 +1,7 @@
 package com.kunk.singbox.repository
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -82,7 +83,34 @@ class SettingsRepository(private val context: Context) {
                 Log.d("SettingsRepository", "Loading rule sets from JSON: $ruleSetsJson")
                 val list = gson.fromJson<List<RuleSet>>(ruleSetsJson, object : TypeToken<List<RuleSet>>() {}.type) ?: emptyList()
                 Log.d("SettingsRepository", "Parsed ${list.size} rule sets")
-                list
+                
+                // 自动修复已知问题：1. 镜像加速 2. 修正错误的广告规则集名称
+                list.map { ruleSet ->
+                    var updatedUrl = ruleSet.url
+                    var updatedTag = ruleSet.tag
+                    
+                    // 1. 修复错误的广告规则集标识和 URL
+                    if (updatedTag == "geosite-ads") {
+                        updatedTag = "geosite-category-ads-all"
+                        if (updatedUrl.contains("geosite-ads.srs")) {
+                            updatedUrl = updatedUrl.replace("geosite-ads.srs", "geosite-category-ads-all.srs")
+                        }
+                    }
+                    
+                    // 2. 统一使用 ghp.ci 镜像加速 (如果尚未镜像且是 github 链接)
+                    if (updatedUrl.startsWith("https://raw.githubusercontent.com/") && !updatedUrl.contains("ghp.ci")) {
+                        updatedUrl = "https://ghp.ci/$updatedUrl"
+                    } else if (updatedUrl.contains("geosite-ads.srs")) {
+                        // 即使已经有镜像，如果还是老的 ads.srs 也要修
+                        updatedUrl = updatedUrl.replace("geosite-ads.srs", "geosite-category-ads-all.srs")
+                    }
+
+                    if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
+                        ruleSet.copy(tag = updatedTag, url = updatedUrl)
+                    } else {
+                        ruleSet
+                    }
+                }
             } catch (e: Exception) {
                 Log.e("SettingsRepository", "Failed to parse rule sets JSON", e)
                 emptyList()

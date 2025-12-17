@@ -67,28 +67,32 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun getBuiltInRuleSets(): List<HubRuleSet> {
-        val baseUrl = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
+        val githubUrl = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
+        // 使用镜像加速访问
+        val baseUrl = "https://ghp.ci/$githubUrl"
         val commonRules = listOf(
             "google", "youtube", "twitter", "facebook", "instagram", "tiktok",
             "telegram", "whatsapp", "discord", "github", "microsoft", "apple",
             "amazon", "netflix", "spotify", "bilibili", "zhihu", "baidu",
             "tencent", "alibaba", "jd", "taobao", "weibo", "douyin",
-            "cn", "geolocation-cn", "geolocation-!cn", "private", "ads"
+            "cn", "geolocation-cn", "geolocation-!cn", "private", "category-ads-all"
         )
         return commonRules.map { name ->
+            val fullName = if (name == "category-ads-all") "geosite-category-ads-all" else "geosite-$name"
             HubRuleSet(
-                name = "geosite-$name",
+                name = fullName,
                 ruleCount = 0,
                 tags = listOf("预置", "geosite"),
                 description = "常用规则集",
-                sourceUrl = "$baseUrl/geosite-$name.json",
-                binaryUrl = "$baseUrl/geosite-$name.srs"
+                sourceUrl = "$baseUrl/$fullName.json",
+                binaryUrl = "$baseUrl/$fullName.srs"
             )
         }
     }
 
     private fun fetchFromSagerNet(): List<HubRuleSet> {
         // SagerNet 的 .srs 文件在 rule-set 分支的根目录，不是主分支的子目录
+        // 使用 ghp.ci 镜像代理 GitHub API 请求可能不合适，API 还是直接连，但下载链接用镜像
         val url = "https://api.github.com/repos/SagerNet/sing-geosite/contents/?ref=rule-set"
         Log.d(TAG, "[SagerNet] 请求 URL: $url")
         return try {
@@ -122,13 +126,14 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
 
                 srsFiles.map { file ->
                     val nameWithoutExt = file.name.substringBeforeLast(".srs")
+                    val rawUrl = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
                     HubRuleSet(
                         name = nameWithoutExt,
                         ruleCount = 0,
                         tags = listOf("官方", "geosite"),
                         description = "SagerNet 官方规则集",
-                        sourceUrl = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/${file.name.replace(".srs", ".json")}",
-                        binaryUrl = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/${file.name}"
+                        sourceUrl = "https://ghp.ci/$rawUrl/${file.name.replace(".srs", ".json")}",
+                        binaryUrl = "https://ghp.ci/$rawUrl/${file.name}"
                     )
                 }
             }
