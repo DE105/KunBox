@@ -82,28 +82,28 @@ fun DiagnosticsScreen(
             StandardCard {
                 SettingItem(
                     title = "连通性检查",
-                    subtitle = if (isLoading) "正在检查..." else "检查 Google 连接状态",
+                    subtitle = if (isLoading) "正在检查..." else "连接测试 (www.google.com)",
                     icon = Icons.Rounded.NetworkCheck,
                     onClick = { viewModel.runConnectivityCheck() },
                     enabled = !isLoading
                 )
                 SettingItem(
                     title = "Ping 测试",
-                    subtitle = if (isLoading) "正在测试..." else "ICMP Ping 目标主机",
+                    subtitle = if (isLoading) "正在测试..." else "ICMP Ping (8.8.8.8)",
                     icon = Icons.Rounded.Speed,
                     onClick = { viewModel.runPingTest() },
                     enabled = !isLoading
                 )
                 SettingItem(
                     title = "DNS 查询",
-                    subtitle = if (isLoading) "正在查询..." else "解析域名 IP",
+                    subtitle = if (isLoading) "正在查询..." else "域名解析 (www.google.com)",
                     icon = Icons.Rounded.Dns,
                     onClick = { viewModel.runDnsQuery() },
                     enabled = !isLoading
                 )
                 SettingItem(
                     title = "路由测试",
-                    subtitle = if (isLoading) "正在测试..." else "检查分流规则匹配",
+                    subtitle = if (isLoading) "正在测试..." else "规则匹配模拟 (baidu.com)",
                     icon = Icons.Rounded.Route,
                     onClick = { viewModel.runRoutingTest() },
                     enabled = !isLoading

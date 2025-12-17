@@ -45,6 +45,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             _resultTitle.value = "连通性检查"
             try {
                 val start = System.currentTimeMillis()
+                // Use a well-known URL that returns 204 or 200
                 val request = Request.Builder().url("https://www.google.com/generate_204").build()
                 val response = withContext(Dispatchers.IO) {
                     client.newCall(request).execute()
@@ -52,14 +53,14 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 val end = System.currentTimeMillis()
                 val duration = end - start
                 
-                if (response.isSuccessful) {
-                    _resultMessage.value = "正在连接 www.google.com...\n\n连接成功 (${response.code})\n耗时: ${duration}ms"
+                if (response.isSuccessful || response.code == 204) {
+                    _resultMessage.value = "目标: www.google.com\n状态: 连接成功 (${response.code})\n耗时: ${duration}ms\n\n说明: 如果开启了代理，此测试反映代理连接质量；如果是直连，则反映本地网络质量。"
                 } else {
-                    _resultMessage.value = "正在连接 www.google.com...\n\n连接失败 (${response.code})\n耗时: ${duration}ms"
+                    _resultMessage.value = "目标: www.google.com\n状态: 连接失败 (${response.code})\n耗时: ${duration}ms"
                 }
                 response.close()
             } catch (e: Exception) {
-                _resultMessage.value = "正在连接 www.google.com...\n\n连接失败: ${e.message}"
+                _resultMessage.value = "目标: www.google.com\n状态: 连接异常\n错误: ${e.message}"
             } finally {
                 _isLoading.value = false
                 _showResultDialog.value = true
@@ -74,15 +75,16 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             val host = "8.8.8.8"
             try {
                 val output = withContext(Dispatchers.IO) {
+                    // Ping 4 times
                     val process = Runtime.getRuntime().exec("ping -c 4 $host")
                     process.waitFor()
                     process.inputStream.bufferedReader().readText()
                 }
                 
                 val summary = parsePingOutput(output)
-                _resultMessage.value = "目标: $host\n\n$summary"
+                _resultMessage.value = "目标: $host (Google DNS)\n\n$summary"
             } catch (e: Exception) {
-                _resultMessage.value = "Ping 失败: ${e.message}"
+                _resultMessage.value = "Ping 执行失败: ${e.message}"
             } finally {
                 _isLoading.value = false
                 _showResultDialog.value = true
@@ -129,13 +131,14 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             _resultTitle.value = "DNS 查询"
             val host = "www.google.com"
             try {
+                // Use Java's built-in DNS resolver (which uses system/VPN DNS)
                 val ips = withContext(Dispatchers.IO) {
                     InetAddress.getAllByName(host)
                 }
                 val ipList = ips.joinToString("\n") { it.hostAddress }
-                _resultMessage.value = "查询: $host\n类型: A/AAAA\n\n结果:\n$ipList"
+                _resultMessage.value = "域名: $host\n\n解析结果:\n$ipList\n\n说明: 此结果受当前 DNS 设置及 VPN 状态影响。"
             } catch (e: Exception) {
-                _resultMessage.value = "查询失败: ${e.message}"
+                _resultMessage.value = "域名: $host\n\n解析失败: ${e.message}"
             } finally {
                 _isLoading.value = false
                 _showResultDialog.value = true
@@ -147,14 +150,14 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             _isLoading.value = true
             _resultTitle.value = "路由测试"
-            val domain = "baidu.com"
+            val testDomain = "baidu.com"
             
             val config = configRepository.getActiveConfig()
             if (config == null) {
-                _resultMessage.value = "未找到活跃配置"
+                _resultMessage.value = "无法执行测试: 未加载活跃配置。"
             } else {
-                val match = findMatch(config, domain)
-                _resultMessage.value = "域名: $domain\n\n匹配规则: ${match.rule}\n出站: ${match.outbound}"
+                val match = findMatch(config, testDomain)
+                _resultMessage.value = "测试域名: $testDomain\n\n匹配结果:\n规则: ${match.rule}\n出站: ${match.outbound}\n\n说明: 此测试模拟 sing-box 路由匹配逻辑，不代表实际流量走向。"
             }
             _isLoading.value = false
             _showResultDialog.value = true
