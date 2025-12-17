@@ -137,6 +137,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         // 生成配置文件并启动 VPN 服务
         viewModelScope.launch {
             try {
+                // 在生成配置前先执行强制迁移，修复可能导致 404 的旧配置
+                val settingsRepository = com.kunk.singbox.repository.SettingsRepository.getInstance(context)
+                settingsRepository.checkAndMigrateRuleSets()
+                
                 val configPath = configRepository.generateConfigFile()
                 if (configPath == null) {
                     _connectionState.value = ConnectionState.Error

@@ -89,22 +89,28 @@ class SettingsRepository(private val context: Context) {
                     var updatedUrl = ruleSet.url
                     var updatedTag = ruleSet.tag
                     
-                    // 1. 修复错误的广告规则集标识和 URL
-                    if (updatedTag == "geosite-ads") {
+                    // 1. 强制重命名旧的广告规则集标识
+                    if (updatedTag.equals("geosite-ads", ignoreCase = true)) {
                         updatedTag = "geosite-category-ads-all"
-                        if (updatedUrl.contains("geosite-ads.srs")) {
-                            updatedUrl = updatedUrl.replace("geosite-ads.srs", "geosite-category-ads-all.srs")
-                        }
+                        Log.d("SettingsRepository", "Migrating tag: ${ruleSet.tag} -> $updatedTag")
                     }
                     
-                    // 2. 统一使用 ghp.ci 镜像加速 (如果尚未镜像且是 github 链接)
-                    if (updatedUrl.startsWith("https://raw.githubusercontent.com/") && !updatedUrl.contains("ghp.ci")) {
-                        updatedUrl = "https://ghp.ci/$updatedUrl"
-                    } else if (updatedUrl.contains("geosite-ads.srs")) {
+                    // 2. 修复错误的广告规则集 URL
+                    if (updatedUrl.contains("geosite-ads.srs")) {
                         updatedUrl = updatedUrl.replace("geosite-ads.srs", "geosite-category-ads-all.srs")
+                    }
+                    
+                    // 3. 统一使用 ghp.ci 镜像加速 (如果尚未镜像且是 github 链接)
+                    if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains("ghp.ci")) {
+                        updatedUrl = if (updatedUrl.startsWith("https://")) {
+                            "https://ghp.ci/$updatedUrl"
+                        } else {
+                            "https://ghp.ci/https://$updatedUrl"
+                        }
                     }
 
                     if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
+                        Log.d("SettingsRepository", "RuleSet migrated: ${ruleSet.tag} -> $updatedTag, URL: ${ruleSet.url} -> $updatedUrl")
                         ruleSet.copy(tag = updatedTag, url = updatedUrl)
                     } else {
                         ruleSet
@@ -112,7 +118,9 @@ class SettingsRepository(private val context: Context) {
                 }
                 
                 // 去重：如果存在相同 tag 的规则集，保留最后一个（通常是较新的或已迁移的）
-                migratedList.distinctBy { it.tag }
+                val result = migratedList.distinctBy { it.tag }
+                Log.d("SettingsRepository", "Final rule sets tags: ${result.map { it.tag }}")
+                result
             } catch (e: Exception) {
                 Log.e("SettingsRepository", "Failed to parse rule sets JSON", e)
                 emptyList()
@@ -279,6 +287,46 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { it[PreferencesKeys.APP_GROUPS] = gson.toJson(value) }
     }
     
+    suspend fun checkAndMigrateRuleSets() {
+        try {
+            val currentSettings = settings.first()
+            val originalRuleSets = currentSettings.ruleSets
+            val migratedRuleSets = originalRuleSets.map { ruleSet ->
+                var updatedUrl = ruleSet.url
+                var updatedTag = ruleSet.tag
+                
+                if (updatedTag.equals("geosite-ads", ignoreCase = true)) {
+                    updatedTag = "geosite-category-ads-all"
+                }
+                
+                if (updatedUrl.contains("geosite-ads.srs")) {
+                    updatedUrl = updatedUrl.replace("geosite-ads.srs", "geosite-category-ads-all.srs")
+                }
+                
+                if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains("ghp.ci")) {
+                    updatedUrl = if (updatedUrl.startsWith("https://")) {
+                        "https://ghp.ci/$updatedUrl"
+                    } else {
+                        "https://ghp.ci/https://$updatedUrl"
+                    }
+                }
+
+                if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
+                    ruleSet.copy(tag = updatedTag, url = updatedUrl)
+                } else {
+                    ruleSet
+                }
+            }.distinctBy { it.tag }
+
+            if (migratedRuleSets != originalRuleSets) {
+                Log.i("SettingsRepository", "Force saving migrated rule sets to DataStore")
+                setRuleSets(migratedRuleSets)
+            }
+        } catch (e: Exception) {
+            Log.e("SettingsRepository", "Error during force migration", e)
+        }
+    }
+
     companion object {
         @Volatile
         private var INSTANCE: SettingsRepository? = null
