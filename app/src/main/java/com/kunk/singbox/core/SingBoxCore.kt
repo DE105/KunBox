@@ -256,38 +256,34 @@ class SingBoxCore private constructor(private val context: Context) {
         testOutbounds.addAll(outbounds.filter { it.type != "direct" && it.type != "block" })
         testOutbounds.add(direct)
         
-        return SingBoxConfig(
-            log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
-            dns = com.kunk.singbox.model.DnsConfig(
-                servers = listOf(
-                    com.kunk.singbox.model.DnsServer(tag = "google", address = "8.8.8.8", detour = "direct"),
-                    com.kunk.singbox.model.DnsServer(tag = "local", address = "223.5.5.5", detour = "direct")
-                )
-            ),
-            experimental = com.kunk.singbox.model.ExperimentalConfig(
-                clashApi = com.kunk.singbox.model.ClashApiConfig(
-                    externalController = "127.0.0.1:$clashPort",
-                    secret = ""
-                ),
-                cacheFile = com.kunk.singbox.model.CacheFileConfig(
-                    enabled = false,
-                    path = File(tempDir, "cache_test.db").absolutePath,
-                    storeFakeip = false
-                )
-            ),
-            // 不包含 inbounds，这样 libbox 不会尝试打开 TUN
-            inbounds = null,
-            outbounds = testOutbounds,
-            route = com.kunk.singbox.model.RouteConfig(
-                rules = listOf(
-                    com.kunk.singbox.model.RouteRule(protocol = listOf("dns"), outbound = "direct")
-                ),
-                finalOutbound = "direct",
-                autoDetectInterface = true,
-                // 禁用默认接口检测，避免在测试模式下出现权限问题或接口冲突
-                // autoDetectInterface = true
-            )
-        )
+              return SingBoxConfig(
+                  log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
+                  dns = com.kunk.singbox.model.DnsConfig(
+                      servers = listOf(
+                          com.kunk.singbox.model.DnsServer(tag = "google", address = "8.8.8.8", detour = "direct"),
+                          com.kunk.singbox.model.DnsServer(tag = "local", address = "223.5.5.5", detour = "direct")
+                      )
+                  ),
+                  experimental = com.kunk.singbox.model.ExperimentalConfig(
+                      clashApi = com.kunk.singbox.model.ClashApiConfig(
+                          externalController = "127.0.0.1:$clashPort",
+                          secret = ""
+                      ),
+                      cacheFile = com.kunk.singbox.model.CacheFileConfig(
+                          enabled = false
+                      )
+                  ),
+              // 不包含 inbounds，这样 libbox 不会尝试打开 TUN
+              inbounds = null,
+              outbounds = testOutbounds,
+              route = com.kunk.singbox.model.RouteConfig(
+                  rules = listOf(
+                      com.kunk.singbox.model.RouteRule(protocol = listOf("dns"), outbound = "direct")
+                  ),
+                  finalOutbound = "direct",
+                  autoDetectInterface = true
+              )
+          )
     }
 
     private fun allocateLocalPort(): Int {
