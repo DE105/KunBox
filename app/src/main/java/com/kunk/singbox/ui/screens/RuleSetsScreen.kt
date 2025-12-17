@@ -7,6 +7,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
@@ -37,6 +40,109 @@ import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.ui.theme.TextSecondary
 import com.kunk.singbox.viewmodel.SettingsViewModel
+import com.kunk.singbox.model.RuleSetOutboundMode
+import kotlinx.coroutines.launch
+
+data class DefaultRuleSetConfig(
+    val tag: String,
+    val description: String,
+    val url: String,
+    val outboundMode: RuleSetOutboundMode,
+    val format: String = "binary"
+)
+
+val CHINA_DEFAULT_RULE_SETS = listOf(
+    DefaultRuleSetConfig(
+        tag = "geosite-cn",
+        description = "中国大陆域名直连",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
+        outboundMode = RuleSetOutboundMode.DIRECT
+    ),
+    DefaultRuleSetConfig(
+        tag = "geoip-cn",
+        description = "中国大陆IP直连",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+        outboundMode = RuleSetOutboundMode.DIRECT
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-geolocation-!cn",
+        description = "非中国域名走代理",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
+        outboundMode = RuleSetOutboundMode.PROFILE
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-category-ads-all",
+        description = "广告域名拦截",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
+        outboundMode = RuleSetOutboundMode.BLOCK
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-private",
+        description = "私有网络直连",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-private.srs",
+        outboundMode = RuleSetOutboundMode.DIRECT
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-apple-cn",
+        description = "苹果中国服务直连",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-apple-cn.srs",
+        outboundMode = RuleSetOutboundMode.DIRECT
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-google-cn",
+        description = "谷歌中国服务直连",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google-cn.srs",
+        outboundMode = RuleSetOutboundMode.DIRECT
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-tld-cn",
+        description = ".cn顶级域名直连",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-tld-cn.srs",
+        outboundMode = RuleSetOutboundMode.DIRECT
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-bilibili",
+        description = "B站直连",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-bilibili.srs",
+        outboundMode = RuleSetOutboundMode.DIRECT
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-youtube",
+        description = "YouTube走代理",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-youtube.srs",
+        outboundMode = RuleSetOutboundMode.PROFILE
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-google",
+        description = "Google走代理",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google.srs",
+        outboundMode = RuleSetOutboundMode.PROFILE
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-telegram",
+        description = "Telegram走代理",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-telegram.srs",
+        outboundMode = RuleSetOutboundMode.PROFILE
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-twitter",
+        description = "Twitter/X走代理",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-twitter.srs",
+        outboundMode = RuleSetOutboundMode.PROFILE
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-facebook",
+        description = "Facebook走代理",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-facebook.srs",
+        outboundMode = RuleSetOutboundMode.PROFILE
+    ),
+    DefaultRuleSetConfig(
+        tag = "geosite-openai",
+        description = "OpenAI/ChatGPT走代理",
+        url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-openai.srs",
+        outboundMode = RuleSetOutboundMode.PROFILE
+    )
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,6 +153,9 @@ fun RuleSetsScreen(
     val settings by settingsViewModel.settings.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingRuleSet by remember { mutableStateOf<RuleSet?>(null) }
+    var showDefaultRuleSetsDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     if (showAddDialog) {
         RuleSetEditorDialog(
@@ -72,8 +181,35 @@ fun RuleSetsScreen(
             }
         )
     }
+    
+    if (showDefaultRuleSetsDialog) {
+        DefaultRuleSetsDialog(
+            existingTags = settings.ruleSets.map { it.tag },
+            onDismiss = { showDefaultRuleSetsDialog = false },
+            onAdd = { configs ->
+                var addedCount = 0
+                configs.forEach { config ->
+                    val ruleSet = RuleSet(
+                        tag = config.tag,
+                        type = RuleSetType.REMOTE,
+                        format = config.format,
+                        url = config.url,
+                        outboundMode = config.outboundMode
+                    )
+                    settingsViewModel.addRuleSet(ruleSet) { success, _ ->
+                        if (success) addedCount++
+                    }
+                }
+                scope.launch {
+                    snackbarHostState.showSnackbar("已添加 ${configs.size} 个规则集")
+                }
+                showDefaultRuleSetsDialog = false
+            }
+        )
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = AppBackground,
         topBar = {
             TopAppBar(
@@ -84,6 +220,9 @@ fun RuleSetsScreen(
                     }
                 },
                 actions = {
+                    TextButton(onClick = { showDefaultRuleSetsDialog = true }) {
+                        Text("默认规则", color = PureWhite)
+                    }
                     IconButton(onClick = { navController.navigate(Screen.RuleSetHub.route) }) {
                         Icon(Icons.Rounded.CloudDownload, contentDescription = "导入", tint = PureWhite)
                     }
@@ -321,6 +460,136 @@ fun RuleSetEditorDialog(
                     TextButton(onClick = { showDeleteConfirm = true }) {
                         Text("删除", color = MaterialTheme.colorScheme.error)
                     }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("取消")
+                }
+            }
+        }
+    )
+}
+
+@Composable
+fun DefaultRuleSetsDialog(
+    existingTags: List<String>,
+    onDismiss: () -> Unit,
+    onAdd: (List<DefaultRuleSetConfig>) -> Unit
+) {
+    val selectedItems = remember { 
+        mutableStateMapOf<String, Boolean>().apply {
+            CHINA_DEFAULT_RULE_SETS.forEach { config ->
+                put(config.tag, !existingTags.contains(config.tag))
+            }
+        }
+    }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = Neutral800,
+        title = {
+            Column {
+                Text(
+                    text = "添加默认规则集",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "适合中国大陆用户的常用规则",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(CHINA_DEFAULT_RULE_SETS) { config ->
+                    val isExisting = existingTags.contains(config.tag)
+                    val isSelected = selectedItems[config.tag] ?: false
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(enabled = !isExisting) {
+                                selectedItems[config.tag] = !isSelected
+                            }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = if (isExisting) null else { selectedItems[config.tag] = it },
+                            enabled = !isExisting
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = config.tag,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isExisting) TextSecondary.copy(alpha = 0.5f) else TextPrimary
+                            )
+                            Text(
+                                text = config.description + if (isExisting) " (已添加)" else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary.copy(alpha = if (isExisting) 0.5f else 1f)
+                            )
+                        }
+                        val modeText = when (config.outboundMode) {
+                            RuleSetOutboundMode.DIRECT -> "直连"
+                            RuleSetOutboundMode.BLOCK -> "拦截"
+                            RuleSetOutboundMode.PROFILE -> "代理"
+                            else -> ""
+                        }
+                        Surface(
+                            color = when (config.outboundMode) {
+                                RuleSetOutboundMode.DIRECT -> Color(0xFF2E7D32)
+                                RuleSetOutboundMode.BLOCK -> Color(0xFFC62828)
+                                RuleSetOutboundMode.PROFILE -> Color(0xFF1565C0)
+                                else -> Color.Gray
+                            }.copy(alpha = if (isExisting) 0.3f else 0.8f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = modeText,
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val selectedCount = selectedItems.count { it.value }
+            TextButton(
+                onClick = {
+                    val selected = CHINA_DEFAULT_RULE_SETS.filter { selectedItems[it.tag] == true }
+                    onAdd(selected)
+                },
+                enabled = selectedCount > 0
+            ) {
+                Text("添加 ($selectedCount)")
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(
+                    onClick = {
+                        CHINA_DEFAULT_RULE_SETS.forEach { config ->
+                            if (!existingTags.contains(config.tag)) {
+                                selectedItems[config.tag] = true
+                            }
+                        }
+                    }
+                ) {
+                    Text("全选")
                 }
                 TextButton(onClick = onDismiss) {
                     Text("取消")
