@@ -32,6 +32,7 @@ import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.ui.theme.TextSecondary
 import com.kunk.singbox.viewmodel.RuleSetViewModel
 import com.kunk.singbox.viewmodel.SettingsViewModel
+import kotlinx.coroutines.launch
 
 data class HubRuleSet(
     val name: String,
@@ -53,6 +54,9 @@ fun RuleSetHubScreen(
     val ruleSets by ruleSetViewModel.ruleSets.collectAsState()
     val isLoading by ruleSetViewModel.isLoading.collectAsState()
     val error by ruleSetViewModel.error.collectAsState()
+    
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     val filteredRuleSets = remember(searchQuery, ruleSets) {
         if (searchQuery.isBlank()) ruleSets
@@ -61,6 +65,7 @@ fun RuleSetHubScreen(
 
     Scaffold(
         containerColor = AppBackground,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { 
@@ -154,7 +159,9 @@ fun RuleSetHubScreen(
                                         format = "source",
                                         url = ruleSet.sourceUrl
                                     )
-                                )
+                                ) { _, message ->
+                                    scope.launch { snackbarHostState.showSnackbar(message) }
+                                }
                             },
                             onAddBinary = {
                                 settingsViewModel.addRuleSet(
@@ -164,7 +171,9 @@ fun RuleSetHubScreen(
                                         format = "binary",
                                         url = ruleSet.binaryUrl
                                     )
-                                )
+                                ) { _, message ->
+                                    scope.launch { snackbarHostState.showSnackbar(message) }
+                                }
                             }
                         )
                     }

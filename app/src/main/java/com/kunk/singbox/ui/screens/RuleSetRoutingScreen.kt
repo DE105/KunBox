@@ -228,7 +228,7 @@ fun RuleSetRoutingScreen(
                                     editingRuleSet = ruleSet
                                     showOutboundModeDialog = true
                                 }
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 12.dp, horizontal = 4.dp), // Increase padding for better touch target
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -262,7 +262,7 @@ fun RuleSetRoutingScreen(
                                     editingRuleSet = ruleSet
                                     showInboundDialog = true
                                 }
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 12.dp, horizontal = 4.dp), // Increase padding for better touch target
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {

@@ -133,13 +133,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun addRuleSet(ruleSet: RuleSet) {
+    fun addRuleSet(ruleSet: RuleSet, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         viewModelScope.launch {
             val currentSets = repository.getRuleSets().toMutableList()
             val exists = currentSets.any { it.tag == ruleSet.tag && it.url == ruleSet.url }
-            if (!exists) {
+            if (exists) {
+                onResult(false, "规则集 \"${ruleSet.tag}\" 已存在")
+            } else {
                 currentSets.add(ruleSet)
                 repository.setRuleSets(currentSets)
+                onResult(true, "已添加规则集 \"${ruleSet.tag}\"")
             }
         }
     }

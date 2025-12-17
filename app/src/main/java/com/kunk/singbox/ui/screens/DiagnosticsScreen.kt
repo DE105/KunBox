@@ -46,7 +46,11 @@ fun DiagnosticsScreen(
     val showResultDialog by viewModel.showResultDialog.collectAsState()
     val resultTitle by viewModel.resultTitle.collectAsState()
     val resultMessage by viewModel.resultMessage.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
+    
+    val isConnectivityLoading by viewModel.isConnectivityLoading.collectAsState()
+    val isPingLoading by viewModel.isPingLoading.collectAsState()
+    val isDnsLoading by viewModel.isDnsLoading.collectAsState()
+    val isRoutingLoading by viewModel.isRoutingLoading.collectAsState()
 
     if (showResultDialog) {
         ConfirmDialog(
@@ -82,31 +86,31 @@ fun DiagnosticsScreen(
             StandardCard {
                 SettingItem(
                     title = "连通性检查",
-                    subtitle = if (isLoading) "正在检查..." else "连接测试 (www.google.com)",
+                    subtitle = if (isConnectivityLoading) "正在检查..." else "连接测试 (www.google.com)",
                     icon = Icons.Rounded.NetworkCheck,
                     onClick = { viewModel.runConnectivityCheck() },
-                    enabled = !isLoading
+                    enabled = !isConnectivityLoading
                 )
                 SettingItem(
                     title = "Ping 测试",
-                    subtitle = if (isLoading) "正在测试..." else "ICMP Ping (8.8.8.8)",
+                    subtitle = if (isPingLoading) "正在测试..." else "ICMP Ping (8.8.8.8)",
                     icon = Icons.Rounded.Speed,
                     onClick = { viewModel.runPingTest() },
-                    enabled = !isLoading
+                    enabled = !isPingLoading
                 )
                 SettingItem(
                     title = "DNS 查询",
-                    subtitle = if (isLoading) "正在查询..." else "域名解析 (www.google.com)",
+                    subtitle = if (isDnsLoading) "正在查询..." else "域名解析 (www.google.com)",
                     icon = Icons.Rounded.Dns,
                     onClick = { viewModel.runDnsQuery() },
-                    enabled = !isLoading
+                    enabled = !isDnsLoading
                 )
                 SettingItem(
                     title = "路由测试",
-                    subtitle = if (isLoading) "正在测试..." else "规则匹配模拟 (baidu.com)",
+                    subtitle = if (isRoutingLoading) "正在测试..." else "规则匹配模拟 (baidu.com)",
                     icon = Icons.Rounded.Route,
                     onClick = { viewModel.runRoutingTest() },
-                    enabled = !isLoading
+                    enabled = !isRoutingLoading
                 )
             }
         }
