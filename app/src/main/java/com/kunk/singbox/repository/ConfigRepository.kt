@@ -1539,7 +1539,7 @@ class ConfigRepository(private val context: Context) {
             cacheFile = CacheFileConfig(
                 enabled = false,
                 path = File(singboxTempDir, "cache_run.db").absolutePath,
-                storeFakeip = false
+                storeFakeip = settings.fakeDnsEnabled
             )
         )
         
@@ -1560,11 +1560,54 @@ class ConfigRepository(private val context: Context) {
         )
         
         // 添加 DNS 配置
-        val dns = DnsConfig(
-            servers = listOf(
-                DnsServer(tag = "google", address = "8.8.8.8"),
-                DnsServer(tag = "local", address = "223.5.5.5", detour = "direct")
+        val dnsServers = mutableListOf<DnsServer>()
+        val dnsRules = mutableListOf<DnsRule>()
+
+        // 远程 DNS
+        dnsServers.add(
+            DnsServer(
+                tag = "remote",
+                address = settings.remoteDns
             )
+        )
+
+        // 本地 DNS
+        dnsServers.add(
+            DnsServer(
+                tag = "local",
+                address = settings.localDns,
+                detour = "direct"
+            )
+        )
+
+        // Fake DNS
+        if (settings.fakeDnsEnabled) {
+            dnsServers.add(
+                DnsServer(
+                    tag = "fakeip",
+                    type = "fakeip",
+                    inet4Range = settings.fakeIpRange
+                )
+            )
+            // 规则：所有 A/AAAA 查询走 fakeip
+            dnsRules.add(
+                DnsRule(
+                    queryType = listOf("A", "AAAA"),
+                    server = "fakeip"
+                )
+            )
+        }
+
+        val dns = DnsConfig(
+            servers = dnsServers,
+            rules = dnsRules,
+            strategy = when (settings.dnsStrategy) {
+                DnsStrategy.PREFER_IPV4 -> "prefer_ipv4"
+                DnsStrategy.PREFER_IPV6 -> "prefer_ipv6"
+                DnsStrategy.ONLY_IPV4 -> "ipv4_only"
+                DnsStrategy.ONLY_IPV6 -> "ipv6_only"
+            },
+            disableCache = !settings.dnsCacheEnabled
         )
         
         // 修复 outbounds

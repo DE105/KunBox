@@ -32,17 +32,22 @@ data class DnsConfig(
 
 data class DnsServer(
     @SerializedName("tag") val tag: String? = null,
+    @SerializedName("type") val type: String? = null,
+    @SerializedName("server") val server: String? = null,
     @SerializedName("address") val address: String? = null,
     @SerializedName("address_resolver") val addressResolver: String? = null,
-    @SerializedName("detour") val detour: String? = null
+    @SerializedName("detour") val detour: String? = null,
+    @SerializedName("inet4_range") val inet4Range: String? = null,
+    @SerializedName("inet6_range") val inet6Range: String? = null
 )
 
 data class DnsRule(
     @SerializedName("domain") val domain: List<String>? = null,
     @SerializedName("domain_suffix") val domainSuffix: List<String>? = null,
     @SerializedName("geosite") val geosite: List<String>? = null,
+    @SerializedName("query_type") val queryType: List<String>? = null,
     @SerializedName("server") val server: String? = null,
-    @SerializedName("outbound") val outbound: List<String>? = null
+    @SerializedName("outbound") val outbound: String? = null
 )
 
 data class Inbound(
