@@ -15,6 +15,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 import android.util.Log
+import com.google.gson.annotations.SerializedName
 
 class RuleSetViewModel(application: Application) : AndroidViewModel(application) {
     
