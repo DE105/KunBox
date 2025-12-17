@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -198,31 +200,37 @@ fun SingleSelectDialog(
             )
             Spacer(modifier = Modifier.height(16.dp))
             
-            options.forEachIndexed { index, option ->
-                val isSelected = index == tempSelectedIndex
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (isSelected) Color.White.copy(alpha = 0.05f) else Color.Transparent)
-                        .clickable(
-                            onClick = { tempSelectedIndex = index }
+            Column(
+                modifier = Modifier
+                    .weight(weight = 1f, fill = false) // Allow flexible height but constrained by screen
+                    .verticalScroll(rememberScrollState())
+            ) {
+                options.forEachIndexed { index, option ->
+                    val isSelected = index == tempSelectedIndex
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isSelected) Color.White.copy(alpha = 0.05f) else Color.Transparent)
+                            .clickable(
+                                onClick = { tempSelectedIndex = index }
+                            )
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (isSelected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                            contentDescription = null,
+                            tint = if (isSelected) PureWhite else Neutral500,
+                            modifier = Modifier.size(24.dp)
                         )
-                        .padding(vertical = 12.dp, horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = if (isSelected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
-                        contentDescription = null,
-                        tint = if (isSelected) PureWhite else Neutral500,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(
-                        text = option,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (isSelected) TextPrimary else TextSecondary
-                    )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            text = option,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (isSelected) TextPrimary else TextSecondary
+                        )
+                    }
                 }
             }
             

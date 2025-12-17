@@ -1279,63 +1279,31 @@ class ConfigRepository(private val context: Context) {
     }
 
     /**
-     * 构建广告拦截路由规则
+     * 构建广告拦截路由规则（使用在线规则集）
      */
     private fun buildAdBlockRules(): List<RouteRule> {
-        Log.d(TAG, "Building ad-block routing rules")
+        Log.d(TAG, "Building ad-block routing rules with rule-set")
         
         return listOf(
             RouteRule(
-                domainSuffix = listOf(
-                    // 主流广告域名
-                    "doubleclick.net",
-                    "googleadservices.com",
-                    "googlesyndication.com",
-                    "googletagservices.com",
-                    "google-analytics.com",
-                    "googletagmanager.com",
-                    
-                    // Facebook 广告
-                    "facebook.com",
-                    "fbcdn.net",
-                    
-                    // 国内广告平台
-                    "tanx.com",
-                    "alimama.com",
-                    "mmstat.com",
-                    "umeng.com",
-                    "cnzz.com",
-                    "baidu.com",
-                    "bdstatic.com",
-                    "union.qq.com",
-                    "admaster.com.cn",
-                    "irs01.com",
-                    "mob.com",
-                    
-                    // 移动广告 SDK
-                    "admob.com",
-                    "inmobi.com",
-                    "mopub.com",
-                    "applovin.com",
-                    "chartboost.com",
-                    "flurry.com",
-                    "vungle.com"
-                ),
-                outbound = "block"
-            ),
-            RouteRule(
-                domainKeyword = listOf(
-                    "advertisement",
-                    "adservice",
-                    "analytics",
-                    "tracker",
-                    "telemetry"
-                ),
+                ruleSet = listOf("geosite-category-ads-all"),
                 outbound = "block"
             )
-        ).also {
-            Log.d(TAG, "Generated ${it.size} ad-block routing rules")
-        }
+        )
+    }
+    
+    /**
+     * 构建广告拦截规则集配置
+     */
+    private fun buildAdBlockRuleSet(): RuleSetConfig {
+        return RuleSetConfig(
+            tag = "geosite-category-ads-all",
+            type = "remote",
+            format = "binary",
+            url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
+            downloadDetour = "direct",
+            updateInterval = "24h"
+        )
     }
     
     /**
@@ -1490,15 +1458,22 @@ class ConfigRepository(private val context: Context) {
         // 构建应用分流规则
         val appRoutingRules = buildAppRoutingRules(settings, selectorTag, fixedOutbounds)
         
-        // 构建广告拦截规则
+        // 构建广告拦截规则和规则集
         val adBlockRules = if (settings.blockAds) {
             buildAdBlockRules()
         } else {
             emptyList()
         }
         
-        // 添加路由配置（不使用 geoip，sing-box 1.12.0 已移除）
+        val adBlockRuleSet = if (settings.blockAds) {
+            listOf(buildAdBlockRuleSet())
+        } else {
+            emptyList()
+        }
+        
+        // 添加路由配置（使用在线规则集，sing-box 1.12.0+）
         val route = RouteConfig(
+            ruleSet = adBlockRuleSet,
             rules = listOf(
                 // DNS 流量走 dns-out
                 RouteRule(protocol = listOf("dns"), outbound = "dns-out")
