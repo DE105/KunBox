@@ -325,29 +325,44 @@ fun NodesScreen(
                 contentPadding = PaddingValues(bottom = 88.dp, top = 16.dp, start = 16.dp, end = 16.dp), // Add bottom padding for FAB
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(filteredNodes, key = { it.id }) { node ->
+                items(
+                    items = filteredNodes,
+                    key = { it.id },
+                    contentType = { "node" }
+                ) { node ->
+                    val name = remember(node.id, node.name, node.regionFlag) {
+                        "${node.regionFlag ?: ""} ${node.name}"
+                    }
+                    val isSelected = activeNodeId == node.id
+                    val isTesting = node.id in testingNodeIds
+                    
+                    val onNodeClick = remember(node.id) { { viewModel.setActiveNode(node.id) } }
+                    val onEdit = remember(node.id) { 
+                        { navController.navigate(Screen.NodeDetail.createRoute(node.id)) } 
+                    }
+                    val onExport = remember(node.id) {
+                        {
+                            val link = viewModel.exportNode(node.id)
+                            if (link != null) {
+                                exportLink = link
+                            }
+                        }
+                    }
+                    val onLatency = remember(node.id) { { viewModel.testLatency(node.id) } }
+                    val onDelete = remember(node.id) { { viewModel.deleteNode(node.id) } }
+
                     NodeCard(
-                        name = "${node.regionFlag ?: ""} ${node.name}",
+                        name = name,
                         type = node.protocol,
                         latency = node.latencyMs,
-                        isSelected = node.id == activeNodeId,
-                        isTesting = node.id in testingNodeIds,
-                        onClick = { viewModel.setActiveNode(node.id) },
-                        onEdit = {
-                            navController.navigate(Screen.NodeDetail.createRoute(node.id))
-                        },
-                        onExport = {
-                             val link = viewModel.exportNode(node.id)
-                             if (link != null) {
-                                 exportLink = link
-                             }
-                        },
-                        onLatency = {
-                            viewModel.testLatency(node.id)
-                        },
-                        onDelete = {
-                            viewModel.deleteNode(node.id)
-                        }
+                        isSelected = isSelected,
+                        isTesting = isTesting,
+                        onClick = onNodeClick,
+                        onEdit = onEdit,
+                        onExport = onExport,
+                        onLatency = onLatency,
+                        onDelete = onDelete,
+                        modifier = Modifier.animateItemPlacement()
                     )
                 }
             }

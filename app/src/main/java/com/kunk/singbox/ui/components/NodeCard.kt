@@ -136,21 +136,26 @@ fun NodeCard(
                                 enter = fadeIn(),
                                 exit = fadeOut()
                             ) {
-                                if (latency != null) {
-                                    val latencyColor = when {
-                                        latency < 0 -> Color.Red
-                                        latency < 200 -> Color(0xFF4CAF50)
-                                        latency < 500 -> Color(0xFFFFC107)
-                                        else -> Color.Red
-                                    }
-                                    
-                                    Text(
-                                        text = if (latency < 0) "Timeout" else "${latency}ms",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = latencyColor,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                  if (latency != null) {
+                                      val latencyColor = remember(latency) {
+                                          when {
+                                              latency < 0 -> Color.Red
+                                              latency < 200 -> Color(0xFF4CAF50)
+                                              latency < 500 -> Color(0xFFFFC107)
+                                              else -> Color.Red
+                                          }
+                                      }
+                                      val latencyText = remember(latency) {
+                                          if (latency < 0) "Timeout" else "${latency}ms"
+                                      }
+                                      
+                                      Text(
+                                          text = latencyText,
+                                          style = MaterialTheme.typography.labelSmall,
+                                          color = latencyColor,
+                                          fontWeight = FontWeight.Bold
+                                      )
+                                  }
                             }
                         }
                     }
