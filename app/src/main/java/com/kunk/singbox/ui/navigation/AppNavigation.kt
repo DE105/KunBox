@@ -64,10 +64,10 @@ fun AppNavigation(navController: NavHostController) {
         slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(animationDuration))
     }
     val exitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-        slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(animationDuration))
+        slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = tween(animationDuration))
     }
     val popEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-        slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(animationDuration))
+        slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(animationDuration))
     }
     val popExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
         slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(animationDuration))
