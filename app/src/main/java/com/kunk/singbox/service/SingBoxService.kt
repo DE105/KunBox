@@ -236,6 +236,9 @@ class SingBoxService : VpnService() {
         
         override fun writeLog(message: String?) {
             Log.d(TAG, "libbox: $message")
+            message?.let { 
+                com.kunk.singbox.repository.LogRepository.getInstance().addLog(it)
+            }
         }
     }
     

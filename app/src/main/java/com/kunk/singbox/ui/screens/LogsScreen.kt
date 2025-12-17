@@ -27,17 +27,15 @@ import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.TextPrimary
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kunk.singbox.viewmodel.LogViewModel
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LogsScreen(navController: NavController) {
-    // Mock Logs
-    val logs = listOf(
-        "[INFO] sing-box started",
-        "[INFO] outbound/vless: proxy_hk connected",
-        "[WARN] dns: query google.com timeout",
-        "[INFO] inbound/tun: new connection from 192.168.1.10",
-        "[INFO] outbound/direct: connect 1.1.1.1:53 success"
-    )
+fun LogsScreen(navController: NavController, viewModel: LogViewModel = viewModel()) {
+    val logs by viewModel.logs.collectAsState()
 
     Scaffold(
         containerColor = AppBackground,
@@ -50,7 +48,7 @@ fun LogsScreen(navController: NavController) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { /* TODO: Clear */ }) {
+                    IconButton(onClick = { viewModel.clearLogs() }) {
                         Icon(Icons.Rounded.Delete, contentDescription = "清空", tint = PureWhite)
                     }
                 },
@@ -62,12 +60,17 @@ fun LogsScreen(navController: NavController) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
+                .padding(horizontal = 16.dp),
+            reverseLayout = true // Show latest logs at bottom, or use normal layout
         ) {
             items(logs) { log ->
                 Text(
                     text = log,
-                    color = if (log.contains("WARN")) PureWhite else Neutral500,
+                    color = when {
+                        log.contains("WARN", ignoreCase = true) -> PureWhite
+                        log.contains("ERROR", ignoreCase = true) -> PureWhite // Could use a different color for error
+                        else -> Neutral500
+                    },
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(vertical = 2.dp)

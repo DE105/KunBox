@@ -605,6 +605,9 @@ class SingBoxCore private constructor(private val context: Context) {
         override fun systemCertificates(): StringIterator? = null
         override fun writeLog(message: String?) {
             Log.d("SingBoxCoreTest", "libbox: $message")
+            message?.let { 
+                com.kunk.singbox.repository.LogRepository.getInstance().addLog("[Test] $it")
+            }
         }
     }
 
