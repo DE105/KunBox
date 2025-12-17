@@ -28,44 +28,10 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.kunk.singbox.ui.navigation.NAV_ANIMATION_DURATION
 import com.kunk.singbox.ui.navigation.Screen
+import com.kunk.singbox.ui.navigation.getTabForRoute
 import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.ui.theme.PureWhite
-
-private val settingsSubRoutes = setOf(
-    Screen.Settings.route,
-    Screen.RoutingSettings.route,
-    Screen.DnsSettings.route,
-    Screen.TunSettings.route,
-    Screen.Diagnostics.route,
-    Screen.Logs.route,
-    Screen.ConnectionSettings.route,
-    Screen.RuleSets.route,
-    Screen.CustomRules.route,
-    Screen.AppRules.route,
-    Screen.RuleSetHub.route,
-    Screen.RuleSetRouting.route
-)
-
-private val nodesSubRoutes = setOf(
-    Screen.Nodes.route,
-    Screen.NodeDetail.route
-)
-
-private val profilesSubRoutes = setOf(
-    Screen.Profiles.route,
-    Screen.ProfileEditor.route
-)
-
-private fun isRouteInTab(currentRoute: String?, screen: Screen): Boolean {
-    return when (screen) {
-        Screen.Settings -> currentRoute in settingsSubRoutes
-        Screen.Nodes -> currentRoute in nodesSubRoutes || currentRoute?.startsWith("node_detail/") == true
-        Screen.Profiles -> currentRoute in profilesSubRoutes
-        Screen.Dashboard -> currentRoute == Screen.Dashboard.route
-        else -> currentRoute == screen.route
-    }
-}
 
 @Composable
 fun AppNavBar(
@@ -82,14 +48,15 @@ fun AppNavBar(
     NavigationBar(
         containerColor = AppBackground,
         contentColor = PureWhite,
-        modifier = Modifier.height(64.dp)
+        modifier = Modifier.height(64.dp) // Reduced height
     ) {
         val navBackStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry?.destination?.route
 
         items.forEach { screen ->
-            val isSelected = isRouteInTab(currentRoute, screen)
+            val isSelected = getTabForRoute(currentRoute) == screen.route
             
+            // Animation for icon scale
             val targetScale = if (screen == Screen.Profiles) {
                 if (isSelected) 1.5f else 1.2f
             } else {
@@ -128,14 +95,19 @@ fun AppNavBar(
                             .scale(scale)
                     ) 
                 },
-                label = null,
+                label = null, // Removed text label
                 selected = isSelected,
                 onClick = {
-                    onNavigationStart()
+                    val currentTab = getTabForRoute(currentRoute)
+                    if (currentTab != screen.route) {
+                        onNavigationStart()
+                    }
+                    // Always navigate to the tab's root route, clearing any sub-pages
                     navController.navigate(screen.route) {
+                        // Pop everything up to and including the start destination
                         popUpTo(navController.graph.findStartDestination().id) {
                             saveState = false
-                            inclusive = false
+                            inclusive = true
                         }
                         launchSingleTop = true
                         restoreState = false
@@ -143,7 +115,7 @@ fun AppNavBar(
                 },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = PureWhite,
-                    indicatorColor = Color.Transparent,
+                    indicatorColor = Color.Transparent, // No pill indicator
                     unselectedIconColor = Neutral500
                 )
             )

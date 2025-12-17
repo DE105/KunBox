@@ -61,6 +61,35 @@ sealed class Screen(val route: String) {
 
 const val NAV_ANIMATION_DURATION = 250
 
+// Map sub-routes to their parent tab
+fun getTabForRoute(route: String?): String {
+    if (route == null) return Screen.Dashboard.route
+    return when {
+        route == Screen.Dashboard.route -> Screen.Dashboard.route
+        route == Screen.Diagnostics.route -> Screen.Dashboard.route
+        route == Screen.Logs.route -> Screen.Dashboard.route
+        
+        route == Screen.Nodes.route -> Screen.Nodes.route
+        route.startsWith("node_detail") -> Screen.Nodes.route
+        
+        route == Screen.Profiles.route -> Screen.Profiles.route
+        route == Screen.ProfileEditor.route -> Screen.Profiles.route
+        
+        route == Screen.Settings.route -> Screen.Settings.route
+        route == Screen.RoutingSettings.route -> Screen.Settings.route
+        route == Screen.DnsSettings.route -> Screen.Settings.route
+        route == Screen.TunSettings.route -> Screen.Settings.route
+        route == Screen.ConnectionSettings.route -> Screen.Settings.route
+        route == Screen.RuleSets.route -> Screen.Settings.route
+        route == Screen.CustomRules.route -> Screen.Settings.route
+        route == Screen.AppRules.route -> Screen.Settings.route
+        route == Screen.RuleSetHub.route -> Screen.Settings.route
+        route == Screen.RuleSetRouting.route -> Screen.Settings.route
+        
+        else -> Screen.Dashboard.route
+    }
+}
+
 @Composable
 fun AppNavigation(navController: NavHostController) {
     val slideSpec = tween<IntOffset>(
