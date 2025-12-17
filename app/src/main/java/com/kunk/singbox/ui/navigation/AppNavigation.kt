@@ -3,9 +3,8 @@ package com.kunk.singbox.ui.navigation
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.VisibilityThreshold
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
@@ -60,11 +59,13 @@ sealed class Screen(val route: String) {
     object RuleSetRouting : Screen("rule_set_routing")
 }
 
+const val NAV_ANIMATION_DURATION = 250
+
 @Composable
 fun AppNavigation(navController: NavHostController) {
-    val slideSpec = spring<IntOffset>(
-        stiffness = Spring.StiffnessMediumLow,
-        visibilityThreshold = IntOffset.VisibilityThreshold
+    val slideSpec = tween<IntOffset>(
+        durationMillis = NAV_ANIMATION_DURATION,
+        easing = FastOutSlowInEasing
     )
 
     val enterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {

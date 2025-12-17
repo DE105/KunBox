@@ -1,6 +1,7 @@
 package com.kunk.singbox.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -25,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.kunk.singbox.ui.navigation.NAV_ANIMATION_DURATION
 import com.kunk.singbox.ui.navigation.Screen
 import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Neutral500
@@ -59,6 +61,7 @@ fun AppNavBar(navController: NavController) {
 
             val scale by animateFloatAsState(
                 targetValue = targetScale,
+                animationSpec = tween(NAV_ANIMATION_DURATION),
                 label = "iconScale"
             )
 
