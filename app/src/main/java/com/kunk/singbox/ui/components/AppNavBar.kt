@@ -33,7 +33,10 @@ import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.ui.theme.PureWhite
 
 @Composable
-fun AppNavBar(navController: NavController) {
+fun AppNavBar(
+    navController: NavController,
+    onNavigationStart: () -> Unit = {}
+) {
     val items = listOf(
         Screen.Dashboard,
         Screen.Nodes,
@@ -94,6 +97,9 @@ fun AppNavBar(navController: NavController) {
                 label = null, // Removed text label
                 selected = isSelected,
                 onClick = {
+                    if (currentRoute != screen.route) {
+                        onNavigationStart()
+                    }
                     navController.navigate(screen.route) {
                         // Pop up to the start destination of the graph to
                         // avoid building up a large stack of destinations

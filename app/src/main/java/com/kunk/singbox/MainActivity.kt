@@ -62,9 +62,14 @@ fun SingBoxApp() {
             }
         }
         
-        Box(modifier = Modifier.fillMaxSize()) {
-            Scaffold(
-                bottomBar = { AppNavBar(navController) },
+Box(modifier = Modifier.fillMaxSize()) {
+              Scaffold(
+                  bottomBar = { 
+                      AppNavBar(
+                          navController = navController,
+                          onNavigationStart = { isNavigating = true }
+                      ) 
+                  },
                 contentWindowInsets = WindowInsets(0, 0, 0, 0) // 不自动添加系统栏 insets
             ) { innerPadding ->
                 Surface(
