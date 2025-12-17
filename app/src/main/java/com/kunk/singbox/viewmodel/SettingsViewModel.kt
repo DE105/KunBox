@@ -181,6 +181,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             repository.setRuleSets(currentSets)
         }
     }
+    
+    fun deleteRuleSets(ruleSetIds: List<String>) {
+        viewModelScope.launch {
+            val idsToDelete = ruleSetIds.toSet()
+            val currentSets = settings.value.ruleSets.toMutableList()
+            currentSets.removeAll { it.id in idsToDelete }
+            repository.setRuleSets(currentSets)
+        }
+    }
 
     // App 分流规则
     fun addAppRule(rule: AppRule) {

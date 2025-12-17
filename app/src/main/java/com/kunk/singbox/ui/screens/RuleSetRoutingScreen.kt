@@ -80,7 +80,7 @@ fun RuleSetRoutingScreen(
                     when (selectedMode) {
                         RuleSetOutboundMode.NODE -> {
                             targetSelectionTitle = "选择节点"
-                            targetOptions = nodes.map { it.name to it.id }
+                            targetOptions = nodes.map { it.name to it.name }
                         }
                         RuleSetOutboundMode.PROFILE -> {
                             targetSelectionTitle = "选择配置"
@@ -111,7 +111,7 @@ fun RuleSetRoutingScreen(
         SingleSelectDialog(
             title = targetSelectionTitle,
             options = targetOptions.map { it.first },
-            selectedIndex = targetOptions.indexOfFirst { it.second == editingRuleSet!!.outboundValue }.coerceAtLeast(-1),
+            selectedIndex = targetOptions.indexOfFirst { it.second == editingRuleSet!!.outboundValue },
             onSelect = { index ->
                 val selectedValue = targetOptions[index].second
                 val updatedRuleSet = editingRuleSet!!.copy(outboundValue = selectedValue)
@@ -243,7 +243,7 @@ fun RuleSetRoutingScreen(
                                     RuleSetOutboundMode.BLOCK -> "拦截"
                                     RuleSetOutboundMode.PROXY -> "代理"
                                     RuleSetOutboundMode.NODE -> {
-                                        val nodeName = nodes.find { it.id == ruleSet.outboundValue }?.name ?: "未知节点"
+                                        val nodeName = ruleSet.outboundValue ?: "未知节点"
                                         "节点: $nodeName"
                                     }
                                     RuleSetOutboundMode.PROFILE -> {

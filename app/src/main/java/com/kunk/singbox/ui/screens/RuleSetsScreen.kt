@@ -1,7 +1,9 @@
 package com.kunk.singbox.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
@@ -127,7 +130,7 @@ val CHINA_DEFAULT_RULE_SETS = listOf(
     )
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun RuleSetsScreen(
     navController: NavController,
@@ -139,6 +142,22 @@ fun RuleSetsScreen(
     var showDefaultRuleSetsDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    
+    var isSelectionMode by remember { mutableStateOf(false) }
+    val selectedItems = remember { mutableStateMapOf<String, Boolean>() }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    
+    fun exitSelectionMode() {
+        isSelectionMode = false
+        selectedItems.clear()
+    }
+    
+    fun toggleSelection(id: String) {
+        selectedItems[id] = !(selectedItems[id] ?: false)
+        if (selectedItems.none { it.value }) {
+            exitSelectionMode()
+        }
+    }
 
     if (showAddDialog) {
         RuleSetEditorDialog(
@@ -188,46 +207,96 @@ fun RuleSetsScreen(
             }
         )
     }
+    
+    if (showDeleteConfirmDialog) {
+        val selectedCount = selectedItems.count { it.value }
+        ConfirmDialog(
+            title = "删除规则集",
+            message = "确定要删除选中的 $selectedCount 个规则集吗？",
+            confirmText = "删除",
+            onConfirm = {
+                val idsToDelete = selectedItems.filter { it.value }.keys.toList()
+                settingsViewModel.deleteRuleSets(idsToDelete)
+                scope.launch {
+                    snackbarHostState.showSnackbar("已删除 $selectedCount 个规则集")
+                }
+                showDeleteConfirmDialog = false
+                exitSelectionMode()
+            },
+            onDismiss = { showDeleteConfirmDialog = false }
+        )
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = AppBackground,
         topBar = {
             TopAppBar(
-                title = { Text("规则集管理", color = TextPrimary) },
+                title = { 
+                    if (isSelectionMode) {
+                        val selectedCount = selectedItems.count { it.value }
+                        Text("已选择 $selectedCount 项", color = TextPrimary)
+                    } else {
+                        Text("规则集管理", color = TextPrimary) 
+                    }
+                },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                    IconButton(onClick = { 
+                        if (isSelectionMode) {
+                            exitSelectionMode()
+                        } else {
+                            navController.popBackStack() 
+                        }
+                    }) {
+                        Icon(
+                            if (isSelectionMode) Icons.Rounded.Close else Icons.Rounded.ArrowBack, 
+                            contentDescription = if (isSelectionMode) "取消选择" else "返回", 
+                            tint = PureWhite
+                        )
                     }
                 },
                 actions = {
-                    IconButton(onClick = { navController.navigate(Screen.RuleSetHub.route) }) {
-                        Icon(Icons.Rounded.CloudDownload, contentDescription = "导入", tint = PureWhite)
-                    }
-                    Box {
-                        var showAddMenu by remember { mutableStateOf(false) }
-                        IconButton(onClick = { showAddMenu = true }) {
-                            Icon(Icons.Rounded.Add, contentDescription = "添加", tint = PureWhite)
-                        }
-                        DropdownMenu(
-                            expanded = showAddMenu,
-                            onDismissRequest = { showAddMenu = false },
-                            modifier = Modifier.background(Neutral700)
+                    if (isSelectionMode) {
+                        val selectedCount = selectedItems.count { it.value }
+                        IconButton(
+                            onClick = { showDeleteConfirmDialog = true },
+                            enabled = selectedCount > 0
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("添加规则集", color = TextPrimary) },
-                                onClick = {
-                                    showAddMenu = false
-                                    showAddDialog = true
-                                }
+                            Icon(
+                                Icons.Rounded.Delete, 
+                                contentDescription = "删除", 
+                                tint = if (selectedCount > 0) MaterialTheme.colorScheme.error else TextSecondary
                             )
-                            DropdownMenuItem(
-                                text = { Text("默认规则", color = TextPrimary) },
-                                onClick = {
-                                    showAddMenu = false
-                                    showDefaultRuleSetsDialog = true
-                                }
-                            )
+                        }
+                    } else {
+                        IconButton(onClick = { navController.navigate(Screen.RuleSetHub.route) }) {
+                            Icon(Icons.Rounded.CloudDownload, contentDescription = "导入", tint = PureWhite)
+                        }
+                        Box {
+                            var showAddMenu by remember { mutableStateOf(false) }
+                            IconButton(onClick = { showAddMenu = true }) {
+                                Icon(Icons.Rounded.Add, contentDescription = "添加", tint = PureWhite)
+                            }
+                            DropdownMenu(
+                                expanded = showAddMenu,
+                                onDismissRequest = { showAddMenu = false },
+                                modifier = Modifier.background(Neutral700)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("添加规则集", color = TextPrimary) },
+                                    onClick = {
+                                        showAddMenu = false
+                                        showAddDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("默认规则", color = TextPrimary) },
+                                    onClick = {
+                                        showAddMenu = false
+                                        showDefaultRuleSetsDialog = true
+                                    }
+                                )
+                            }
                         }
                     }
                 },
@@ -261,7 +330,21 @@ fun RuleSetsScreen(
                 items(settings.ruleSets) { ruleSet ->
                     RuleSetItem(
                         ruleSet = ruleSet,
-                        onClick = { editingRuleSet = ruleSet }
+                        isSelectionMode = isSelectionMode,
+                        isSelected = selectedItems[ruleSet.id] ?: false,
+                        onClick = { 
+                            if (isSelectionMode) {
+                                toggleSelection(ruleSet.id)
+                            } else {
+                                editingRuleSet = ruleSet 
+                            }
+                        },
+                        onLongClick = {
+                            if (!isSelectionMode) {
+                                isSelectionMode = true
+                                selectedItems[ruleSet.id] = true
+                            }
+                        }
                     )
                 }
             }
@@ -269,19 +352,33 @@ fun RuleSetsScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RuleSetItem(
     ruleSet: RuleSet,
-    onClick: () -> Unit
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
     StandardCard {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                )
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (isSelectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onClick() },
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = ruleSet.tag,
@@ -311,11 +408,13 @@ fun RuleSetItem(
                     )
                 }
             }
-            Icon(
-                imageVector = Icons.Rounded.Edit,
-                contentDescription = "编辑",
-                tint = TextSecondary
-            )
+            if (!isSelectionMode) {
+                Icon(
+                    imageVector = Icons.Rounded.Edit,
+                    contentDescription = "编辑",
+                    tint = TextSecondary
+                )
+            }
         }
     }
 }

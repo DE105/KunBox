@@ -1362,10 +1362,9 @@ class ConfigRepository(private val context: Context) {
                 RuleSetOutboundMode.BLOCK -> "block"
                 RuleSetOutboundMode.PROXY -> defaultProxyTag
                 RuleSetOutboundMode.NODE -> {
-                    val nodeId = ruleSet.outboundValue
-                    val node = _nodes.value.find { it.id == nodeId }
-                    if (node != null && outbounds.any { it.tag == node.name }) {
-                        node.name
+                    val nodeName = ruleSet.outboundValue
+                    if (!nodeName.isNullOrEmpty() && outbounds.any { it.tag == nodeName }) {
+                        nodeName
                     } else {
                         defaultProxyTag
                     }
