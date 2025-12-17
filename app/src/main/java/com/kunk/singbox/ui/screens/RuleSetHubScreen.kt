@@ -155,7 +155,6 @@ fun RuleSetHubScreen(
                                         url = ruleSet.sourceUrl
                                     )
                                 )
-                                navController.popBackStack()
                             },
                             onAddBinary = {
                                 settingsViewModel.addRuleSet(
@@ -166,7 +165,6 @@ fun RuleSetHubScreen(
                                         url = ruleSet.binaryUrl
                                     )
                                 )
-                                navController.popBackStack()
                             }
                         )
                     }
