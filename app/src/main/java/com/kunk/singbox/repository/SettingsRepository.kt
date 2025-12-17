@@ -100,16 +100,15 @@ class SettingsRepository(private val context: Context) {
                         updatedUrl = updatedUrl.replace("geosite-ads.srs", "geosite-category-ads-all.srs")
                     }
                     
-                    // 3. 统一使用镜像加速 (如果尚未镜像且是 github 链接)
-                    if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains("ghp.ci") && !updatedUrl.contains("ghproxy")) {
-                        updatedUrl = if (updatedUrl.startsWith("https://")) {
-                            "https://mirror.ghproxy.com/$updatedUrl"
-                        } else {
-                            "https://mirror.ghproxy.com/https://$updatedUrl"
-                        }
-                    } else if (updatedUrl.contains("ghp.ci")) {
-                        // 修复之前注入的失效镜像
-                        updatedUrl = updatedUrl.replace("https://ghp.ci/", "https://mirror.ghproxy.com/")
+                    // 3. 统一使用镜像加速
+                    if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains("ghfast.top")) {
+                        updatedUrl = updatedUrl.replace("https://raw.githubusercontent.com/", "https://ghfast.top/https://raw.githubusercontent.com/")
+                    }
+                    // 修复之前注入的失效镜像
+                    if (updatedUrl.contains("ghp.ci") || updatedUrl.contains("mirror.ghproxy.com")) {
+                        updatedUrl = updatedUrl
+                            .replace("https://ghp.ci/", "https://ghfast.top/")
+                            .replace("https://mirror.ghproxy.com/", "https://ghfast.top/")
                     }
 
                     if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
@@ -306,14 +305,13 @@ class SettingsRepository(private val context: Context) {
                     updatedUrl = updatedUrl.replace("geosite-ads.srs", "geosite-category-ads-all.srs")
                 }
                 
-                if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains("ghp.ci") && !updatedUrl.contains("ghproxy")) {
-                    updatedUrl = if (updatedUrl.startsWith("https://")) {
-                        "https://mirror.ghproxy.com/$updatedUrl"
-                    } else {
-                        "https://mirror.ghproxy.com/https://$updatedUrl"
-                    }
-                } else if (updatedUrl.contains("ghp.ci")) {
-                    updatedUrl = updatedUrl.replace("https://ghp.ci/", "https://mirror.ghproxy.com/")
+                if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains("ghfast.top")) {
+                    updatedUrl = updatedUrl.replace("https://raw.githubusercontent.com/", "https://ghfast.top/https://raw.githubusercontent.com/")
+                }
+                if (updatedUrl.contains("ghp.ci") || updatedUrl.contains("mirror.ghproxy.com")) {
+                    updatedUrl = updatedUrl
+                        .replace("https://ghp.ci/", "https://ghfast.top/")
+                        .replace("https://mirror.ghproxy.com/", "https://ghfast.top/")
                 }
 
                 if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
