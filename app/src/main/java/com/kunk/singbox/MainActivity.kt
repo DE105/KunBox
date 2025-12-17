@@ -21,11 +21,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
 import com.kunk.singbox.ui.navigation.AppNavigation
 import com.kunk.singbox.ui.navigation.NAV_ANIMATION_DURATION
 import com.kunk.singbox.ui.theme.SingBoxTheme
 import com.kunk.singbox.ui.components.AppNavBar
+import com.kunk.singbox.ui.theme.OLEDBlack
+import com.kunk.singbox.ui.theme.PureWhite
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -81,12 +92,16 @@ fun SingBoxApp() {
                 }
             }
 
-            // Global touch blocker during navigation
-            if (isNavigating) {
+            // Global loading overlay during navigation
+            AnimatedVisibility(
+                visible = isNavigating,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Transparent)
+                        .background(OLEDBlack.copy(alpha = 0.3f))
                         .pointerInput(Unit) {
                             awaitPointerEventScope {
                                 while (true) {
@@ -95,7 +110,17 @@ fun SingBoxApp() {
                                 }
                             }
                         }
-                )
+                ) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .align(Alignment.TopCenter),
+                        color = PureWhite,
+                        trackColor = Color.Transparent,
+                        strokeCap = StrokeCap.Round
+                    )
+                }
             }
         }
     }
