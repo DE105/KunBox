@@ -59,7 +59,7 @@ sealed class Screen(val route: String) {
     object RuleSetRouting : Screen("rule_set_routing")
 }
 
-const val NAV_ANIMATION_DURATION = 150
+const val NAV_ANIMATION_DURATION = 450
 
 // Map sub-routes to their parent tab
 fun getTabForRoute(route: String?): String {
