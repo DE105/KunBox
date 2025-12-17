@@ -1314,13 +1314,15 @@ class ConfigRepository(private val context: Context) {
     
     /**
      * 构建广告拦截规则集配置
+     * 使用 jsDelivr CDN 镜像，国内可访问
      */
     private fun buildAdBlockRuleSet(): RuleSetConfig {
         return RuleSetConfig(
             tag = "geosite-category-ads-all",
             type = "remote",
             format = "binary",
-            url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
+            // 使用 jsDelivr CDN 镜像，国内可访问
+            url = "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
             downloadDetour = "direct",
             updateInterval = "24h"
         )
