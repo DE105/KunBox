@@ -138,6 +138,8 @@ class SingBoxCore private constructor(private val context: Context) {
      */
     suspend fun testOutboundLatency(outbound: Outbound): Long = withContext(Dispatchers.IO) {
         if (SingBoxService.isRunning) {
+            // VPN 运行时，确保使用正确的 Clash API 地址
+            clashApiClient.setBaseUrl("http://127.0.0.1:9090")
             return@withContext testOutboundLatencyWithClashApi(outbound)
         }
         
@@ -167,6 +169,8 @@ class SingBoxCore private constructor(private val context: Context) {
                 ensureTestServiceRunning(outbounds)
             } else {
                 Log.i(TAG, "VPN is running, using existing service for latency test")
+                // VPN 运行时，确保使用正确的 Clash API 地址
+                clashApiClient.setBaseUrl("http://127.0.0.1:9090")
             }
 
             Log.i(TAG, "Starting real latency test for ${outbounds.size} nodes via Clash API")

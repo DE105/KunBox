@@ -524,7 +524,7 @@ fun DefaultRuleSetsDialog(
                     ) {
                         Checkbox(
                             checked = isSelected,
-                            onCheckedChange = if (isExisting) null else { selectedItems[config.tag] = it },
+                            onCheckedChange = if (isExisting) null else { isChecked -> selectedItems[config.tag] = isChecked },
                             enabled = !isExisting
                         )
                         Spacer(modifier = Modifier.width(8.dp))
