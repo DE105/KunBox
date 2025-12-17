@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.*
@@ -29,6 +30,7 @@ import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.ui.theme.TextSecondary
+import com.kunk.singbox.viewmodel.RuleSetViewModel
 import com.kunk.singbox.viewmodel.SettingsViewModel
 
 data class HubRuleSet(
@@ -39,9 +41,6 @@ data class HubRuleSet(
     val sourceUrl: String = "",
     val binaryUrl: String = ""
 )
-
-import com.kunk.singbox.viewmodel.RuleSetViewModel
-import androidx.compose.material.icons.rounded.Refresh
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
