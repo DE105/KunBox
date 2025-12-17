@@ -188,21 +188,19 @@ fun RuleSetsScreen(
             existingTags = settings.ruleSets.map { it.tag },
             onDismiss = { showDefaultRuleSetsDialog = false },
             onAdd = { configs ->
-                var addedCount = 0
-                configs.forEach { config ->
-                    val ruleSet = RuleSet(
+                val ruleSets = configs.map { config ->
+                    RuleSet(
                         tag = config.tag,
                         type = RuleSetType.REMOTE,
                         format = config.format,
                         url = config.url,
                         outboundMode = config.outboundMode
                     )
-                    settingsViewModel.addRuleSet(ruleSet) { success, _ ->
-                        if (success) addedCount++
-                    }
                 }
-                scope.launch {
-                    snackbarHostState.showSnackbar("已添加 ${configs.size} 个规则集")
+                settingsViewModel.addRuleSets(ruleSets) { addedCount ->
+                    scope.launch {
+                        snackbarHostState.showSnackbar("已添加 $addedCount 个规则集")
+                    }
                 }
                 showDefaultRuleSetsDialog = false
             }

@@ -64,22 +64,22 @@ fun NodeCard(
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(SurfaceCard)
-            .border(
-                width = if (isSelected) 2.dp else 1.dp,
-                color = if (isSelected) PureWhite else Divider,
-                shape = RoundedCornerShape(16.dp)
-            )
-            .clickable(onClick = onClick)
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+    androidx.compose.material3.Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = SurfaceCard,
+        border = androidx.compose.foundation.BorderStroke(
+            width = if (isSelected) 2.dp else 1.dp,
+            color = if (isSelected) PureWhite else Divider
+        )
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
             // Status Indicator
             if (isSelected) {
                 Icon(
@@ -149,15 +149,16 @@ fun NodeCard(
                                     color = latencyColor,
                                     fontWeight = FontWeight.Bold
                                 )
+                                }
                             }
                         }
                     }
                 }
             }
-        }
+            }
 
-        Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
-            IconButton(onClick = { showMenu = true }) {
+            Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
+                IconButton(onClick = { showMenu = true }) {
                 Icon(
                     imageVector = Icons.Rounded.MoreVert,
                     contentDescription = "More",

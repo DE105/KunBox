@@ -147,6 +147,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun addRuleSets(ruleSets: List<RuleSet>, onResult: (Int) -> Unit = { _ -> }) {
+        viewModelScope.launch {
+            val currentSets = repository.getRuleSets().toMutableList()
+            var addedCount = 0
+            ruleSets.forEach { ruleSet ->
+                val exists = currentSets.any { it.tag == ruleSet.tag && it.url == ruleSet.url }
+                if (!exists) {
+                    currentSets.add(ruleSet)
+                    addedCount++
+                }
+            }
+            repository.setRuleSets(currentSets)
+            onResult(addedCount)
+        }
+    }
+
     fun updateRuleSet(ruleSet: RuleSet) {
         viewModelScope.launch {
             val currentSets = settings.value.ruleSets.toMutableList()
