@@ -28,6 +28,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.model.DefaultRule
 import com.kunk.singbox.model.RoutingMode
+import com.kunk.singbox.model.GhProxyMirror
 import com.kunk.singbox.ui.components.ConfirmDialog
 import com.kunk.singbox.ui.components.SettingItem
 import com.kunk.singbox.ui.components.SettingSwitchItem
@@ -51,6 +52,7 @@ fun RoutingSettingsScreen(
     // Dialog States
     var showModeDialog by remember { mutableStateOf(false) }
     var showDefaultRuleDialog by remember { mutableStateOf(false) }
+    var showMirrorDialog by remember { mutableStateOf(false) }
 
     if (showModeDialog) {
         val options = RoutingMode.entries.map { it.displayName }
@@ -79,6 +81,20 @@ fun RoutingSettingsScreen(
             onDismiss = { showDefaultRuleDialog = false }
         )
     }
+
+    if (showMirrorDialog) {
+        val options = GhProxyMirror.entries.map { it.displayName }
+        SingleSelectDialog(
+            title = "GitHub 镜像加速",
+            options = options,
+            selectedIndex = options.indexOf(settings.ghProxyMirror.displayName).coerceAtLeast(0),
+            onSelect = { index ->
+                settingsViewModel.setGhProxyMirror(GhProxyMirror.entries[index])
+                showMirrorDialog = false
+            },
+            onDismiss = { showMirrorDialog = false }
+        )
+    }
     
     Scaffold(
         containerColor = AppBackground,
@@ -104,6 +120,7 @@ fun RoutingSettingsScreen(
             StandardCard {
                 SettingItem(title = "路由模式", value = settings.routingMode.displayName, onClick = { showModeDialog = true })
                 SettingItem(title = "默认规则", value = settings.defaultRule.displayName, onClick = { showDefaultRuleDialog = true })
+                SettingItem(title = "GitHub 镜像", value = settings.ghProxyMirror.displayName, onClick = { showMirrorDialog = true })
             }
             
             Spacer(modifier = Modifier.height(16.dp))

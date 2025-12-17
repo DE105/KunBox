@@ -33,6 +33,9 @@ data class AppSettings(
     @SerializedName("blockAds") val blockAds: Boolean = true,
     @SerializedName("bypassLan") val bypassLan: Boolean = true,
     
+    // 镜像设置
+    @SerializedName("ghProxyMirror") val ghProxyMirror: GhProxyMirror = GhProxyMirror.GHFAST_TOP,
+    
     // 高级路由
     @SerializedName("customRules") val customRules: List<CustomRule> = emptyList(),
     @SerializedName("ruleSets") val ruleSets: List<RuleSet> = emptyList(),
@@ -88,3 +91,20 @@ enum class DefaultRule(val displayName: String) {
         }
     }
 }
+
+enum class GhProxyMirror(val url: String, val displayName: String) {
+    @SerializedName("GHFAST_TOP") GHFAST_TOP("https://ghfast.top/", "ghfast.top"),
+    @SerializedName("GH_PROXY_COM") GH_PROXY_COM("https://gh-proxy.com/", "gh-proxy.com"),
+    @SerializedName("GHPROXY_LINK") GHPROXY_LINK("https://ghproxy.link/", "ghproxy.link");
+    
+    companion object {
+        fun fromUrl(url: String): GhProxyMirror {
+            return entries.find { url.startsWith(it.url) } ?: GHFAST_TOP
+        }
+        
+        fun fromDisplayName(name: String): GhProxyMirror {
+            return entries.find { it.displayName == name } ?: GHFAST_TOP
+        }
+    }
+}
+

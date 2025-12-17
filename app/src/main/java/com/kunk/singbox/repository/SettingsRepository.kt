@@ -20,6 +20,7 @@ import com.kunk.singbox.model.AppRule
 import com.kunk.singbox.model.AppGroup
 import com.kunk.singbox.model.RuleSet
 import com.kunk.singbox.model.TunStack
+import com.kunk.singbox.model.GhProxyMirror
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -57,6 +58,7 @@ class SettingsRepository(private val context: Context) {
         val DEFAULT_RULE = stringPreferencesKey("default_rule")
         val BLOCK_ADS = booleanPreferencesKey("block_ads")
         val BYPASS_LAN = booleanPreferencesKey("bypass_lan")
+        val GH_PROXY_MIRROR = stringPreferencesKey("gh_proxy_mirror")
         
         // 高级路由 (JSON)
         val CUSTOM_RULES = stringPreferencesKey("custom_rules")
@@ -66,6 +68,9 @@ class SettingsRepository(private val context: Context) {
     }
     
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
+        val ghProxyMirror = GhProxyMirror.fromDisplayName(preferences[PreferencesKeys.GH_PROXY_MIRROR] ?: "ghfast.top")
+        val currentMirrorUrl = ghProxyMirror.url
+
         val customRulesJson = preferences[PreferencesKeys.CUSTOM_RULES]
         val customRules = if (customRulesJson != null) {
             try {
@@ -101,16 +106,31 @@ class SettingsRepository(private val context: Context) {
                     }
                     
                     // 3. 统一使用镜像加速
-                    if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains("ghfast.top")) {
-                        updatedUrl = updatedUrl.replace("https://raw.githubusercontent.com/", "https://ghfast.top/https://raw.githubusercontent.com/")
+                    if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains(currentMirrorUrl)) {
+                        // 移除旧镜像
+                        val rawUrl = if (updatedUrl.contains("https://")) {
+                            "https://raw.githubusercontent.com/" + updatedUrl.substringAfter("raw.githubusercontent.com/")
+                        } else {
+                            updatedUrl
+                        }
+                        updatedUrl = currentMirrorUrl + rawUrl
                     }
+                    
                     // 修复之前注入的失效或不稳定的镜像
-                    if (updatedUrl.contains("ghp.ci") || updatedUrl.contains("mirror.ghproxy.com") || updatedUrl.contains("ghproxy.com") || updatedUrl.contains("ghproxy.net")) {
-                        updatedUrl = updatedUrl
-                            .replace("https://ghp.ci/", "https://ghfast.top/")
-                            .replace("https://mirror.ghproxy.com/", "https://ghfast.top/")
-                            .replace("https://ghproxy.com/", "https://ghfast.top/")
-                            .replace("https://ghproxy.net/", "https://ghfast.top/")
+                    val oldMirrors = listOf(
+                        "https://ghp.ci/", 
+                        "https://mirror.ghproxy.com/", 
+                        "https://ghproxy.com/", 
+                        "https://ghproxy.net/",
+                        "https://ghfast.top/",
+                        "https://gh-proxy.com/",
+                        "https://ghproxy.link/"
+                    )
+                    
+                    for (mirror in oldMirrors) {
+                        if (updatedUrl.startsWith(mirror) && mirror != currentMirrorUrl) {
+                            updatedUrl = updatedUrl.replace(mirror, currentMirrorUrl)
+                        }
                     }
 
                     if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
@@ -155,6 +175,8 @@ class SettingsRepository(private val context: Context) {
             emptyList()
         }
 
+        val ghProxyMirror = GhProxyMirror.fromDisplayName(preferences[PreferencesKeys.GH_PROXY_MIRROR] ?: "ghfast.top")
+
         AppSettings(
             // 通用设置
             autoConnect = preferences[PreferencesKeys.AUTO_CONNECT] ?: false,
@@ -182,6 +204,9 @@ class SettingsRepository(private val context: Context) {
             defaultRule = DefaultRule.fromDisplayName(preferences[PreferencesKeys.DEFAULT_RULE] ?: "直连"),
             blockAds = preferences[PreferencesKeys.BLOCK_ADS] ?: true,
             bypassLan = preferences[PreferencesKeys.BYPASS_LAN] ?: true,
+            
+            // 镜像设置
+            ghProxyMirror = ghProxyMirror,
             
             // 高级路由
             customRules = customRules,
@@ -271,6 +296,10 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { it[PreferencesKeys.BYPASS_LAN] = value }
     }
     
+    suspend fun setGhProxyMirror(value: GhProxyMirror) {
+        context.dataStore.edit { it[PreferencesKeys.GH_PROXY_MIRROR] = value.displayName }
+    }
+    
     suspend fun setCustomRules(value: List<CustomRule>) {
         context.dataStore.edit { it[PreferencesKeys.CUSTOM_RULES] = gson.toJson(value) }
     }
@@ -295,6 +324,7 @@ class SettingsRepository(private val context: Context) {
         try {
             val currentSettings = settings.first()
             val originalRuleSets = currentSettings.ruleSets
+            val currentMirrorUrl = currentSettings.ghProxyMirror.url
             val migratedRuleSets = originalRuleSets.map { ruleSet ->
                 var updatedUrl = ruleSet.url
                 var updatedTag = ruleSet.tag
@@ -307,15 +337,29 @@ class SettingsRepository(private val context: Context) {
                     updatedUrl = updatedUrl.replace("geosite-ads.srs", "geosite-category-ads-all.srs")
                 }
                 
-                if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains("ghfast.top")) {
-                    updatedUrl = updatedUrl.replace("https://raw.githubusercontent.com/", "https://ghfast.top/https://raw.githubusercontent.com/")
+                if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains(currentMirrorUrl)) {
+                    val rawUrl = if (updatedUrl.contains("https://")) {
+                        "https://raw.githubusercontent.com/" + updatedUrl.substringAfter("raw.githubusercontent.com/")
+                    } else {
+                        updatedUrl
+                    }
+                    updatedUrl = currentMirrorUrl + rawUrl
                 }
-                if (updatedUrl.contains("ghp.ci") || updatedUrl.contains("mirror.ghproxy.com") || updatedUrl.contains("ghproxy.com") || updatedUrl.contains("ghproxy.net")) {
-                    updatedUrl = updatedUrl
-                        .replace("https://ghp.ci/", "https://ghfast.top/")
-                        .replace("https://mirror.ghproxy.com/", "https://ghfast.top/")
-                        .replace("https://ghproxy.com/", "https://ghfast.top/")
-                        .replace("https://ghproxy.net/", "https://ghfast.top/")
+                
+                val oldMirrors = listOf(
+                    "https://ghp.ci/", 
+                    "https://mirror.ghproxy.com/", 
+                    "https://ghproxy.com/", 
+                    "https://ghproxy.net/",
+                    "https://ghfast.top/",
+                    "https://gh-proxy.com/",
+                    "https://ghproxy.link/"
+                )
+                
+                for (mirror in oldMirrors) {
+                    if (updatedUrl.startsWith(mirror) && mirror != currentMirrorUrl) {
+                        updatedUrl = updatedUrl.replace(mirror, currentMirrorUrl)
+                    }
                 }
 
                 if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {

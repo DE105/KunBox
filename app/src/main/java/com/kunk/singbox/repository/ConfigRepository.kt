@@ -1314,15 +1314,15 @@ class ConfigRepository(private val context: Context) {
     
     /**
      * 构建广告拦截规则集配置
-     * 使用 jsDelivr CDN 镜像，国内可访问
      */
-    private fun buildAdBlockRuleSet(): RuleSetConfig {
+    private fun buildAdBlockRuleSet(settings: AppSettings): RuleSetConfig {
+        val mirrorUrl = settings.ghProxyMirror.url
         return RuleSetConfig(
             tag = "geosite-category-ads-all",
             type = "remote",
             format = "binary",
-            // 使用 ghfast.top 镜像加速，国内访问更稳定
-            url = "https://ghfast.top/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
+            // 使用用户选择的镜像加速
+            url = "${mirrorUrl}https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
             downloadDetour = "direct",
             updateInterval = "24h"
         )
@@ -1672,7 +1672,7 @@ class ConfigRepository(private val context: Context) {
         }
         
         val adBlockRuleSet = if (settings.blockAds) {
-            listOf(buildAdBlockRuleSet())
+            listOf(buildAdBlockRuleSet(settings))
         } else {
             emptyList()
         }

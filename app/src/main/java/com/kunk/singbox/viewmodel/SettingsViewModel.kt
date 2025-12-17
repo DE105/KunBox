@@ -12,6 +12,7 @@ import com.kunk.singbox.model.AppRule
 import com.kunk.singbox.model.AppGroup
 import com.kunk.singbox.model.RuleSet
 import com.kunk.singbox.model.TunStack
+import com.kunk.singbox.model.GhProxyMirror
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -107,6 +108,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     
     fun setBypassLan(value: Boolean) {
         viewModelScope.launch { repository.setBypassLan(value) }
+    }
+
+    fun setGhProxyMirror(value: GhProxyMirror) {
+        viewModelScope.launch { repository.setGhProxyMirror(value) }
     }
 
     // 高级路由
