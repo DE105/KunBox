@@ -24,6 +24,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.LinearProgressIndicator
@@ -63,7 +64,7 @@ fun SingBoxApp() {
         // Reset isNavigating after animation completes
         LaunchedEffect(navigationStartTime) {
             if (navigationStartTime > 0) {
-                delay(NAV_ANIMATION_DURATION.toLong() + 100)
+                delay(NAV_ANIMATION_DURATION.toLong() + 50)
                 isNavigating = false
             }
         }
@@ -95,8 +96,8 @@ fun SingBoxApp() {
             // Global loading overlay during navigation
             AnimatedVisibility(
                 visible = isNavigating,
-                enter = fadeIn(),
-                exit = fadeOut()
+                enter = fadeIn(animationSpec = tween(150)),
+                exit = fadeOut(animationSpec = tween(150))
             ) {
                 Box(
                     modifier = Modifier
