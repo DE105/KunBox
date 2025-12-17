@@ -84,8 +84,8 @@ class SettingsRepository(private val context: Context) {
                 val list = gson.fromJson<List<RuleSet>>(ruleSetsJson, object : TypeToken<List<RuleSet>>() {}.type) ?: emptyList()
                 Log.d("SettingsRepository", "Parsed ${list.size} rule sets")
                 
-                // 自动修复已知问题：1. 镜像加速 2. 修正错误的广告规则集名称
-                list.map { ruleSet ->
+                // 自动修复并去重
+                val migratedList = list.map { ruleSet ->
                     var updatedUrl = ruleSet.url
                     var updatedTag = ruleSet.tag
                     
@@ -101,7 +101,6 @@ class SettingsRepository(private val context: Context) {
                     if (updatedUrl.startsWith("https://raw.githubusercontent.com/") && !updatedUrl.contains("ghp.ci")) {
                         updatedUrl = "https://ghp.ci/$updatedUrl"
                     } else if (updatedUrl.contains("geosite-ads.srs")) {
-                        // 即使已经有镜像，如果还是老的 ads.srs 也要修
                         updatedUrl = updatedUrl.replace("geosite-ads.srs", "geosite-category-ads-all.srs")
                     }
 
@@ -111,6 +110,9 @@ class SettingsRepository(private val context: Context) {
                         ruleSet
                     }
                 }
+                
+                // 去重：如果存在相同 tag 的规则集，保留最后一个（通常是较新的或已迁移的）
+                migratedList.distinctBy { it.tag }
             } catch (e: Exception) {
                 Log.e("SettingsRepository", "Failed to parse rule sets JSON", e)
                 emptyList()

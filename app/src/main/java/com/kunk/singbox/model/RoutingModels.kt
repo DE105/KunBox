@@ -1,8 +1,10 @@
 package com.kunk.singbox.model
 
+import androidx.annotation.Keep
 import com.google.gson.annotations.SerializedName
 import java.util.UUID
 
+@Keep
 enum class RuleType(val displayName: String) {
     @SerializedName("DOMAIN") DOMAIN("域名"),
     @SerializedName("DOMAIN_SUFFIX") DOMAIN_SUFFIX("域名后缀"),
@@ -14,12 +16,14 @@ enum class RuleType(val displayName: String) {
     @SerializedName("PROCESS_NAME") PROCESS_NAME("进程名")
 }
 
+@Keep
 enum class OutboundTag(val displayName: String) {
     @SerializedName("DIRECT") DIRECT("直连"),
     @SerializedName("PROXY") PROXY("代理"),
     @SerializedName("BLOCK") BLOCK("拦截")
 }
 
+@Keep
 data class CustomRule(
     @SerializedName("id") val id: String = UUID.randomUUID().toString(),
     @SerializedName("name") val name: String,
@@ -29,11 +33,13 @@ data class CustomRule(
     @SerializedName("enabled") val enabled: Boolean = true
 )
 
+@Keep
 enum class RuleSetType(val displayName: String) {
     @SerializedName("REMOTE") REMOTE("远程"),
     @SerializedName("LOCAL") LOCAL("本地")
 }
 
+@Keep
 enum class RuleSetOutboundMode(val displayName: String) {
     @SerializedName("DIRECT") DIRECT("直连"),
     @SerializedName("BLOCK") BLOCK("拦截"),
@@ -43,6 +49,7 @@ enum class RuleSetOutboundMode(val displayName: String) {
     @SerializedName("GROUP") GROUP("节点组")
 }
 
+@Keep
 data class RuleSet(
     @SerializedName("id") val id: String = UUID.randomUUID().toString(),
     @SerializedName("tag") val tag: String, // Unique identifier in config
@@ -56,9 +63,7 @@ data class RuleSet(
     @SerializedName("inbounds") val inbounds: List<String>? = emptyList() // List of inbound tags
 )
 
-/**
- * App-based routing rule - allows per-app proxy settings
- */
+@Keep
 data class AppRule(
     @SerializedName("id") val id: String = UUID.randomUUID().toString(),
     @SerializedName("packageName") val packageName: String, // e.g., "com.google.android.youtube"
@@ -68,9 +73,7 @@ data class AppRule(
     @SerializedName("enabled") val enabled: Boolean = true
 )
 
-/**
- * App group - groups multiple apps to use the same routing rule
- */
+@Keep
 data class AppGroup(
     @SerializedName("id") val id: String = UUID.randomUUID().toString(),
     @SerializedName("name") val name: String, // Group name, e.g., "社交应用", "游戏"
@@ -80,17 +83,13 @@ data class AppGroup(
     @SerializedName("enabled") val enabled: Boolean = true
 )
 
-/**
- * Basic app info for group membership
- */
+@Keep
 data class AppInfo(
     @SerializedName("packageName") val packageName: String,
     @SerializedName("appName") val appName: String
 )
 
-/**
- * Represents an installed app on the device
- */
+@Keep
 data class InstalledApp(
     val packageName: String,
     val appName: String,

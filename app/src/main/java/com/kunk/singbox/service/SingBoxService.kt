@@ -351,8 +351,12 @@ class SingBoxService : VpnService() {
     
     private fun startVpn(configPath: String) {
         synchronized(this) {
-            if (isRunning || isStarting) {
-                Log.w(TAG, "VPN already running or starting")
+            if (isRunning) {
+                Log.w(TAG, "VPN already running, ignore start request")
+                return
+            }
+            if (isStarting) {
+                Log.w(TAG, "VPN is already in starting process, ignore start request")
                 return
             }
             isStarting = true
@@ -405,8 +409,11 @@ class SingBoxService : VpnService() {
                 Log.i(TAG, "SingBox VPN started successfully")
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start VPN", e)
-                withContext(Dispatchers.Main) { stopVpn() }
+                Log.e(TAG, "Failed to start VPN: ${e.message}", e)
+                withContext(Dispatchers.Main) { 
+                    isRunning = false
+                    stopVpn() 
+                }
             } finally {
                 isStarting = false
             }
