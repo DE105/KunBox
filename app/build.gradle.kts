@@ -22,8 +22,23 @@ android {
         resConfigs("zh", "en") // 仅保留中文和英文资源，减少体积
     }
 
+    signingConfigs {
+        create("release") {
+            val props = java.util.Properties()
+            val propsFile = rootProject.file("signing.properties")
+            if (propsFile.exists()) {
+                props.load(propsFile.inputStream())
+                storeFile = rootProject.file(props.getProperty("STORE_FILE"))
+                storePassword = props.getProperty("KEYSTORE_PASSWORD")
+                keyAlias = props.getProperty("KEY_ALIAS")
+                keyPassword = props.getProperty("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
