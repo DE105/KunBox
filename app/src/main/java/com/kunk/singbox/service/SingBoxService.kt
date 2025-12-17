@@ -50,9 +50,15 @@ class SingBoxService : VpnService() {
         private val _isRunningFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
         val isRunningFlow = _isRunningFlow.asStateFlow()
 
+        private val _isStartingFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
+        val isStartingFlow = _isStartingFlow.asStateFlow()
+
         @Volatile
         var isStarting = false
-            private set
+            private set(value) {
+                field = value
+                _isStartingFlow.value = value
+            }
 
         @Volatile
         var isManuallyStopped = false

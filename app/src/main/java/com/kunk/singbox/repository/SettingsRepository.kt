@@ -79,8 +79,12 @@ class SettingsRepository(private val context: Context) {
         val ruleSetsJson = preferences[PreferencesKeys.RULE_SETS]
         val ruleSets = if (ruleSetsJson != null) {
             try {
-                gson.fromJson<List<RuleSet>>(ruleSetsJson, object : TypeToken<List<RuleSet>>() {}.type) ?: emptyList()
+                Log.d("SettingsRepository", "Loading rule sets from JSON: $ruleSetsJson")
+                val list = gson.fromJson<List<RuleSet>>(ruleSetsJson, object : TypeToken<List<RuleSet>>() {}.type) ?: emptyList()
+                Log.d("SettingsRepository", "Parsed ${list.size} rule sets")
+                list
             } catch (e: Exception) {
+                Log.e("SettingsRepository", "Failed to parse rule sets JSON", e)
                 emptyList()
             }
         } else {

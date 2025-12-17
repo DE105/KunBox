@@ -81,21 +81,26 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val vpnPermissionNeeded: StateFlow<Boolean> = _vpnPermissionNeeded.asStateFlow()
     
     init {
-        // Observe SingBoxService running state to keep UI in sync
+        // Observe SingBoxService running and starting state to keep UI in sync
         viewModelScope.launch {
             SingBoxService.isRunningFlow.collect { running ->
                 if (running) {
-                    if (_connectionState.value != ConnectionState.Connected) {
-                        _connectionState.value = ConnectionState.Connected
-                        startTrafficMonitor()
-                    }
-                } else {
-                    if (_connectionState.value == ConnectionState.Connected || 
-                        _connectionState.value == ConnectionState.Connecting) {
-                        _connectionState.value = ConnectionState.Idle
-                        stopTrafficMonitor()
-                        _stats.value = ConnectionStats(0, 0, 0, 0, 0)
-                    }
+                    _connectionState.value = ConnectionState.Connected
+                    startTrafficMonitor()
+                } else if (!SingBoxService.isStarting) {
+                    _connectionState.value = ConnectionState.Idle
+                    stopTrafficMonitor()
+                    _stats.value = ConnectionStats(0, 0, 0, 0, 0)
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            SingBoxService.isStartingFlow.collect { starting ->
+                if (starting) {
+                    _connectionState.value = ConnectionState.Connecting
+                } else if (!SingBoxService.isRunning) {
+                    _connectionState.value = ConnectionState.Idle
                 }
             }
         }
