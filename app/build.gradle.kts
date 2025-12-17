@@ -20,11 +20,6 @@ android {
         }
 
         resConfigs("zh", "en") // 仅保留中文和英文资源，减少体积
-        
-        // 支持的 CPU 架构
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-        }
     }
 
     buildTypes {
