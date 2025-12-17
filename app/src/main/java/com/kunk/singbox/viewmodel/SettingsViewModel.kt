@@ -135,9 +135,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun addRuleSet(ruleSet: RuleSet) {
         viewModelScope.launch {
-            val currentSets = settings.value.ruleSets.toMutableList()
-            currentSets.add(ruleSet)
-            repository.setRuleSets(currentSets)
+            val currentSets = repository.getRuleSets().toMutableList()
+            val exists = currentSets.any { it.tag == ruleSet.tag && it.url == ruleSet.url }
+            if (!exists) {
+                currentSets.add(ruleSet)
+                repository.setRuleSets(currentSets)
+            }
         }
     }
 

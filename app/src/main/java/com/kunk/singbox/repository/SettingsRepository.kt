@@ -226,6 +226,10 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { it[PreferencesKeys.RULE_SETS] = gson.toJson(value) }
     }
 
+    suspend fun getRuleSets(): List<RuleSet> {
+        return kotlinx.coroutines.flow.first(settings).ruleSets
+    }
+
     suspend fun setAppRules(value: List<AppRule>) {
         context.dataStore.edit { it[PreferencesKeys.APP_RULES] = gson.toJson(value) }
     }
