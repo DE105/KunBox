@@ -26,18 +26,18 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Calculate Version
-      id: version
-      run: |
-        COMMIT_COUNT=$(git rev-list --count HEAD)
-        VERSION_NAME="1.0.$COMMIT_COUNT"
-        echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_ENV
-        echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
-        echo "::set-output name=count::$COMMIT_COUNT"
-        echo "::set-output name=name::$VERSION_NAME"
+      - name: Calculate Version
+        id: version
+        run: |
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          VERSION_NAME="1.0.$COMMIT_COUNT"
+          echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_ENV
+          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
+          echo "count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+          echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT
 
-    - name: Build with Gradle
-      run: ./gradlew assembleRelease -PversionCode=${{ env.COMMIT_COUNT }} -PversionName=${{ env.VERSION_NAME }}
+      - name: Build with Gradle
+        run: ./gradlew assembleRelease -PversionCode=${{ env.COMMIT_COUNT }} -PversionName=${{ env.VERSION_NAME }}
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
