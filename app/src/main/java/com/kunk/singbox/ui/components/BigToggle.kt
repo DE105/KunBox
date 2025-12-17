@@ -1,4 +1,4 @@
-﻿package com.kunk.singbox.ui.components
+package com.kunk.singbox.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
@@ -42,6 +42,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.kunk.singbox.ui.theme.OLEDBlack
 import com.kunk.singbox.ui.theme.PureWhite
+import androidx.compose.ui.viewinterop.AndroidView
+import android.widget.ImageView
+import com.kunk.singbox.R
 
 @Composable
 fun BigToggle(
@@ -165,11 +168,17 @@ fun BigToggle(
                     }
                     .background(backgroundColor)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.PowerSettingsNew,
-                    contentDescription = "Toggle VPN",
-                    tint = iconColor,
-                    modifier = Modifier.size(80.dp)
+                // Use AndroidView to render adaptive icon correctly as the logo
+                AndroidView(
+                    factory = { ctx ->
+                        ImageView(ctx).apply {
+                            setImageResource(R.mipmap.ic_launcher_round)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(100.dp)
+                        .graphicsLayer {
+                        }
                 )
             }
         }

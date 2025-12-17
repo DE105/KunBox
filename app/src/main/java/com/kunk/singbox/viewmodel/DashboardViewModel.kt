@@ -80,6 +80,27 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _vpnPermissionNeeded = MutableStateFlow(false)
     val vpnPermissionNeeded: StateFlow<Boolean> = _vpnPermissionNeeded.asStateFlow()
     
+    init {
+        // Observe SingBoxService running state to keep UI in sync
+        viewModelScope.launch {
+            SingBoxService.isRunningFlow.collect { running ->
+                if (running) {
+                    if (_connectionState.value != ConnectionState.Connected) {
+                        _connectionState.value = ConnectionState.Connected
+                        startTrafficMonitor()
+                    }
+                } else {
+                    if (_connectionState.value == ConnectionState.Connected || 
+                        _connectionState.value == ConnectionState.Connecting) {
+                        _connectionState.value = ConnectionState.Idle
+                        stopTrafficMonitor()
+                        _stats.value = ConnectionStats(0, 0, 0, 0, 0)
+                    }
+                }
+            }
+        }
+    }
+
     fun toggleConnection() {
         viewModelScope.launch {
             when (_connectionState.value) {

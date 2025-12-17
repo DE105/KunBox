@@ -72,12 +72,17 @@ fun SingBoxApp() {
     val connectionState by dashboardViewModel.connectionState.collectAsState()
 
     // 自动连接逻辑
-    LaunchedEffect(settings?.autoConnect) {
+    LaunchedEffect(settings?.autoConnect, connectionState) {
         if (settings?.autoConnect == true && 
             connectionState == ConnectionState.Idle && 
-            !SingBoxService.isRunning
+            !SingBoxService.isRunning &&
+            !SingBoxService.isStarting
         ) {
-            dashboardViewModel.toggleConnection()
+            // Delay a bit to ensure everything is initialized
+            delay(1000)
+            if (connectionState == ConnectionState.Idle && !SingBoxService.isRunning) {
+                dashboardViewModel.toggleConnection()
+            }
         }
     }
 

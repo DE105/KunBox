@@ -15,6 +15,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.kunk.singbox.MainActivity
 import com.kunk.singbox.model.AppSettings
+import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.*
@@ -40,7 +41,13 @@ class SingBoxService : VpnService() {
         
         @Volatile
         var isRunning = false
-            private set
+            private set(value) {
+                field = value
+                _isRunningFlow.value = value
+            }
+
+        private val _isRunningFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
+        val isRunningFlow = _isRunningFlow.asStateFlow()
 
         @Volatile
         var isStarting = false
@@ -446,6 +453,14 @@ class SingBoxService : VpnService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         
+        val stopIntent = Intent(this, SingBoxService::class.java).apply {
+            action = ACTION_STOP
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this, 2, stopIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        
         val configRepository = ConfigRepository.getInstance(this)
         val activeNodeId = configRepository.activeNodeId.value
         val activeNodeName = configRepository.nodes.value.find { it.id == activeNodeId }?.name ?: "已连接"
@@ -468,6 +483,15 @@ class SingBoxService : VpnService() {
                     android.R.drawable.ic_menu_revert,
                     "切换节点",
                     switchPendingIntent
+                ).build()
+            )
+            
+            // 添加断开按钮
+            addAction(
+                Notification.Action.Builder(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    "断开",
+                    stopPendingIntent
                 ).build()
             )
         }.build()
