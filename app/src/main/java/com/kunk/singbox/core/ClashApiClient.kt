@@ -12,6 +12,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.net.SocketException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -32,6 +33,9 @@ class ClashApiClient(
     private val gson = Gson()
     @Volatile
     private var baseUrl: String = baseUrl
+
+    @Volatile
+    private var trafficWebSocket: WebSocket? = null
 
     fun setBaseUrl(baseUrl: String) {
         this.baseUrl = baseUrl.trimEnd('/')
@@ -242,6 +246,9 @@ class ClashApiClient(
      * 连接到流量 WebSocket
      */
     fun connectTrafficWebSocket(onTraffic: (up: Long, down: Long) -> Unit): WebSocket? {
+        trafficWebSocket?.close(1000, "Replaced")
+        trafficWebSocket = null
+
         val url = baseUrl.toHttpUrlOrNull()?.newBuilder()
             ?.addPathSegment("traffic")
             ?.apply {
@@ -256,7 +263,7 @@ class ClashApiClient(
             .url(url)
             .build()
 
-        return client.newWebSocket(request, object : WebSocketListener() {
+        val socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val traffic = gson.fromJson(text, TrafficResponse::class.java)
@@ -266,10 +273,28 @@ class ClashApiClient(
                 }
             }
 
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (trafficWebSocket === webSocket) {
+                    trafficWebSocket = null
+                }
+            }
+
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (trafficWebSocket === webSocket) {
+                    trafficWebSocket = null
+                }
+
+                if (t is SocketException && t.message == "Socket closed") {
+                    Log.d(TAG, "Traffic WebSocket closed")
+                    return
+                }
+
                 Log.e(TAG, "Traffic WebSocket failure", t)
             }
         })
+
+        trafficWebSocket = socket
+        return socket
     }
 }
 
