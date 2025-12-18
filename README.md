@@ -6,7 +6,9 @@
 
 <div align="center">
   <img src="https://beone.kuz7.com/p/bTJJUBRl5tjaUX5kWJ5JBnrCK-IWOGwzx32fL8mGuB0" width="30%" alt="首页概览" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
   <img src="https://beone.kuz7.com/p/J47jgAo14XU34TXAyXwo-8zaAIWoKfqUytzI0UGzpws" width="30%" alt="节点列表" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
   <img src="https://beone.kuz7.com/p/n3Vrqqq9qtrC1qCMiClQYz6OlNmm1mGl-crt_zuPyxE" width="30%" alt="设置页面" />
 </div>
 
@@ -62,5 +64,7 @@
 5.  连接 Android 设备并运行。
 
 ## 📝 许可证
+
+本项目基于 [MIT 许可证](LICENSE) 开源。
 
 本项目仅供学习和研究网络技术使用。
