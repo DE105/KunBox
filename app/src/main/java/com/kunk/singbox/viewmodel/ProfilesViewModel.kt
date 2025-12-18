@@ -5,7 +5,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.model.ProfileUi
 import com.kunk.singbox.model.ProfileType
+import com.kunk.singbox.model.SubscriptionUpdateResult
 import com.kunk.singbox.repository.ConfigRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +36,10 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
     // 导入状态
     private val _importState = MutableStateFlow<ImportState>(ImportState.Idle)
     val importState: StateFlow<ImportState> = _importState.asStateFlow()
+    
+    // 单个配置更新状态
+    private val _updateStatus = MutableStateFlow<String?>(null)
+    val updateStatus: StateFlow<String?> = _updateStatus.asStateFlow()
 
     fun setActiveProfile(profileId: String) {
         configRepository.setActiveProfile(profileId)
@@ -45,7 +51,28 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
 
     fun updateProfile(profileId: String) {
         viewModelScope.launch {
-            configRepository.updateProfile(profileId)
+            _updateStatus.value = "正在更新..."
+            
+            val result = configRepository.updateProfile(profileId)
+            
+            // 根据结果生成提示消息
+            _updateStatus.value = when (result) {
+                is SubscriptionUpdateResult.SuccessWithChanges -> {
+                    val changes = mutableListOf<String>()
+                    if (result.addedCount > 0) changes.add("+${result.addedCount}")
+                    if (result.removedCount > 0) changes.add("-${result.removedCount}")
+                    "更新成功 (${changes.joinToString("/")}，共${result.totalCount}节点)"
+                }
+                is SubscriptionUpdateResult.SuccessNoChanges -> {
+                    "更新完成，无变化 (${result.totalCount}节点)"
+                }
+                is SubscriptionUpdateResult.Failed -> {
+                    "更新失败: ${result.error}"
+                }
+            }
+            
+            delay(2500)
+            _updateStatus.value = null
         }
     }
 

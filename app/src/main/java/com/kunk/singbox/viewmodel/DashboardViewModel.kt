@@ -392,10 +392,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun updateAllSubscriptions() {
         viewModelScope.launch {
             _updateStatus.value = "正在更新订阅..."
-            delay(1500) // Mock network delay
-            configRepository.updateAllProfiles()
-            _updateStatus.value = "更新成功"
-            delay(2000)
+            
+            val result = configRepository.updateAllProfiles()
+            
+            // 根据结果显示不同的提示
+            _updateStatus.value = result.toDisplayMessage()
+            delay(2500)
             _updateStatus.value = null
         }
     }

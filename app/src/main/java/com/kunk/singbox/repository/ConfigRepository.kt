@@ -1366,19 +1366,34 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
-    suspend fun updateAllProfiles() {
+    suspend fun updateAllProfiles(): BatchUpdateResult {
         val enabledProfiles = _profiles.value.filter { it.enabled && it.type == ProfileType.Subscription }
-        enabledProfiles.forEach { profile ->
-            updateProfile(profile.id)
+        
+        if (enabledProfiles.isEmpty()) {
+            return BatchUpdateResult()
         }
+        
+        val results = mutableListOf<SubscriptionUpdateResult>()
+        
+        enabledProfiles.forEach { profile ->
+            val result = updateProfile(profile.id)
+            results.add(result)
+        }
+        
+        return BatchUpdateResult(
+            successWithChanges = results.count { it is SubscriptionUpdateResult.SuccessWithChanges },
+            successNoChanges = results.count { it is SubscriptionUpdateResult.SuccessNoChanges },
+            failed = results.count { it is SubscriptionUpdateResult.Failed },
+            details = results
+        )
     }
     
-    suspend fun updateProfile(profileId: String): Result<Unit> {
+    suspend fun updateProfile(profileId: String): SubscriptionUpdateResult {
         val profile = _profiles.value.find { it.id == profileId }
-            ?: return Result.failure(Exception("配置不存在"))
+            ?: return SubscriptionUpdateResult.Failed("未知配置", "配置不存在")
         
         if (profile.url.isNullOrBlank()) {
-            return Result.failure(Exception("无订阅链接"))
+            return SubscriptionUpdateResult.Failed(profile.name, "无订阅链接")
         }
         
         _profiles.update { list ->
@@ -1419,36 +1434,59 @@ class ConfigRepository(private val context: Context) {
                     if (it.id == profileId) it.copy(updateStatus = UpdateStatus.Idle) else it
                 }
             }
-            Result.failure(e)
+            SubscriptionUpdateResult.Failed(profile.name, e.message ?: "未知错误")
         }
     }
     
-    private suspend fun importFromSubscriptionUpdate(profile: ProfileUi): Result<Unit> = withContext(Dispatchers.IO) {
+    private suspend fun importFromSubscriptionUpdate(profile: ProfileUi): SubscriptionUpdateResult = withContext(Dispatchers.IO) {
         try {
+            // 获取旧的节点列表用于比较
+            val oldNodes = profileNodes[profile.id] ?: emptyList()
+            val oldNodeNames = oldNodes.map { it.name }.toSet()
+            
             // 使用智能 User-Agent 切换策略获取订阅
             val config = fetchAndParseSubscription(profile.url!!) { /* 静默更新，不显示进度 */ }
-                ?: return@withContext Result.failure(Exception("无法解析配置"))
+                ?: return@withContext SubscriptionUpdateResult.Failed(profile.name, "无法解析配置")
             
-            val nodes = extractNodesFromConfig(config, profile.id)
+            val newNodes = extractNodesFromConfig(config, profile.id)
+            val newNodeNames = newNodes.map { it.name }.toSet()
+            
+            // 计算变化
+            val addedNodes = newNodeNames - oldNodeNames
+            val removedNodes = oldNodeNames - newNodeNames
             
             // 更新存储
             val configFile = File(configDir, "${profile.id}.json")
             configFile.writeText(gson.toJson(config))
             
             cacheConfig(profile.id, config)
-            profileNodes[profile.id] = nodes
+            profileNodes[profile.id] = newNodes
             updateAllNodesAndGroups()
             
             // 如果是当前活跃配置，更新节点列表
             if (_activeProfileId.value == profile.id) {
-                _nodes.value = nodes
-                updateNodeGroups(nodes)
+                _nodes.value = newNodes
+                updateNodeGroups(newNodes)
             }
             
             saveProfiles()
-            Result.success(Unit)
+            
+            // 返回结果
+            if (addedNodes.isNotEmpty() || removedNodes.isNotEmpty()) {
+                SubscriptionUpdateResult.SuccessWithChanges(
+                    profileName = profile.name,
+                    addedCount = addedNodes.size,
+                    removedCount = removedNodes.size,
+                    totalCount = newNodes.size
+                )
+            } else {
+                SubscriptionUpdateResult.SuccessNoChanges(
+                    profileName = profile.name,
+                    totalCount = newNodes.size
+                )
+            }
         } catch (e: Exception) {
-            Result.failure(e)
+            SubscriptionUpdateResult.Failed(profile.name, e.message ?: "未知错误")
         }
     }
     
