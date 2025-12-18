@@ -9,11 +9,13 @@
   &nbsp;&nbsp;&nbsp;&nbsp;
   <img src="https://beone.kuz7.com/p/J47jgAo14XU34TXAyXwo-8zaAIWoKfqUytzI0UGzpws" width="30%" alt="节点列表" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="https://beone.kuz7.com/p/n3Vrqqq9qtrC1qCMiClQYz6OlNmm1mGl-crt_zuPyxE" width="30%" alt="设置页面" />
-</div>
-
-<div align="center">
   <img src="https://beone.kuz7.com/p/jK9YTrZ6ZOITiSNxLBfHZtbKRdCu2o88vK62t1qNGgI" width="30%" alt="演示动画" />
+</div>
+<br/>
+<div align="center">
+  <img src="https://beone.kuz7.com/p/1kkW3veYE4cjVrDUUUMVfVL2jKPpGl6ccavhge8ilpU" width="30%" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://beone.kuz7.com/p/nP4l6zRX1T4eWQMHKN4b0VOVYeau7B5r3vW44NmE7xk" width="30%" />
 </div>
 
 ## ✨ 核心功能
