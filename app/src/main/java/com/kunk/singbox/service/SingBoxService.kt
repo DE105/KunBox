@@ -134,6 +134,7 @@ class SingBoxService : VpnService() {
     private val cleanupScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     @Volatile private var isStopping: Boolean = false
     @Volatile private var stopSelfRequested: Boolean = false
+    @Volatile private var pendingStartConfigPath: String? = null
     @Volatile private var connectionOwnerPermissionDeniedLogged = false
 
     @Volatile private var lastRuleSetCheckMs: Long = 0L
@@ -602,6 +603,14 @@ class SingBoxService : VpnService() {
                 isManuallyStopped = false
                 val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
                 if (configPath != null) {
+                    synchronized(this) {
+                        if (isStopping) {
+                            pendingStartConfigPath = configPath
+                            stopSelfRequested = false
+                            lastConfigPath = configPath
+                            return START_STICKY
+                        }
+                    }
                     startVpn(configPath)
                 }
             }
@@ -783,9 +792,19 @@ class SingBoxService : VpnService() {
                 updateTileState()
             }
 
-            synchronized(this@SingBoxService) {
+            val startAfterStop = synchronized(this@SingBoxService) {
                 isStopping = false
+                val pending = pendingStartConfigPath
+                pendingStartConfigPath = null
+                val shouldStart = !pending.isNullOrBlank()
                 stopSelfRequested = false
+                pending?.takeIf { shouldStart }
+            }
+
+            if (!startAfterStop.isNullOrBlank()) {
+                withContext(Dispatchers.Main) {
+                    startVpn(startAfterStop)
+                }
             }
         }
     }
