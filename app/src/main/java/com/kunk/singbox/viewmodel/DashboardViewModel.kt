@@ -73,11 +73,19 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     )
     
     // 当前节点的实时延迟（VPN启动后测得的）
+    // null = 未测试, -1 = 测试失败/超时, >0 = 实际延迟
     private val _currentNodePing = MutableStateFlow<Long?>(null)
     val currentNodePing: StateFlow<Long?> = _currentNodePing.asStateFlow()
     
+    // Ping 测试状态：true = 正在测试中
+    private val _isPingTesting = MutableStateFlow(false)
+    val isPingTesting: StateFlow<Boolean> = _isPingTesting.asStateFlow()
+    
     private var trafficWebSocket: WebSocket? = null
     private var pingTestJob: Job? = null
+
+    private var pendingProxySelectionName: String? = null
+    private var hasSyncedFromServiceThisSession: Boolean = false
     
     // 用于平滑流量显示的缓存
     private var lastUploadSpeed: Long = 0
@@ -134,6 +142,28 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     _connectionState.value = ConnectionState.Connected
                     _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
                     startTrafficMonitor()
+
+                    // If user just started VPN with an explicit node selection, prefer it.
+                    // Otherwise, on app process restart/reinstall, sync UI from actual service selection.
+                    val intended = pendingProxySelectionName
+                    pendingProxySelectionName = null
+                    try {
+                        val clashApi = singBoxCore.getClashApiClient()
+                        if (!intended.isNullOrBlank()) {
+                            clashApi.selectProxy("PROXY", intended)
+                        } else if (!hasSyncedFromServiceThisSession) {
+                            val selected = clashApi.getCurrentSelection("PROXY")
+                            configRepository.syncActiveNodeFromProxySelection(selected)
+                            hasSyncedFromServiceThisSession = true
+                        }
+
+                        if (!intended.isNullOrBlank()) {
+                            val selectedAfter = clashApi.getCurrentSelection("PROXY")
+                            configRepository.syncActiveNodeFromProxySelection(selectedAfter)
+                            hasSyncedFromServiceThisSession = true
+                        }
+                    } catch (_: Exception) {
+                    }
                     // VPN 启动后自动对当前节点进行测速
                     startPingTest()
                 } else if (!SingBoxService.isStarting) {
@@ -143,6 +173,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     stopPingTest()
                     _statsBase.value = ConnectionStats(0, 0, 0, 0, 0)
                     _currentNodePing.value = null
+
+                    hasSyncedFromServiceThisSession = false
                 }
             }
         }
@@ -199,6 +231,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     private fun startVpn() {
         val context = getApplication<Application>()
+
+        // Record the user-intended node before starting. When the service becomes running,
+        // we will try to enforce this selection via Clash API to avoid jumping back.
+        val intendedNodeId = activeNodeId.value
+        val intendedName = intendedNodeId?.let { id ->
+            configRepository.nodes.value.find { it.id == id }?.name
+        }
+        pendingProxySelectionName = intendedName
         
         // 检查 VPN 权限
         val prepareIntent = VpnService.prepare(context)
@@ -267,49 +307,68 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     /**
      * 启动当前节点的延迟测试
+     * 使用5秒超时限制，测不出来就终止并显示超时状态
      */
     private fun startPingTest() {
         stopPingTest()
         
         pingTestJob = viewModelScope.launch {
             try {
+                // 设置测试中状态
+                _isPingTesting.value = true
+                _currentNodePing.value = null
+                
                 // 等待一小段时间确保 VPN 完全启动
                 delay(1000)
                 
                 // 检查 VPN 是否还在运行
                 if (_connectionState.value != ConnectionState.Connected) {
+                    _isPingTesting.value = false
                     return@launch
                 }
                 
                 val activeNodeId = activeNodeId.value
                 if (activeNodeId == null) {
                     Log.w(TAG, "No active node to test ping")
+                    _isPingTesting.value = false
+                    _currentNodePing.value = -1L // 标记为失败
                     return@launch
                 }
                 
                 val nodeName = configRepository.getNodeById(activeNodeId)?.name
                 if (nodeName == null) {
                     Log.w(TAG, "Node name not found for id: $activeNodeId")
+                    _isPingTesting.value = false
+                    _currentNodePing.value = -1L // 标记为失败
                     return@launch
                 }
                 
-                Log.d(TAG, "Starting ping test for node: $nodeName")
+                Log.d(TAG, "Starting ping test for node: $nodeName (5s timeout)")
                 
-                // 通过 Clash API 测试当前节点延迟
-                val clashApi = singBoxCore.getClashApiClient()
-                val delay = clashApi.testProxyDelay(nodeName)
+                // 使用5秒超时包装整个测试过程
+                val delay = withTimeoutOrNull(5000L) {
+                    val clashApi = singBoxCore.getClashApiClient()
+                    clashApi.testProxyDelay(nodeName)
+                }
+                
+                // 测试完成，更新状态
+                _isPingTesting.value = false
                 
                 // 再次检查 VPN 是否还在运行（测试可能需要一些时间）
                 if (_connectionState.value == ConnectionState.Connected && pingTestJob?.isActive == true) {
-                    if (delay > 0) {
+                    if (delay != null && delay > 0) {
                         _currentNodePing.value = delay
                         Log.d(TAG, "Ping test completed: ${delay}ms")
                     } else {
-                        Log.w(TAG, "Ping test failed or timed out")
+                        // 超时或失败，设置为 -1 表示超时
+                        _currentNodePing.value = -1L
+                        Log.w(TAG, "Ping test failed or timed out (5s)")
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error during ping test", e)
+                _isPingTesting.value = false
+                _currentNodePing.value = -1L // 标记为失败
             }
         }
     }
@@ -320,6 +379,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun stopPingTest() {
         pingTestJob?.cancel()
         pingTestJob = null
+        _isPingTesting.value = false
     }
     
     fun onVpnPermissionResult(granted: Boolean) {

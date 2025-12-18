@@ -131,6 +131,9 @@ class SingBoxService : VpnService() {
     private var boxService: BoxService? = null
     private var currentSettings: AppSettings? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val cleanupScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    @Volatile private var isStopping: Boolean = false
+    @Volatile private var stopSelfRequested: Boolean = false
     @Volatile private var connectionOwnerPermissionDeniedLogged = false
 
     @Volatile private var lastRuleSetCheckMs: Long = 0L
@@ -641,6 +644,10 @@ class SingBoxService : VpnService() {
                 Log.w(TAG, "VPN is already in starting process, ignore start request")
                 return
             }
+            if (isStopping) {
+                Log.w(TAG, "VPN is stopping, ignore start request")
+                return
+            }
             isStarting = true
         }
         
@@ -725,33 +732,62 @@ class SingBoxService : VpnService() {
     }
     
     private fun stopVpn(stopService: Boolean) {
+        synchronized(this) {
+            stopSelfRequested = stopSelfRequested || stopService
+            if (isStopping) {
+                return
+            }
+            isStopping = true
+        }
+
         autoReconnectJob?.cancel()
         autoReconnectJob = null
 
-        try {
-            platformInterface.closeDefaultInterfaceMonitor(currentInterfaceListener)
-        } catch (_: Exception) {
-        }
-
-        try {
-            boxService?.close()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error closing BoxService", e)
-        }
-        boxService = null
-        
-        vpnInterface?.close()
-        vpnInterface = null
-        
         isRunning = false
-        
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        if (stopService) {
-            stopSelf()
+
+        val listener = currentInterfaceListener
+        val serviceToClose = boxService
+        boxService = null
+
+        val interfaceToClose = vpnInterface
+        vpnInterface = null
+
+        cleanupScope.launch {
+            try {
+                platformInterface.closeDefaultInterfaceMonitor(listener)
+            } catch (_: Exception) {
+            }
+
+            try {
+                serviceToClose?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error closing BoxService", e)
+            }
+
+            try {
+                interfaceToClose?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error closing VPN interface", e)
+            }
+
+            withContext(Dispatchers.Main) {
+                try {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error stopping foreground", e)
+                }
+                if (stopSelfRequested) {
+                    stopSelf()
+                }
+                Log.i(TAG, "VPN stopped")
+                updateTileState()
+            }
+
+            synchronized(this@SingBoxService) {
+                isStopping = false
+                stopSelfRequested = false
+            }
         }
-        
-        Log.i(TAG, "VPN stopped")
-        updateTileState()
     }
 
     private fun updateTileState() {
@@ -843,11 +879,11 @@ class SingBoxService : VpnService() {
     }
     
     override fun onDestroy() {
-        serviceScope.cancel()
         stopVpn(stopService = false)
+        serviceScope.cancel()
         super.onDestroy()
     }
-    
+     
     override fun onRevoke() {
         stopVpn(stopService = true)
         super.onRevoke()

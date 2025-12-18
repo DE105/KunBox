@@ -27,7 +27,7 @@ class ClashApiClient(
         private const val TAG = "ClashApiClient"
         // 使用 Cloudflare 的测试 URL，比 gstatic 更快
         private const val DEFAULT_TEST_URL = "https://cp.cloudflare.com/generate_204"
-        private const val DEFAULT_TIMEOUT = 3000L
+        private const val DEFAULT_TIMEOUT = 5000L // 5秒超时
     }
     
     private val gson = Gson()
@@ -44,10 +44,10 @@ class ClashApiClient(
     fun getBaseUrl(): String = baseUrl
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
-        .callTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .writeTimeout(5, TimeUnit.SECONDS)
+        .callTimeout(6, TimeUnit.SECONDS) // 比 DEFAULT_TIMEOUT 稍长，确保 API 层面先超时
         .build()
     
     /**

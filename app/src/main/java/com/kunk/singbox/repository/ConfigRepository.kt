@@ -1029,6 +1029,11 @@ class ConfigRepository(private val context: Context) {
     private fun extractNodesFromConfig(config: SingBoxConfig, profileId: String): List<NodeUi> {
         val nodes = mutableListOf<NodeUi>()
         val outbounds = config.outbounds ?: return nodes
+
+        fun stableNodeId(profileId: String, outboundTag: String): String {
+            val key = "$profileId|$outboundTag"
+            return UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)).toString()
+        }
         
         // 收集所有 selector 和 urltest 的 outbounds 作为分组
         val groupOutbounds = outbounds.filter { 
@@ -1060,7 +1065,7 @@ class ConfigRepository(private val context: Context) {
 
                 nodes.add(
                     NodeUi(
-                        id = UUID.randomUUID().toString(),
+                        id = stableNodeId(profileId, outbound.tag),
                         name = outbound.tag,
                         protocol = outbound.type,
                         group = group,
@@ -1174,6 +1179,24 @@ class ConfigRepository(private val context: Context) {
                 }
             }
         }
+        return true
+    }
+
+    suspend fun syncActiveNodeFromProxySelection(proxyName: String?): Boolean {
+        if (proxyName.isNullOrBlank()) return false
+
+        val activeProfileId = _activeProfileId.value
+        val candidates = if (activeProfileId != null) {
+            _nodes.value + _allNodes.value.filter { it.sourceProfileId != activeProfileId }
+        } else {
+            _allNodes.value
+        }
+
+        val matched = candidates.firstOrNull { it.name == proxyName } ?: return false
+        if (_activeNodeId.value == matched.id) return true
+
+        _activeNodeId.value = matched.id
+        Log.i(TAG, "Synced active node from service selection: $proxyName -> ${matched.id}")
         return true
     }
     
@@ -1888,6 +1911,12 @@ class ConfigRepository(private val context: Context) {
 
         fun resolveNodeRefToId(value: String?): String? {
             if (value.isNullOrBlank()) return null
+            val parts = value.split("::", limit = 2)
+            if (parts.size == 2) {
+                val profileId = parts[0]
+                val nodeName = parts[1]
+                return allNodes.firstOrNull { it.sourceProfileId == profileId && it.name == nodeName }?.id
+            }
             if (allNodes.any { it.id == value }) return value
             val node = if (activeProfileId != null) {
                 allNodes.firstOrNull { it.sourceProfileId == activeProfileId && it.name == value }
@@ -1911,6 +1940,9 @@ class ConfigRepository(private val context: Context) {
             if (ruleSet.outboundMode == RuleSetOutboundMode.NODE) resolveNodeRefToId(ruleSet.outboundValue)?.let { requiredNodeIds.add(it) }
             if (ruleSet.outboundMode == RuleSetOutboundMode.GROUP) ruleSet.outboundValue?.let { requiredGroupNames.add(it) }
         }
+
+        // 确保当前选中的节点始终可用（即使某个应用规则被禁用，也避免 selector 默认值指向不存在的 outbound）
+        activeNode?.let { requiredNodeIds.add(it.id) }
 
         // 将所需组中的所有节点 ID 也加入到 requiredNodeIds
         requiredGroupNames.forEach { groupName ->
@@ -2009,11 +2041,17 @@ class ConfigRepository(private val context: Context) {
 
         // 创建一个主 Selector
         val selectorTag = "PROXY"
+
+        val selectorDefault = activeNode
+            ?.let { nodeTagMap[it.id] ?: it.name }
+            ?.takeIf { it in proxyTags }
+            ?: proxyTags.firstOrNull()
+
         val selectorOutbound = Outbound(
             type = "selector",
             tag = selectorTag,
             outbounds = proxyTags,
-            default = activeNode?.let { nodeTagMap[it.id] ?: it.name }, // 设置默认选中项
+            default = selectorDefault, // 设置默认选中项（确保存在于 outbounds 中）
             interruptExistConnections = true // 切换节点时断开现有连接，确保立即生效
         )
         

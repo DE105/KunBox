@@ -250,12 +250,20 @@ fun AppRulesScreen(
                             RuleSetOutboundMode.BLOCK -> "拦截"
                             RuleSetOutboundMode.PROXY -> "代理"
                             RuleSetOutboundMode.NODE -> {
-                                val node = nodes.find { it.id == rule.outboundValue }
+                                val value = rule.outboundValue
+                                val parts = value?.split("::", limit = 2)
+                                val node = if (!value.isNullOrBlank() && parts != null && parts.size == 2) {
+                                    val profileId = parts[0]
+                                    val name = parts[1]
+                                    nodes.find { it.sourceProfileId == profileId && it.name == name }
+                                } else {
+                                    nodes.find { it.id == value } ?: nodes.find { it.name == value }
+                                }
                                 val profileName = profiles.find { p -> p.id == node?.sourceProfileId }?.name
                                 if (node != null && profileName != null) {
                                     "${node.name} ($profileName)"
                                 } else {
-                                    node?.name ?: "未知节点"
+                                    "未选择"
                                 }
                             }
                             RuleSetOutboundMode.PROFILE -> profiles.find { it.id == rule.outboundValue }?.name ?: "未知配置"
@@ -456,6 +464,19 @@ fun AppRuleEditorDialog(
     var targetSelectionTitle by remember { mutableStateOf("") }
     var targetOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) } // Name, ID/Value
 
+    fun resolveNodeByStoredValue(value: String?): NodeUi? {
+        if (value.isNullOrBlank()) return null
+        val parts = value.split("::", limit = 2)
+        if (parts.size == 2) {
+            val profileId = parts[0]
+            val name = parts[1]
+            return nodes.find { it.sourceProfileId == profileId && it.name == name }
+        }
+        return nodes.find { it.id == value } ?: nodes.find { it.name == value }
+    }
+
+    fun toNodeRef(node: NodeUi): String = "${node.sourceProfileId}::${node.name}"
+
     if (showAppPicker) {
         AppPickerDialog(
             apps = installedApps,
@@ -499,7 +520,7 @@ fun AppRuleEditorDialog(
                     when (selectedMode) {
                         RuleSetOutboundMode.NODE -> {
                             targetSelectionTitle = "选择节点"
-                            targetOptions = nodes.map { it.name to it.id }
+                            targetOptions = nodes.map { it.name to toNodeRef(it) }
                         }
                         RuleSetOutboundMode.PROFILE -> {
                             targetSelectionTitle = "选择配置"
@@ -519,10 +540,11 @@ fun AppRuleEditorDialog(
     }
 
     if (showTargetSelectionDialog) {
+        val currentRef = resolveNodeByStoredValue(outboundValue)?.let { toNodeRef(it) } ?: outboundValue
         SingleSelectDialog(
             title = targetSelectionTitle,
             options = targetOptions.map { it.first },
-            selectedIndex = targetOptions.indexOfFirst { it.second == outboundValue }.coerceAtLeast(0),
+            selectedIndex = targetOptions.indexOfFirst { it.second == currentRef }.coerceAtLeast(0),
             onSelect = { index ->
                 outboundValue = targetOptions[index].second
                 showTargetSelectionDialog = false
@@ -570,7 +592,7 @@ fun AppRuleEditorDialog(
                     
                     val targetName = when (outboundMode) {
                         RuleSetOutboundMode.NODE -> {
-                            val node = nodes.find { it.id == outboundValue }
+                            val node = resolveNodeByStoredValue(outboundValue)
                             val profileName = profiles.find { it.id == node?.sourceProfileId }?.name
                             if (node != null && profileName != null) "${node.name} ($profileName)" else node?.name
                         }
@@ -593,7 +615,7 @@ fun AppRuleEditorDialog(
                                     targetSelectionTitle = "选择节点"
                                     targetOptions = nodes.map { node ->
                                         val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
-                                        "${node.name} ($profileName)" to node.id
+                                        "${node.name} ($profileName)" to toNodeRef(node)
                                     }
                                 }
                                 RuleSetOutboundMode.PROFILE -> {

@@ -45,6 +45,19 @@ fun RuleSetRoutingScreen(
     val groups by nodesViewModel.allNodeGroups.collectAsState()
     val profiles by profilesViewModel.profiles.collectAsState()
 
+    fun resolveNodeByStoredValue(value: String?): com.kunk.singbox.model.NodeUi? {
+        if (value.isNullOrBlank()) return null
+        val parts = value.split("::", limit = 2)
+        if (parts.size == 2) {
+            val profileId = parts[0]
+            val name = parts[1]
+            return nodes.find { it.sourceProfileId == profileId && it.name == name }
+        }
+        return nodes.find { it.id == value } ?: nodes.find { it.name == value }
+    }
+
+    fun toNodeRef(node: com.kunk.singbox.model.NodeUi): String = "${node.sourceProfileId}::${node.name}"
+
     var editingRuleSet by remember { mutableStateOf<RuleSet?>(null) }
     var showOutboundModeDialog by remember { mutableStateOf(false) }
     var showTargetSelectionDialog by remember { mutableStateOf(false) }
@@ -67,22 +80,23 @@ fun RuleSetRoutingScreen(
             onSelect = { index ->
                 val selectedMode = RuleSetOutboundMode.entries[index]
                 val updatedRuleSet = editingRuleSet!!.copy(outboundMode = selectedMode, outboundValue = null)
-                
+
                 // If mode requires further selection, trigger it
-                if (selectedMode == RuleSetOutboundMode.NODE || 
-                    selectedMode == RuleSetOutboundMode.PROFILE || 
-                    selectedMode == RuleSetOutboundMode.GROUP) {
-                    
+                if (selectedMode == RuleSetOutboundMode.NODE ||
+                    selectedMode == RuleSetOutboundMode.PROFILE ||
+                    selectedMode == RuleSetOutboundMode.GROUP
+                ) {
+
                     editingRuleSet = updatedRuleSet // Update local state to remember mode
                     showOutboundModeDialog = false
-                    
+
                     // Prepare target selection
                     when (selectedMode) {
                         RuleSetOutboundMode.NODE -> {
                             targetSelectionTitle = "选择节点"
                             targetOptions = nodes.map { node ->
                                 val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
-                                "${node.name} ($profileName)" to node.id
+                                "${node.name} ($profileName)" to toNodeRef(node)
                             }
                         }
                         RuleSetOutboundMode.PROFILE -> {
@@ -103,18 +117,20 @@ fun RuleSetRoutingScreen(
                     showOutboundModeDialog = false
                 }
             },
-            onDismiss = { 
-                showOutboundModeDialog = false 
+            onDismiss = {
+                showOutboundModeDialog = false
                 editingRuleSet = null
             }
         )
     }
 
     if (showTargetSelectionDialog && editingRuleSet != null) {
+        val currentValue = editingRuleSet!!.outboundValue
+        val currentRef = resolveNodeByStoredValue(currentValue)?.let { toNodeRef(it) } ?: currentValue
         SingleSelectDialog(
             title = targetSelectionTitle,
             options = targetOptions.map { it.first },
-            selectedIndex = targetOptions.indexOfFirst { it.second == editingRuleSet!!.outboundValue },
+            selectedIndex = targetOptions.indexOfFirst { it.second == currentRef },
             onSelect = { index ->
                 val selectedValue = targetOptions[index].second
                 val updatedRuleSet = editingRuleSet!!.copy(outboundValue = selectedValue)
@@ -131,7 +147,7 @@ fun RuleSetRoutingScreen(
 
     if (showInboundDialog && editingRuleSet != null) {
         AlertDialog(
-            onDismissRequest = { 
+            onDismissRequest = {
                 showInboundDialog = false
                 editingRuleSet = null
             },
@@ -224,7 +240,7 @@ fun RuleSetRoutingScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        
+
                         // Outbound Setting
                         Row(
                             modifier = Modifier
@@ -246,8 +262,8 @@ fun RuleSetRoutingScreen(
                                     RuleSetOutboundMode.BLOCK -> "拦截"
                                     RuleSetOutboundMode.PROXY -> "代理"
                                     RuleSetOutboundMode.NODE -> {
-                                        val node = nodes.find { it.id == ruleSet.outboundValue }
-                                        val nodeName = node?.name ?: ruleSet.outboundValue ?: "未知节点"
+                                        val node = resolveNodeByStoredValue(ruleSet.outboundValue)
+                                        val nodeName = node?.name ?: "未选择"
                                         val profileName = profiles.find { it.id == node?.sourceProfileId }?.name
                                         if (node != null && profileName != null) "节点: $nodeName ($profileName)" else "节点: $nodeName"
                                     }

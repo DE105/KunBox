@@ -86,6 +86,7 @@ fun DashboardScreen(
     val activeNodeId by viewModel.activeNodeId.collectAsState()
     val activeNodeLatency by viewModel.activeNodeLatency.collectAsState()
     val currentNodePing by viewModel.currentNodePing.collectAsState()
+    val isPingTesting by viewModel.isPingTesting.collectAsState()
     
     // 获取活跃配置和节点的名称
     val activeProfileName = profiles.find { it.id == activeProfileId }?.name
@@ -354,13 +355,25 @@ fun DashboardScreen(
             // Always show InfoCard but with placeholder data when not connected
             val isConnected = connectionState == ConnectionState.Connected
             // 优先使用 VPN 启动后测得的实时延迟，如果没有则使用缓存的延迟
-            val displayPing = currentNodePing ?: activeNodeLatency
-            // 当已连接但还没有延迟数据时，显示加载动画
-            val isPingLoading = isConnected && displayPing == null
+            // currentNodePing: null = 未测试, -1 = 超时/失败, >0 = 实际延迟
+            val displayPing = when {
+                currentNodePing != null && currentNodePing!! > 0 -> currentNodePing
+                currentNodePing == null && activeNodeLatency != null -> activeNodeLatency
+                else -> currentNodePing // 可能是 -1（超时）或 null
+            }
+            // 使用明确的 isPingTesting 状态来控制加载动画
+            val isPingLoading = isConnected && isPingTesting
+            // 格式化延迟显示：超时显示"超时"，未测试显示"-"
+            val pingText = when {
+                !isConnected -> "-"
+                displayPing != null && displayPing > 0 -> "${displayPing} ms"
+                displayPing == -1L -> "超时"
+                else -> "-"
+            }
             InfoCard(
                 uploadSpeed = if (isConnected) "${formatBytes(stats.uploadSpeed)}/s" else "-/s",
                 downloadSpeed = if (isConnected) "${formatBytes(stats.downloadSpeed)}/s" else "-/s",
-                ping = if (isConnected && displayPing != null) "${displayPing} ms" else "-",
+                ping = pingText,
                 isPingLoading = isPingLoading
             )
             

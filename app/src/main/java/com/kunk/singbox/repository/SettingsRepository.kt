@@ -38,6 +38,19 @@ class SettingsRepository(private val context: Context) {
     
     private val gson = Gson()
 
+    private fun parseVpnAppMode(raw: String?): VpnAppMode {
+        if (raw.isNullOrBlank()) return VpnAppMode.ALL
+        VpnAppMode.entries.firstOrNull { it.name == raw }?.let { return it }
+        return VpnAppMode.fromDisplayName(raw)
+    }
+
+    private fun migrateVpnAppModeIfNeeded(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        if (VpnAppMode.entries.any { it.name == raw }) return null
+        val migrated = VpnAppMode.entries.firstOrNull { it.displayName == raw } ?: return null
+        return migrated.name
+    }
+
     private object PreferencesKeys {
         // 通用设置
         val AUTO_CONNECT = booleanPreferencesKey("auto_connect")
@@ -203,7 +216,7 @@ class SettingsRepository(private val context: Context) {
             strictRoute = preferences[PreferencesKeys.STRICT_ROUTE] ?: true,
             vpnRouteMode = VpnRouteMode.fromDisplayName(preferences[PreferencesKeys.VPN_ROUTE_MODE] ?: VpnRouteMode.GLOBAL.displayName),
             vpnRouteIncludeCidrs = preferences[PreferencesKeys.VPN_ROUTE_INCLUDE_CIDRS] ?: "",
-            vpnAppMode = VpnAppMode.fromDisplayName(preferences[PreferencesKeys.VPN_APP_MODE] ?: VpnAppMode.ALL.displayName),
+            vpnAppMode = parseVpnAppMode(preferences[PreferencesKeys.VPN_APP_MODE]),
             vpnAllowlist = preferences[PreferencesKeys.VPN_ALLOWLIST] ?: "",
             vpnBlocklist = preferences[PreferencesKeys.VPN_BLOCKLIST] ?: "",
             
@@ -287,7 +300,7 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setVpnAppMode(value: VpnAppMode) {
-        context.dataStore.edit { it[PreferencesKeys.VPN_APP_MODE] = value.displayName }
+        context.dataStore.edit { it[PreferencesKeys.VPN_APP_MODE] = value.name }
         notifyRestartRequired()
     }
 
@@ -384,6 +397,14 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun checkAndMigrateRuleSets() {
         try {
+            // Also migrate legacy vpnAppMode persisted as displayName to stable enum.name
+            val preferences = context.dataStore.data.first()
+            val rawVpnAppMode = preferences[PreferencesKeys.VPN_APP_MODE]
+            val migratedVpnAppMode = migrateVpnAppModeIfNeeded(rawVpnAppMode)
+            if (migratedVpnAppMode != null) {
+                context.dataStore.edit { it[PreferencesKeys.VPN_APP_MODE] = migratedVpnAppMode }
+            }
+
             val currentSettings = settings.first()
             val originalRuleSets = currentSettings.ruleSets
             val currentMirrorUrl = currentSettings.ghProxyMirror.url
