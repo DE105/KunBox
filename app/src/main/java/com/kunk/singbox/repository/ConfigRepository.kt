@@ -1316,15 +1316,15 @@ class ConfigRepository(private val context: Context) {
      * 构建广告拦截规则集配置
      */
     private fun buildAdBlockRuleSet(settings: AppSettings): RuleSetConfig {
-        val mirrorUrl = settings.ghProxyMirror.url
+        // 使用本地缓存路径，避免启动时下载
+        val ruleSetRepo = RuleSetRepository.getInstance(context)
+        val localPath = ruleSetRepo.getRuleSetPath("geosite-category-ads-all")
+        
         return RuleSetConfig(
             tag = "geosite-category-ads-all",
-            type = "remote",
+            type = "local",
             format = "binary",
-            // 使用用户选择的镜像加速
-            url = "${mirrorUrl}https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
-            downloadDetour = "direct",
-            updateInterval = "24h"
+            path = localPath
         )
     }
     
@@ -1332,17 +1332,27 @@ class ConfigRepository(private val context: Context) {
      * 构建自定义规则集配置
      */
     private fun buildCustomRuleSets(settings: AppSettings): List<RuleSetConfig> {
+        val ruleSetRepo = RuleSetRepository.getInstance(context)
+        
         return settings.ruleSets.map { ruleSet ->
-            RuleSetConfig(
-                tag = ruleSet.tag,
-                type = ruleSet.type.name.lowercase(),
-                format = ruleSet.format,
-                url = if (ruleSet.type == RuleSetType.REMOTE) ruleSet.url else null,
-                // 本地路径暂未处理，通常需要复制到工作目录或通过 assets 读取
-                // path = if (ruleSet.type == RuleSetType.LOCAL) ruleSet.path else null,
-                downloadDetour = "direct", // 下载规则集走直连
-                updateInterval = "24h"
-            )
+            if (ruleSet.type == RuleSetType.REMOTE) {
+                // 远程规则集：使用预下载的本地缓存
+                val localPath = ruleSetRepo.getRuleSetPath(ruleSet.tag)
+                RuleSetConfig(
+                    tag = ruleSet.tag,
+                    type = "local",
+                    format = ruleSet.format,
+                    path = localPath
+                )
+            } else {
+                // 本地规则集：直接使用用户指定的路径
+                RuleSetConfig(
+                    tag = ruleSet.tag,
+                    type = "local",
+                    format = ruleSet.format,
+                    path = ruleSet.path
+                )
+            }
         }
     }
 

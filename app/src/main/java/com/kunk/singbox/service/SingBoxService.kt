@@ -17,6 +17,7 @@ import android.util.Log
 import com.kunk.singbox.MainActivity
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.repository.ConfigRepository
+import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.*
@@ -298,7 +299,8 @@ class SingBoxService : VpnService() {
             // Auto Reconnect 逻辑：当网络可用且开启了自动重连，如果当前未运行但有上次的配置，则尝试重连
             serviceScope.launch {
                 val settings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
-                if (settings.autoReconnect && !isRunning && !isManuallyStopped && lastConfigPath != null) {
+                // 增加 !isStarting 判断，避免在启动过程中重复触发
+                if (settings.autoReconnect && !isRunning && !isStarting && !isManuallyStopped && lastConfigPath != null) {
                     Log.i(TAG, "Auto-reconnecting on network available: $interfaceName")
                     startVpn(lastConfigPath!!)
                 }
@@ -399,6 +401,21 @@ class SingBoxService : VpnService() {
         
         serviceScope.launch {
             try {
+                // 1. 确保规则集就绪（预下载）
+                // 即使下载失败也继续启动，使用旧缓存或空文件，避免阻塞启动
+                try {
+                    Log.i(TAG, "Checking rule sets...")
+                    val ruleSetRepo = RuleSetRepository.getInstance(this@SingBoxService)
+                    val allReady = ruleSetRepo.ensureRuleSetsReady { progress ->
+                        Log.v(TAG, "Rule set update: $progress")
+                    }
+                    if (!allReady) {
+                        Log.w(TAG, "Some rule sets are not ready, proceeding with available cache")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to update rule sets", e)
+                }
+
                 // 加载最新设置
                 currentSettings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
                 Log.v(TAG, "Settings loaded: tunEnabled=${currentSettings?.tunEnabled}")
@@ -442,9 +459,17 @@ class SingBoxService : VpnService() {
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start VPN: ${e.message}", e)
-                withContext(Dispatchers.Main) { 
+                withContext(Dispatchers.Main) {
                     isRunning = false
-                    stopVpn() 
+                    stopVpn()
+                }
+                // 启动失败后，尝试重试一次（如果是自动重连触发的，可能因为网络刚切换还不稳定）
+                if (lastConfigPath != null && !isManuallyStopped) {
+                    Log.i(TAG, "Retrying start VPN in 2 seconds...")
+                    delay(2000)
+                    if (!isRunning && !isManuallyStopped) {
+                        startVpn(lastConfigPath!!)
+                    }
                 }
             } finally {
                 isStarting = false

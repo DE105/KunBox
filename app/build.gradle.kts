@@ -89,6 +89,11 @@ android {
             useLegacyPackaging = true
         }
     }
+    
+    // 避免压缩规则集文件，提高读取效率
+    aaptOptions {
+        noCompress("srs")
+    }
 }
 
 dependencies {
@@ -127,6 +132,9 @@ dependencies {
     
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // WorkManager
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

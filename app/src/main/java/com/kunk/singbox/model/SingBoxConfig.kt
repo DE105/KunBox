@@ -202,6 +202,7 @@ data class RuleSetConfig(
     @SerializedName("type") val type: String? = null,
     @SerializedName("format") val format: String? = null,
     @SerializedName("url") val url: String? = null,
+    @SerializedName("path") val path: String? = null,
     @SerializedName("download_detour") val downloadDetour: String? = null,
     @SerializedName("update_interval") val updateInterval: String? = null
 )

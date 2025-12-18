@@ -19,7 +19,9 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.VpnKey
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,19 +31,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
+import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.ui.components.ConfirmDialog
 import com.kunk.singbox.ui.components.SettingItem
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.navigation.Screen
 import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.TextPrimary
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(navController: NavController) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
     var showAboutDialog by remember { mutableStateOf(false) }
+    var isUpdatingRuleSets by remember { mutableStateOf(false) }
+    var updateMessage by remember { mutableStateOf("") }
 
     if (showAboutDialog) {
         ConfirmDialog(
@@ -112,6 +122,38 @@ fun SettingsScreen(navController: NavController) {
         // 3. Tools
         SettingsGroupTitle("工具")
         StandardCard {
+            SettingItem(
+                title = if (isUpdatingRuleSets) updateMessage else "更新规则集",
+                subtitle = if (isUpdatingRuleSets) "正在下载..." else "手动更新广告与路由规则",
+                icon = Icons.Rounded.Sync,
+                trailing = {
+                    if (isUpdatingRuleSets) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(24.dp).padding(end = 8.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                },
+                onClick = {
+                    if (!isUpdatingRuleSets) {
+                        isUpdatingRuleSets = true
+                        updateMessage = "准备更新..."
+                        scope.launch {
+                            try {
+                                val success = RuleSetRepository.getInstance(context).ensureRuleSetsReady(forceUpdate = true) {
+                                    updateMessage = it
+                                }
+                                updateMessage = if (success) "更新成功" else "更新失败"
+                            } catch (e: Exception) {
+                                updateMessage = "发生错误: ${e.message}"
+                            } finally {
+                                kotlinx.coroutines.delay(1000)
+                                isUpdatingRuleSets = false
+                            }
+                        }
+                    }
+                }
+            )
             SettingItem(
                 title = "运行日志",
                 icon = Icons.Rounded.History,
