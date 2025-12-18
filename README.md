@@ -12,6 +12,10 @@
   <img src="https://beone.kuz7.com/p/n3Vrqqq9qtrC1qCMiClQYz6OlNmm1mGl-crt_zuPyxE" width="30%" alt="设置页面" />
 </div>
 
+<div align="center">
+  <img src="https://beone.kuz7.com/p/jK9YTrZ6ZOITiSNxLBfHZtbKRdCu2o88vK62t1qNGgI" width="30%" alt="演示动画" />
+</div>
+
 ## ✨ 核心功能
 
 *   **极简设计**: 采用 OLED 友好的纯黑白灰配色，无干扰的 UI 设计，专注于核心体验。
