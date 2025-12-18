@@ -16,6 +16,8 @@ import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.system.OsConstants
 import android.util.Log
+import android.service.quicksettings.TileService
+import android.content.ComponentName
 import com.kunk.singbox.MainActivity
 import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.model.AppSettings
@@ -695,6 +697,7 @@ class SingBoxService : VpnService() {
                 
                 isRunning = true
                 Log.i(TAG, "SingBox VPN started successfully")
+                updateTileState()
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start VPN: ${e.message}", e)
@@ -743,6 +746,15 @@ class SingBoxService : VpnService() {
         }
         
         Log.i(TAG, "VPN stopped")
+        updateTileState()
+    }
+
+    private fun updateTileState() {
+        try {
+            TileService.requestListeningState(this, ComponentName(this, VpnTileService::class.java))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update tile state", e)
+        }
     }
     
     private fun createNotificationChannel() {
