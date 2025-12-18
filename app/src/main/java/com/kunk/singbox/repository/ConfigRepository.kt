@@ -31,6 +31,16 @@ class ConfigRepository(private val context: Context) {
     companion object {
         private const val TAG = "ConfigRepository"
         
+        // User-Agent 列表，按优先级排序
+        // 优先使用 Clash Meta UA 获取更兼容的 YAML 格式
+        private val USER_AGENTS = listOf(
+            "clash-verge/v1.4.0",           // Clash Verge - 返回 Clash YAML
+            "ClashMetaForAndroid/2.8.9",    // Clash Meta for Android
+            "clash.meta",                    // Clash Meta 通用标识
+            "sing-box/1.8.0",               // Sing-box - 返回原生 JSON
+            "SFA/1.8.0"                     // Sing-box for Android
+        )
+        
         @Volatile
         private var instance: ConfigRepository? = null
         
@@ -136,6 +146,68 @@ class ConfigRepository(private val context: Context) {
     /**
      * 从订阅 URL 导入配置
      */
+    /**
+     * 使用多种 User-Agent 尝试获取订阅内容
+     * 优先尝试 Clash Meta UA，以获取更兼容的 YAML 格式
+     * 如果解析失败，依次尝试其他 UA
+     *
+     * @param url 订阅链接
+     * @param onProgress 进度回调
+     * @return 解析成功的配置，如果所有尝试都失败则返回 null
+     */
+    private fun fetchAndParseSubscription(
+        url: String,
+        onProgress: (String) -> Unit = {}
+    ): SingBoxConfig? {
+        var lastError: Exception? = null
+        
+        for ((index, userAgent) in USER_AGENTS.withIndex()) {
+            try {
+                onProgress("尝试获取订阅 (${index + 1}/${USER_AGENTS.size})...")
+                Log.v(TAG, "Trying subscription with User-Agent: $userAgent")
+                
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", userAgent)
+                    .build()
+                
+                val response = client.newCall(request).execute()
+                
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Request failed with UA '$userAgent': HTTP ${response.code}")
+                    continue
+                }
+                
+                val responseBody = response.body?.string()
+                if (responseBody.isNullOrBlank()) {
+                    Log.w(TAG, "Empty response with UA '$userAgent'")
+                    continue
+                }
+                
+                onProgress("正在解析配置...")
+                
+                // 尝试解析
+                val config = parseSubscriptionResponse(responseBody)
+                if (config != null && config.outbounds != null && config.outbounds.isNotEmpty()) {
+                    Log.i(TAG, "Successfully parsed subscription with UA '$userAgent', got ${config.outbounds.size} outbounds")
+                    return config
+                } else {
+                    Log.w(TAG, "Failed to parse response with UA '$userAgent'")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error with UA '$userAgent': ${e.message}")
+                lastError = e
+            }
+        }
+        
+        // 所有 UA 都失败了，记录最后的错误
+        lastError?.let { Log.e(TAG, "All User-Agents failed", it) }
+        return null
+    }
+    
+    /**
+     * 从订阅 URL 导入配置
+     */
     suspend fun importFromSubscription(
         name: String,
         url: String,
@@ -144,25 +216,9 @@ class ConfigRepository(private val context: Context) {
         try {
             onProgress("正在获取订阅...")
             
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "sing-box/1.0")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("HTTP ${response.code}: ${response.message}"))
-            }
-            
-            val responseBody = response.body?.string() 
-                ?: return@withContext Result.failure(Exception("空响应"))
-            
-            onProgress("正在解析配置...")
-            
-            // 尝试解析配置
-            val config = parseSubscriptionResponse(responseBody)
-                ?: return@withContext Result.failure(Exception("无法解析配置格式"))
+            // 使用智能 User-Agent 切换策略获取订阅
+            val config = fetchAndParseSubscription(url, onProgress)
+                ?: return@withContext Result.failure(Exception("无法解析配置格式，已尝试所有 User-Agent"))
             
             onProgress("正在提取节点...")
             
@@ -388,6 +444,8 @@ class ConfigRepository(private val context: Context) {
             link.startsWith("trojan://") -> parseTrojanLink(link)
             link.startsWith("hysteria2://") || link.startsWith("hy2://") -> parseHysteria2Link(link)
             link.startsWith("hysteria://") -> parseHysteriaLink(link)
+            link.startsWith("anytls://") -> parseAnyTLSLink(link)
+            link.startsWith("tuic://") -> parseTuicLink(link)
             else -> null
         }
     }
@@ -796,6 +854,108 @@ class ConfigRepository(private val context: Context) {
     }
     
     /**
+     * 解析 AnyTLS 链接
+     * 格式: anytls://password@server:port?params#name
+     */
+    private fun parseAnyTLSLink(link: String): Outbound? {
+        try {
+            val uri = java.net.URI(link)
+            val name = java.net.URLDecoder.decode(uri.fragment ?: "AnyTLS Node", "UTF-8")
+            val password = uri.userInfo
+            val server = uri.host
+            val port = if (uri.port > 0) uri.port else 443
+            
+            val params = mutableMapOf<String, String>()
+            uri.query?.split("&")?.forEach { param ->
+                val parts = param.split("=", limit = 2)
+                if (parts.size == 2) {
+                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                }
+            }
+            
+            val sni = params["sni"] ?: server
+            val insecure = params["insecure"] == "1" || params["allowInsecure"] == "1"
+            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
+            val fingerprint = params["fp"]
+            
+            return Outbound(
+                type = "anytls",
+                tag = name,
+                server = server,
+                serverPort = port,
+                password = password,
+                tls = TlsConfig(
+                    enabled = true,
+                    serverName = sni,
+                    insecure = insecure,
+                    alpn = alpnList,
+                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                ),
+                idleSessionCheckInterval = params["idle_session_check_interval"],
+                idleSessionTimeout = params["idle_session_timeout"],
+                minIdleSession = params["min_idle_session"]?.toIntOrNull()
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+    
+    /**
+     * 解析 TUIC 链接
+     * 格式: tuic://uuid:password@server:port?params#name
+     */
+    private fun parseTuicLink(link: String): Outbound? {
+        try {
+            val uri = java.net.URI(link)
+            val name = java.net.URLDecoder.decode(uri.fragment ?: "TUIC Node", "UTF-8")
+            val server = uri.host
+            val port = if (uri.port > 0) uri.port else 443
+            
+            // 解析 userInfo: uuid:password
+            val userInfo = uri.userInfo ?: ""
+            val colonIndex = userInfo.indexOf(':')
+            val uuid = if (colonIndex > 0) userInfo.substring(0, colonIndex) else userInfo
+            val password = if (colonIndex > 0) userInfo.substring(colonIndex + 1) else ""
+            
+            val params = mutableMapOf<String, String>()
+            uri.query?.split("&")?.forEach { param ->
+                val parts = param.split("=", limit = 2)
+                if (parts.size == 2) {
+                    params[parts[0]] = java.net.URLDecoder.decode(parts[1], "UTF-8")
+                }
+            }
+            
+            val sni = params["sni"] ?: server
+            val insecure = params["allow_insecure"] == "1" || params["allowInsecure"] == "1" || params["insecure"] == "1"
+            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
+            val fingerprint = params["fp"]
+            
+            return Outbound(
+                type = "tuic",
+                tag = name,
+                server = server,
+                serverPort = port,
+                uuid = uuid,
+                password = password,
+                congestionControl = params["congestion_control"] ?: params["congestion"] ?: "bbr",
+                udpRelayMode = params["udp_relay_mode"] ?: "native",
+                zeroRttHandshake = params["reduce_rtt"] == "1" || params["zero_rtt"] == "1",
+                tls = TlsConfig(
+                    enabled = true,
+                    serverName = sni,
+                    insecure = insecure,
+                    alpn = alpnList,
+                    utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                )
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+    
+    /**
      * 从配置中提取节点
      */
     private fun extractNodesFromConfig(config: SingBoxConfig, profileId: String): List<NodeUi> {
@@ -817,9 +977,9 @@ class ConfigRepository(private val context: Context) {
         
         // 过滤出代理节点
         val proxyTypes = setOf(
-            "shadowsocks", "vmess", "vless", "trojan", 
+            "shadowsocks", "vmess", "vless", "trojan",
             "hysteria", "hysteria2", "tuic", "wireguard",
-            "shadowtls", "ssh"
+            "shadowtls", "ssh", "anytls"
         )
         
         for (outbound in outbounds) {
@@ -1156,21 +1316,8 @@ class ConfigRepository(private val context: Context) {
     
     private suspend fun importFromSubscriptionUpdate(profile: ProfileUi): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val request = Request.Builder()
-                .url(profile.url!!)
-                .header("User-Agent", "sing-box/1.0")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception("HTTP ${response.code}"))
-            }
-            
-            val responseBody = response.body?.string() 
-                ?: return@withContext Result.failure(Exception("空响应"))
-            
-            val config = parseSubscriptionResponse(responseBody)
+            // 使用智能 User-Agent 切换策略获取订阅
+            val config = fetchAndParseSubscription(profile.url!!) { /* 静默更新，不显示进度 */ }
                 ?: return@withContext Result.failure(Exception("无法解析配置"))
             
             val nodes = extractNodesFromConfig(config, profile.id)
@@ -1644,7 +1791,7 @@ class ConfigRepository(private val context: Context) {
         
         // 收集所有代理节点名称
         val proxyTags = fixedOutbounds.filter {
-            it.type in listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "hysteria")
+            it.type in listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "hysteria", "anytls", "tuic")
         }.map { it.tag }.toMutableList()
 
         // 创建一个主 Selector
@@ -1924,6 +2071,8 @@ class ConfigRepository(private val context: Context) {
                 link
             }
             "hysteria" -> generateHysteriaLink(outbound)
+            "anytls" -> generateAnyTLSLink(outbound)
+            "tuic" -> generateTuicLink(outbound)
             else -> {
                 Log.e(TAG, "exportNode: Unsupported type ${outbound.type}")
                 null
@@ -2096,6 +2245,59 @@ class ConfigRepository(private val context: Context) {
 
          val query = params.joinToString("&")
          return "hysteria://$server:$port?$query#$name"
+    }
+    
+    /**
+     * 生成 AnyTLS 链接
+     */
+    private fun generateAnyTLSLink(outbound: Outbound): String {
+        val password = java.net.URLEncoder.encode(outbound.password ?: "", "UTF-8")
+        val server = outbound.server ?: ""
+        val port = outbound.serverPort ?: 443
+        val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+        
+        val params = mutableListOf<String>()
+        
+        outbound.tls?.serverName?.let { params.add("sni=$it") }
+        if (outbound.tls?.insecure == true) params.add("insecure=1")
+        outbound.tls?.alpn?.let {
+            if (it.isNotEmpty()) params.add("alpn=${it.joinToString(",")}")
+        }
+        outbound.tls?.utls?.fingerprint?.let { params.add("fp=$it") }
+        
+        outbound.idleSessionCheckInterval?.let { params.add("idle_session_check_interval=$it") }
+        outbound.idleSessionTimeout?.let { params.add("idle_session_timeout=$it") }
+        outbound.minIdleSession?.let { params.add("min_idle_session=$it") }
+        
+        val query = params.joinToString("&")
+        return "anytls://$password@$server:$port?$query#$name"
+    }
+    
+    /**
+     * 生成 TUIC 链接
+     */
+    private fun generateTuicLink(outbound: Outbound): String {
+        val uuid = outbound.uuid ?: ""
+        val password = java.net.URLEncoder.encode(outbound.password ?: "", "UTF-8")
+        val server = outbound.server ?: ""
+        val port = outbound.serverPort ?: 443
+        val name = java.net.URLEncoder.encode(outbound.tag, "UTF-8").replace("+", "%20")
+        
+        val params = mutableListOf<String>()
+        
+        outbound.congestionControl?.let { params.add("congestion_control=$it") }
+        outbound.udpRelayMode?.let { params.add("udp_relay_mode=$it") }
+        if (outbound.zeroRttHandshake == true) params.add("reduce_rtt=1")
+        
+        outbound.tls?.serverName?.let { params.add("sni=$it") }
+        if (outbound.tls?.insecure == true) params.add("allow_insecure=1")
+        outbound.tls?.alpn?.let {
+            if (it.isNotEmpty()) params.add("alpn=${it.joinToString(",")}")
+        }
+        outbound.tls?.utls?.fingerprint?.let { params.add("fp=$it") }
+        
+        val query = params.joinToString("&")
+        return "tuic://$uuid:$password@$server:$port?$query#$name"
     }
 }
 data class SavedProfilesData(

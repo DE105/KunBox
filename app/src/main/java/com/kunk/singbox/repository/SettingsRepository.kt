@@ -26,6 +26,9 @@ import com.kunk.singbox.model.GhProxyMirror
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -85,6 +88,7 @@ class SettingsRepository(private val context: Context) {
             } catch (e: Exception) {
                 emptyList()
             }
+
         } else {
             emptyList()
         }
@@ -242,100 +246,124 @@ class SettingsRepository(private val context: Context) {
     // TUN/VPN 设置
     suspend fun setTunEnabled(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.TUN_ENABLED] = value }
+        notifyRestartRequired()
     }
     
     suspend fun setTunStack(value: TunStack) {
         context.dataStore.edit { it[PreferencesKeys.TUN_STACK] = value.displayName }
+        notifyRestartRequired()
     }
     
     suspend fun setTunMtu(value: Int) {
         context.dataStore.edit { it[PreferencesKeys.TUN_MTU] = value }
+        notifyRestartRequired()
     }
     
     suspend fun setTunInterfaceName(value: String) {
         context.dataStore.edit { it[PreferencesKeys.TUN_INTERFACE_NAME] = value }
+        notifyRestartRequired()
     }
     
     suspend fun setAutoRoute(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.AUTO_ROUTE] = value }
+        notifyRestartRequired()
     }
     
     suspend fun setStrictRoute(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.STRICT_ROUTE] = value }
+        notifyRestartRequired()
     }
 
     suspend fun setVpnRouteMode(value: VpnRouteMode) {
         context.dataStore.edit { it[PreferencesKeys.VPN_ROUTE_MODE] = value.displayName }
+        notifyRestartRequired()
     }
 
     suspend fun setVpnRouteIncludeCidrs(value: String) {
         context.dataStore.edit { it[PreferencesKeys.VPN_ROUTE_INCLUDE_CIDRS] = value }
+        notifyRestartRequired()
     }
 
     suspend fun setVpnAppMode(value: VpnAppMode) {
         context.dataStore.edit { it[PreferencesKeys.VPN_APP_MODE] = value.displayName }
+        notifyRestartRequired()
     }
 
     suspend fun setVpnAllowlist(value: String) {
         context.dataStore.edit { it[PreferencesKeys.VPN_ALLOWLIST] = value }
+        notifyRestartRequired()
     }
 
     suspend fun setVpnBlocklist(value: String) {
         context.dataStore.edit { it[PreferencesKeys.VPN_BLOCKLIST] = value }
+        notifyRestartRequired()
     }
     
     // DNS 设置
     suspend fun setLocalDns(value: String) {
         context.dataStore.edit { it[PreferencesKeys.LOCAL_DNS] = value }
+        notifyRestartRequired()
     }
     
     suspend fun setRemoteDns(value: String) {
         context.dataStore.edit { it[PreferencesKeys.REMOTE_DNS] = value }
+        notifyRestartRequired()
     }
     
     suspend fun setFakeDnsEnabled(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.FAKE_DNS_ENABLED] = value }
+        notifyRestartRequired()
     }
     
     suspend fun setFakeIpRange(value: String) {
         context.dataStore.edit { it[PreferencesKeys.FAKE_IP_RANGE] = value }
+        notifyRestartRequired()
     }
     
     suspend fun setDnsStrategy(value: DnsStrategy) {
         context.dataStore.edit { it[PreferencesKeys.DNS_STRATEGY] = value.displayName }
+        notifyRestartRequired()
     }
     
     suspend fun setDnsCacheEnabled(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.DNS_CACHE_ENABLED] = value }
+        notifyRestartRequired()
     }
     
     // 路由设置
     suspend fun setRoutingMode(value: RoutingMode) {
         context.dataStore.edit { it[PreferencesKeys.ROUTING_MODE] = value.displayName }
+        notifyRestartRequired()
     }
     
     suspend fun setDefaultRule(value: DefaultRule) {
         context.dataStore.edit { it[PreferencesKeys.DEFAULT_RULE] = value.displayName }
+        notifyRestartRequired()
     }
     
     suspend fun setBlockAds(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.BLOCK_ADS] = value }
+        notifyRestartRequired()
     }
     
     suspend fun setBypassLan(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.BYPASS_LAN] = value }
+        notifyRestartRequired()
     }
     
     suspend fun setGhProxyMirror(value: GhProxyMirror) {
         context.dataStore.edit { it[PreferencesKeys.GH_PROXY_MIRROR] = value.displayName }
+        notifyRestartRequired()
     }
     
     suspend fun setCustomRules(value: List<CustomRule>) {
         context.dataStore.edit { it[PreferencesKeys.CUSTOM_RULES] = gson.toJson(value) }
+        notifyRestartRequired()
     }
 
     suspend fun setRuleSets(value: List<RuleSet>) {
         context.dataStore.edit { it[PreferencesKeys.RULE_SETS] = gson.toJson(value) }
+        notifyRestartRequired()
     }
 
     suspend fun getRuleSets(): List<RuleSet> {
@@ -344,10 +372,12 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAppRules(value: List<AppRule>) {
         context.dataStore.edit { it[PreferencesKeys.APP_RULES] = gson.toJson(value) }
+        notifyRestartRequired()
     }
 
     suspend fun setAppGroups(value: List<AppGroup>) {
         context.dataStore.edit { it[PreferencesKeys.APP_GROUPS] = gson.toJson(value) }
+        notifyRestartRequired()
     }
     
     suspend fun checkAndMigrateRuleSets() {
@@ -408,7 +438,14 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    private fun notifyRestartRequired() {
+        _restartRequiredEvents.tryEmit(Unit)
+    }
+
     companion object {
+        private val _restartRequiredEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        val restartRequiredEvents: SharedFlow<Unit> = _restartRequiredEvents.asSharedFlow()
+
         @Volatile
         private var INSTANCE: SettingsRepository? = null
         

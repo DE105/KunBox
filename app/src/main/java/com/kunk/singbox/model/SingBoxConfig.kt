@@ -106,7 +106,13 @@ data class Outbound(
     
     @SerializedName("transport") val transport: TransportConfig? = null,
     
-    @SerializedName("multiplex") val multiplex: MultiplexConfig? = null
+    @SerializedName("multiplex") val multiplex: MultiplexConfig? = null,
+    
+    // TUIC 特有字段
+    @SerializedName("congestion_control") val congestionControl: String? = null,
+    @SerializedName("udp_relay_mode") val udpRelayMode: String? = null,
+    @SerializedName("zero_rtt_handshake") val zeroRttHandshake: Boolean? = null,
+    @SerializedName("heartbeat") val heartbeat: String? = null
 )
 
 @Keep

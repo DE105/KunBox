@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Router
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material.icons.rounded.Title
@@ -159,7 +160,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     )
                     
                     // UUID
-                    if (outbound.type in listOf("vmess", "vless")) {
+                    if (outbound.type in listOf("vmess", "vless", "tuic")) {
                         EditableTextItem(
                             title = "用户ID",
                             value = outbound.uuid ?: "",
@@ -169,7 +170,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     }
                     
                     // Password
-                    if (outbound.type in listOf("trojan", "anytls", "hysteria2")) {
+                    if (outbound.type in listOf("trojan", "anytls", "hysteria2", "tuic")) {
                         EditableTextItem(
                             title = "密码",
                             value = outbound.password ?: "",
@@ -197,6 +198,31 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                             value = outbound.minIdleSession?.toString() ?: "0",
                             icon = Icons.Rounded.Numbers,
                             onValueChange = { editingOutbound = outbound.copy(minIdleSession = it.toIntOrNull()) }
+                        )
+                    }
+                    
+                    // TUIC Specific Fields
+                    if (outbound.type == "tuic") {
+                        EditableSelectionItem(
+                            title = "拥塞控制",
+                            value = outbound.congestionControl ?: "bbr",
+                            options = listOf("bbr", "cubic", "new_reno"),
+                            icon = Icons.Rounded.Speed,
+                            onValueChange = { editingOutbound = outbound.copy(congestionControl = it) }
+                        )
+                        EditableSelectionItem(
+                            title = "UDP 中继模式",
+                            value = outbound.udpRelayMode ?: "native",
+                            options = listOf("native", "quic"),
+                            icon = Icons.Rounded.SwapHoriz,
+                            onValueChange = { editingOutbound = outbound.copy(udpRelayMode = it) }
+                        )
+                        SettingSwitchItem(
+                            title = "启用 0-RTT",
+                            subtitle = "减少握手延迟，但可能影响安全性",
+                            checked = outbound.zeroRttHandshake == true,
+                            icon = Icons.Rounded.Bolt,
+                            onCheckedChange = { editingOutbound = outbound.copy(zeroRttHandshake = it) }
                         )
                     }
                     
@@ -243,8 +269,9 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 // --- Transport ---
-                // Only show transport settings for protocols that support pluggable transport (VMess, VLESS, Trojan, AnyTLS)
-                if (outbound.type !in listOf("hysteria2")) {
+                // Only show transport settings for protocols that support pluggable transport (VMess, VLESS, Trojan)
+                // Don't show for: hysteria2, hysteria, tuic, anytls (they use fixed transport)
+                if (outbound.type !in listOf("hysteria2", "hysteria", "tuic", "anytls")) {
                     StandardCard {
                         val transport = outbound.transport ?: TransportConfig(type = "tcp")
                         val currentType = transport.type ?: "tcp"
@@ -335,7 +362,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     val tls = outbound.tls ?: TlsConfig(enabled = false)
                     
                     // Determine if TLS is mandatory/intrinsic for this protocol
-                    val isTlsIntrinsic = outbound.type in listOf("hysteria2", "hysteria", "tuic", "quic")
+                    val isTlsIntrinsic = outbound.type in listOf("hysteria2", "hysteria", "tuic", "quic", "anytls")
                     
                     // 传输层加密 (Nekobox style: none, tls, reality)
                     val securityType = if (isTlsIntrinsic || tls.enabled == true) {

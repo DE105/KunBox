@@ -73,9 +73,8 @@ object ClashConfigParser {
         val flow = map["flow"] as? String
         
         // 对于 VLESS，如果有 reality-opts 或 tls=true，都需要启用 TLS
-        // 对于 Trojan，默认启用 TLS
-        // 对于 Hysteria2，默认启用 TLS
-        val needsTls = tlsEnabled || hasReality || type == "trojan" || type == "hysteria2" || type == "hysteria"
+        // 对于 Trojan、Hysteria2、TUIC、AnyTLS，默认启用 TLS
+        val needsTls = tlsEnabled || hasReality || type == "trojan" || type == "hysteria2" || type == "hysteria" || type == "tuic" || type == "anytls"
         
         // 如果是 WS 且开启了 TLS，但没有指定 ALPN，默认强制使用 http/1.1
         // 这是为了避免服务端尝试协商 h2 导致 WS 握手失败
@@ -231,6 +230,18 @@ object ClashConfigParser {
                         password = map["obfs-password"] as? String
                     )
                 }
+            )
+            "tuic" -> Outbound(
+                type = "tuic",
+                tag = name,
+                server = server,
+                serverPort = port,
+                uuid = uuid,
+                password = password,
+                congestionControl = map["congestion-control"] as? String ?: "bbr",
+                udpRelayMode = map["udp-relay-mode"] as? String ?: "native",
+                zeroRttHandshake = map["reduce-rtt"] as? Boolean ?: false,
+                tls = tlsConfig
             )
             else -> null
         }

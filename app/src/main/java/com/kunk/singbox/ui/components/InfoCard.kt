@@ -2,6 +2,7 @@ package com.kunk.singbox.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,7 +35,8 @@ fun InfoCard(
     modifier: Modifier = Modifier,
     uploadSpeed: String = "0 KB/s",
     downloadSpeed: String = "0 KB/s",
-    ping: String = "0 ms"
+    ping: String = "0 ms",
+    isPingLoading: Boolean = false
 ) {
     Row(
         modifier = modifier
@@ -56,7 +59,8 @@ fun InfoCard(
         InfoItem(
             icon = Icons.Rounded.Speed,
             label = "Ping",
-            value = ping
+            value = ping,
+            isLoading = isPingLoading
         )
     }
 }
@@ -65,7 +69,8 @@ fun InfoCard(
 private fun InfoItem(
     icon: ImageVector,
     label: String,
-    value: String
+    value: String,
+    isLoading: Boolean = false
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
@@ -77,12 +82,25 @@ private fun InfoItem(
             modifier = Modifier.size(20.dp)
         )
         Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
-        )
+        Box(
+            modifier = Modifier.height(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    color = TextPrimary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            }
+        }
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,

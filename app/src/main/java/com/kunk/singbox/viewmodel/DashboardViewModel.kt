@@ -3,6 +3,7 @@ package com.kunk.singbox.viewmodel
 import android.app.Application
 import android.content.Intent
 import android.net.VpnService
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.model.ConnectionState
@@ -13,6 +14,7 @@ import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.service.SingBoxService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -20,9 +22,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.WebSocket
 
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
+    
+    companion object {
+        private const val TAG = "DashboardViewModel"
+    }
     
     private val configRepository = ConfigRepository.getInstance(application)
     private val singBoxCore = SingBoxCore.getInstance(application)
@@ -35,7 +42,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _stats = MutableStateFlow(ConnectionStats(0, 0, 0, 0, 0))
     val stats: StateFlow<ConnectionStats> = _stats.asStateFlow()
     
+    // 当前节点的实时延迟（VPN启动后测得的）
+    private val _currentNodePing = MutableStateFlow<Long?>(null)
+    val currentNodePing: StateFlow<Long?> = _currentNodePing.asStateFlow()
+    
     private var trafficWebSocket: WebSocket? = null
+    private var pingTestJob: Job? = null
+    
+    // 用于平滑流量显示的缓存
+    private var lastUploadSpeed: Long = 0
+    private var lastDownloadSpeed: Long = 0
     
     // Active profile and node from ConfigRepository
     val activeProfileId: StateFlow<String?> = configRepository.activeProfileId
@@ -68,6 +84,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         )
     
     private var statsJob: Job? = null
+    private var trafficSmoothingJob: Job? = null
     
     // Status
     private val _updateStatus = MutableStateFlow<String?>(null)
@@ -87,10 +104,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 if (running) {
                     _connectionState.value = ConnectionState.Connected
                     startTrafficMonitor()
+                    // VPN 启动后自动对当前节点进行测速
+                    startPingTest()
                 } else if (!SingBoxService.isStarting) {
                     _connectionState.value = ConnectionState.Idle
                     stopTrafficMonitor()
+                    stopPingTest()
                     _stats.value = ConnectionStats(0, 0, 0, 0, 0)
+                    _currentNodePing.value = null
                 }
             }
         }
@@ -119,6 +140,29 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     stopVpn()
                 }
             }
+        }
+    }
+    
+    fun restartVpn() {
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+
+            val prepareIntent = VpnService.prepare(context)
+            if (prepareIntent != null) {
+                _vpnPermissionNeeded.value = true
+                return@launch
+            }
+
+            val wasRunning = SingBoxService.isRunning || SingBoxService.isStarting
+            if (wasRunning) {
+                stopVpn()
+
+                withTimeoutOrNull(5000) {
+                    SingBoxService.isRunningFlow.first { running -> !running }
+                }
+            }
+
+            startVpn()
         }
     }
     
@@ -176,14 +220,73 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun stopVpn() {
         val context = getApplication<Application>()
         stopTrafficMonitor()
+        stopPingTest()
         // Immediately set to Idle for responsive UI
         _connectionState.value = ConnectionState.Idle
         _stats.value = ConnectionStats(0, 0, 0, 0, 0)
+        _currentNodePing.value = null
         
         val intent = Intent(context, SingBoxService::class.java).apply {
             action = SingBoxService.ACTION_STOP
         }
         context.startService(intent)
+    }
+    
+    /**
+     * 启动当前节点的延迟测试
+     */
+    private fun startPingTest() {
+        stopPingTest()
+        
+        pingTestJob = viewModelScope.launch {
+            try {
+                // 等待一小段时间确保 VPN 完全启动
+                delay(1000)
+                
+                // 检查 VPN 是否还在运行
+                if (_connectionState.value != ConnectionState.Connected) {
+                    return@launch
+                }
+                
+                val activeNodeId = activeNodeId.value
+                if (activeNodeId == null) {
+                    Log.w(TAG, "No active node to test ping")
+                    return@launch
+                }
+                
+                val nodeName = configRepository.getNodeById(activeNodeId)?.name
+                if (nodeName == null) {
+                    Log.w(TAG, "Node name not found for id: $activeNodeId")
+                    return@launch
+                }
+                
+                Log.d(TAG, "Starting ping test for node: $nodeName")
+                
+                // 通过 Clash API 测试当前节点延迟
+                val clashApi = singBoxCore.getClashApiClient()
+                val delay = clashApi.testProxyDelay(nodeName)
+                
+                // 再次检查 VPN 是否还在运行（测试可能需要一些时间）
+                if (_connectionState.value == ConnectionState.Connected && pingTestJob?.isActive == true) {
+                    if (delay > 0) {
+                        _currentNodePing.value = delay
+                        Log.d(TAG, "Ping test completed: ${delay}ms")
+                    } else {
+                        Log.w(TAG, "Ping test failed or timed out")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during ping test", e)
+            }
+        }
+    }
+    
+    /**
+     * 停止延迟测试
+     */
+    private fun stopPingTest() {
+        pingTestJob?.cancel()
+        pingTestJob = null
     }
     
     fun onVpnPermissionResult(granted: Boolean) {
@@ -217,6 +320,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun startTrafficMonitor() {
         stopTrafficMonitor()
         
+        // 重置平滑缓存
+        lastUploadSpeed = 0
+        lastDownloadSpeed = 0
+        
         // 启动计时器
         statsJob = viewModelScope.launch {
             while (_connectionState.value == ConnectionState.Connected) {
@@ -227,12 +334,20 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
         
-        // 连接 WebSocket 获取实时流量
+        // 连接 WebSocket 获取实时流量，使用平滑处理
         trafficWebSocket = singBoxCore.getClashApiClient().connectTrafficWebSocket { up, down ->
+            // 使用指数移动平均进行平滑处理，减少闪烁
+            val smoothFactor = 0.3 // 平滑因子，越小越平滑
+            val smoothedUp = if (lastUploadSpeed == 0L) up else (lastUploadSpeed * (1 - smoothFactor) + up * smoothFactor).toLong()
+            val smoothedDown = if (lastDownloadSpeed == 0L) down else (lastDownloadSpeed * (1 - smoothFactor) + down * smoothFactor).toLong()
+            
+            lastUploadSpeed = smoothedUp
+            lastDownloadSpeed = smoothedDown
+            
             _stats.update { current ->
                 current.copy(
-                    uploadSpeed = up,
-                    downloadSpeed = down,
+                    uploadSpeed = smoothedUp,
+                    downloadSpeed = smoothedDown,
                     uploadTotal = current.uploadTotal + up,
                     downloadTotal = current.downloadTotal + down
                 )
@@ -243,8 +358,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun stopTrafficMonitor() {
         statsJob?.cancel()
         statsJob = null
+        trafficSmoothingJob?.cancel()
+        trafficSmoothingJob = null
         trafficWebSocket?.close(1000, "Stop monitoring")
         trafficWebSocket = null
+        lastUploadSpeed = 0
+        lastDownloadSpeed = 0
     }
     
     /**
@@ -266,5 +385,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     override fun onCleared() {
         super.onCleared()
         stopTrafficMonitor()
+        stopPingTest()
     }
 }

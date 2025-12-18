@@ -85,6 +85,7 @@ fun DashboardScreen(
     val activeProfileId by viewModel.activeProfileId.collectAsState()
     val activeNodeId by viewModel.activeNodeId.collectAsState()
     val activeNodeLatency by viewModel.activeNodeLatency.collectAsState()
+    val currentNodePing by viewModel.currentNodePing.collectAsState()
     
     // 获取活跃配置和节点的名称
     val activeProfileName = profiles.find { it.id == activeProfileId }?.name
@@ -352,10 +353,15 @@ fun DashboardScreen(
         ) {
             // Always show InfoCard but with placeholder data when not connected
             val isConnected = connectionState == ConnectionState.Connected
+            // 优先使用 VPN 启动后测得的实时延迟，如果没有则使用缓存的延迟
+            val displayPing = currentNodePing ?: activeNodeLatency
+            // 当已连接但还没有延迟数据时，显示加载动画
+            val isPingLoading = isConnected && displayPing == null
             InfoCard(
                 uploadSpeed = if (isConnected) "${formatBytes(stats.uploadSpeed)}/s" else "-/s",
                 downloadSpeed = if (isConnected) "${formatBytes(stats.downloadSpeed)}/s" else "-/s",
-                ping = if (isConnected && activeNodeLatency != null) "${activeNodeLatency} ms" else "-"
+                ping = if (isConnected && displayPing != null) "${displayPing} ms" else "-",
+                isPingLoading = isPingLoading
             )
             
             Spacer(modifier = Modifier.height(24.dp))
