@@ -51,6 +51,7 @@ class SingBoxCore private constructor(private val context: Context) {
     private var testService: BoxService? = null
     private var testServiceClashBaseUrl: String? = null
     private var testServiceClashPort: Int = 0
+    private var testPlatformInterface: TestPlatformInterface? = null
     
     // 后台保活相关
     private var testServiceStartTime: Long = 0
@@ -261,6 +262,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 testServiceStartTime = System.currentTimeMillis()
 
                 val platformInterface = TestPlatformInterface(context)
+                testPlatformInterface = platformInterface
                 testService = Libbox.newService(configJson, platformInterface)
                 testService?.start()
                 Log.i(TAG, "Test service started with keep-alive")
@@ -329,14 +331,20 @@ class SingBoxCore private constructor(private val context: Context) {
     private fun stopTestServiceInternal() {
         val serviceToClose = testService
         val oldTestBaseUrl = testServiceClashBaseUrl
+        val platformToClose = testPlatformInterface
         testService = null
         testServiceClashBaseUrl = null
+        testPlatformInterface = null
 
         testServiceOutboundTags.clear()
         testServiceStartTime = 0
         testServiceClashPort = 0
         
         try {
+            try {
+                platformToClose?.closeDefaultInterfaceMonitor(null)
+            } catch (_: Exception) {
+            }
             serviceToClose?.close()
             if (serviceToClose != null) {
                 Log.i(TAG, "Test service stopped")

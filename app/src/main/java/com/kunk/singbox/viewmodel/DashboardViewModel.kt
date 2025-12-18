@@ -3,6 +3,7 @@ package com.kunk.singbox.viewmodel
 import android.app.Application
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -83,6 +84,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     private var trafficWebSocket: WebSocket? = null
     private var pingTestJob: Job? = null
+    private var lastErrorToastJob: Job? = null
+    private var startMonitorJob: Job? = null
 
     private var pendingProxySelectionName: String? = null
     private var hasSyncedFromServiceThisSession: Boolean = false
@@ -179,6 +182,22 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
 
+        // Surface service-level startup errors on UI
+        viewModelScope.launch {
+            SingBoxService.lastErrorFlow.collect { err ->
+                if (!err.isNullOrBlank()) {
+                    _testStatus.value = err
+                    lastErrorToastJob?.cancel()
+                    lastErrorToastJob = viewModelScope.launch {
+                        delay(3000)
+                        if (_testStatus.value == err) {
+                            _testStatus.value = null
+                        }
+                    }
+                }
+            }
+        }
+
         viewModelScope.launch {
             SingBoxService.isStartingFlow.collect { starting ->
                 if (starting) {
@@ -270,27 +289,56 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     action = SingBoxService.ACTION_START
                     putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPath)
                 }
-                context.startForegroundService(intent)
-                
-                // 等待服务启动，使用轮询检查而非固定延时
-                val startTime = System.currentTimeMillis()
-                val maxWaitMs = 10_000L
-                val checkIntervalMs = 200L
-                
-                while (System.currentTimeMillis() - startTime < maxWaitMs) {
-                    if (SingBoxService.isRunning) {
-                        _connectionState.value = ConnectionState.Connected
-                        startTrafficMonitor()
-                        return@launch
-                    }
-                    if (!SingBoxService.isStarting) {
-                        break
-                    }
-                    delay(checkIntervalMs)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
                 }
-                
-                if (!SingBoxService.isRunning) {
-                    _connectionState.value = ConnectionState.Error
+
+                // 1) 1000ms 内给出反馈：仍未 running 则提示“启动中”，但不判失败
+                // 2) 后续只在服务端明确失败（lastErrorFlow）或服务异常退出时才置 Error
+                startMonitorJob?.cancel()
+                startMonitorJob = viewModelScope.launch {
+                    val startTime = System.currentTimeMillis()
+                    val quickFeedbackMs = 1000L
+                    var showedStartingHint = false
+
+                    while (true) {
+                        if (SingBoxService.isRunning) {
+                            _connectionState.value = ConnectionState.Connected
+                            startTrafficMonitor()
+                            return@launch
+                        }
+
+                        val err = SingBoxService.lastErrorFlow.value
+                        if (!err.isNullOrBlank()) {
+                            _connectionState.value = ConnectionState.Error
+                            _testStatus.value = err
+                            delay(3000)
+                            _testStatus.value = null
+                            return@launch
+                        }
+
+                        val elapsed = System.currentTimeMillis() - startTime
+                        if (!showedStartingHint && elapsed >= quickFeedbackMs) {
+                            showedStartingHint = true
+                            _testStatus.value = "启动中..."
+                            lastErrorToastJob?.cancel()
+                            lastErrorToastJob = viewModelScope.launch {
+                                delay(1200)
+                                if (_testStatus.value == "启动中...") {
+                                    _testStatus.value = null
+                                }
+                            }
+                        }
+
+                        val intervalMs = when {
+                            elapsed < 10_000L -> 200L
+                            elapsed < 60_000L -> 1000L
+                            else -> 5000L
+                        }
+                        delay(intervalMs)
+                    }
                 }
             } catch (e: Exception) {
                 _connectionState.value = ConnectionState.Error
@@ -303,6 +351,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     private fun stopVpn() {
         val context = getApplication<Application>()
+        startMonitorJob?.cancel()
+        startMonitorJob = null
         stopTrafficMonitor()
         stopPingTest()
         // Immediately set to Idle for responsive UI
@@ -484,6 +534,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     override fun onCleared() {
         super.onCleared()
+        startMonitorJob?.cancel()
+        startMonitorJob = null
         stopTrafficMonitor()
         stopPingTest()
     }

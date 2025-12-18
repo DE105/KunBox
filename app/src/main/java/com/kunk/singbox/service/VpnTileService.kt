@@ -3,6 +3,7 @@ package com.kunk.singbox.service
 import android.content.Intent
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import android.os.Build
 import com.kunk.singbox.R
 import com.kunk.singbox.repository.ConfigRepository
 import kotlinx.coroutines.CoroutineScope
@@ -61,7 +62,11 @@ class VpnTileService : TileService() {
                         action = SingBoxService.ACTION_START
                         putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPath)
                     }
-                    startForegroundService(intent)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
                 } else {
                     // Revert tile state if start fails
                     updateTile()

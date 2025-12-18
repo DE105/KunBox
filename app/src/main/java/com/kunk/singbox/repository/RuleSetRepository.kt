@@ -164,28 +164,28 @@ class RuleSetRepository(private val context: Context) {
         return try {
             Log.d(TAG, "Downloading rule set from: $url")
             val request = Request.Builder().url(url).build()
-            val response = client.newCall(request).execute()
-
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Download failed: HTTP ${response.code}")
-                return false
-            }
-
-            val body = response.body ?: return false
-            val tempFile = File(targetFile.parent, "${targetFile.name}.tmp")
-            
-            body.byteStream().use { input ->
-                tempFile.outputStream().use { output ->
-                    input.copyTo(output)
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Download failed: HTTP ${response.code}")
+                    return false
                 }
-            }
 
-            if (targetFile.exists()) {
-                targetFile.delete()
+                val body = response.body ?: return false
+                val tempFile = File(targetFile.parent, "${targetFile.name}.tmp")
+                
+                body.byteStream().use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                if (targetFile.exists()) {
+                    targetFile.delete()
+                }
+                tempFile.renameTo(targetFile)
+                Log.i(TAG, "Rule set downloaded successfully: ${targetFile.name}")
+                return true
             }
-            tempFile.renameTo(targetFile)
-            Log.i(TAG, "Rule set downloaded successfully: ${targetFile.name}")
-            true
         } catch (e: Exception) {
             Log.e(TAG, "Download error: ${e.message}", e)
             false

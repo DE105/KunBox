@@ -122,8 +122,8 @@ fun DashboardScreen(
     }
 
     // Monitor connection errors
-    LaunchedEffect(connectionState) {
-        if (connectionState == ConnectionState.Error) {
+    LaunchedEffect(connectionState, testStatus) {
+        if (connectionState == ConnectionState.Error && testStatus.isNullOrBlank()) {
             Toast.makeText(context, "连接失败，请检查配置", Toast.LENGTH_SHORT).show()
         }
     }

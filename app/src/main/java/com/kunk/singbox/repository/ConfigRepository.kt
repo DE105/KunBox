@@ -243,29 +243,34 @@ class ConfigRepository(private val context: Context) {
                     .url(url)
                     .header("User-Agent", userAgent)
                     .build()
-                
-                val response = client.newCall(request).execute()
-                
-                if (!response.isSuccessful) {
-                    Log.w(TAG, "Request failed with UA '$userAgent': HTTP ${response.code}")
-                    continue
+
+                var parsedConfig: SingBoxConfig? = null
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Request failed with UA '$userAgent': HTTP ${response.code}")
+                        return@use
+                    }
+
+                    val responseBody = response.body?.string()
+                    if (responseBody.isNullOrBlank()) {
+                        Log.w(TAG, "Empty response with UA '$userAgent'")
+                        return@use
+                    }
+
+                    onProgress("正在解析配置...")
+
+                    // 尝试解析
+                    val config = parseSubscriptionResponse(responseBody)
+                    if (config != null && config.outbounds != null && config.outbounds.isNotEmpty()) {
+                        parsedConfig = config
+                    } else {
+                        Log.w(TAG, "Failed to parse response with UA '$userAgent'")
+                    }
                 }
-                
-                val responseBody = response.body?.string()
-                if (responseBody.isNullOrBlank()) {
-                    Log.w(TAG, "Empty response with UA '$userAgent'")
-                    continue
-                }
-                
-                onProgress("正在解析配置...")
-                
-                // 尝试解析
-                val config = parseSubscriptionResponse(responseBody)
-                if (config != null && config.outbounds != null && config.outbounds.isNotEmpty()) {
-                    Log.i(TAG, "Successfully parsed subscription with UA '$userAgent', got ${config.outbounds.size} outbounds")
-                    return config
-                } else {
-                    Log.w(TAG, "Failed to parse response with UA '$userAgent'")
+
+                if (parsedConfig != null) {
+                    Log.i(TAG, "Successfully parsed subscription with UA '$userAgent', got ${parsedConfig!!.outbounds?.size ?: 0} outbounds")
+                    return parsedConfig
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error with UA '$userAgent': ${e.message}")
@@ -1453,7 +1458,7 @@ class ConfigRepository(private val context: Context) {
 
         // 异步延迟重置状态，不阻塞当前方法返回
         profileResetJobs.remove(profileId)?.cancel()
-        profileResetJobs[profileId] = scope.launch {
+        val resetJob = scope.launch {
             kotlinx.coroutines.delay(2000)
             _profiles.update { list ->
                 list.map {
@@ -1465,6 +1470,10 @@ class ConfigRepository(private val context: Context) {
                 }
             }
         }
+        resetJob.invokeOnCompletion {
+            profileResetJobs.remove(profileId, resetJob)
+        }
+        profileResetJobs[profileId] = resetJob
         
         return result
     }

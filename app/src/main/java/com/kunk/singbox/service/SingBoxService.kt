@@ -79,6 +79,9 @@ class SingBoxService : VpnService() {
         private val _isStartingFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
         val isStartingFlow = _isStartingFlow.asStateFlow()
 
+        private val _lastErrorFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+        val lastErrorFlow = _lastErrorFlow.asStateFlow()
+
         @Volatile
         var isStarting = false
             private set(value) {
@@ -95,6 +98,17 @@ class SingBoxService : VpnService() {
             private set
 
         private var lastConfigPath: String? = null
+
+        private fun setLastError(message: String?) {
+            _lastErrorFlow.value = message
+            if (!message.isNullOrBlank()) {
+                try {
+                    com.kunk.singbox.repository.LogRepository.getInstance()
+                        .addLog("ERROR SingBoxService: $message")
+                } catch (_: Exception) {
+                }
+            }
+        }
 
         private val connectionOwnerCalls = AtomicLong(0)
         private val connectionOwnerInvalidArgs = AtomicLong(0)
@@ -665,11 +679,16 @@ class SingBoxService : VpnService() {
                 return
             }
             if (isStopping) {
-                Log.w(TAG, "VPN is stopping, ignore start request")
+                Log.w(TAG, "VPN is stopping, queue start request")
+                pendingStartConfigPath = configPath
+                stopSelfRequested = false
+                lastConfigPath = configPath
                 return
             }
             isStarting = true
         }
+
+        setLastError(null)
         
         lastConfigPath = configPath
         Log.d(TAG, "Attempting to start foreground service with ID: $NOTIFICATION_ID")
@@ -710,6 +729,7 @@ class SingBoxService : VpnService() {
                 val configFile = File(configPath)
                 if (!configFile.exists()) {
                     Log.e(TAG, "Config file not found: $configPath")
+                    setLastError("Config file not found: $configPath")
                     withContext(Dispatchers.Main) { stopSelf() }
                     return@launch
                 }
@@ -728,11 +748,14 @@ class SingBoxService : VpnService() {
                 Log.i(TAG, "BoxService started")
                 
                 isRunning = true
+                setLastError(null)
                 Log.i(TAG, "SingBox VPN started successfully")
                 updateTileState()
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start VPN: ${e.message}", e)
+                val reason = "Failed to start VPN: ${e.javaClass.simpleName}: ${e.message}"
+                Log.e(TAG, reason, e)
+                setLastError(reason)
                 withContext(Dispatchers.Main) {
                     isRunning = false
                     stopVpn(stopService = true)
