@@ -9,3 +9,13 @@
 .cxx
 local.properties
 build/
+
+# 签名相关敏感文件
+*.jks
+*.keystore
+signing.properties
+keystore.properties
+
+# 临时文件和解压目录
+temp_aar_extracted/
+SFA-1.12.13-universal/
