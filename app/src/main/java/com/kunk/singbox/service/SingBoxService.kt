@@ -18,6 +18,8 @@ import android.system.OsConstants
 import android.util.Log
 import com.kunk.singbox.MainActivity
 import com.kunk.singbox.model.AppSettings
+import com.kunk.singbox.model.VpnAppMode
+import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
@@ -150,8 +152,40 @@ class SingBoxService : VpnService() {
             // 添加地址
             builder.addAddress("172.19.0.1", 30)
             
-            // 添加路由 - 全局代理
-            builder.addRoute("0.0.0.0", 0)
+            // 添加路由
+            val routeMode = settings?.vpnRouteMode ?: VpnRouteMode.GLOBAL
+            val cidrText = settings?.vpnRouteIncludeCidrs.orEmpty()
+            val cidrs = cidrText
+                .split("\n", "\r", ",", ";", " ", "\t")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+
+            fun addCidrRoute(cidr: String): Boolean {
+                val parts = cidr.split("/")
+                if (parts.size != 2) return false
+                val ip = parts[0].trim()
+                val prefix = parts[1].trim().toIntOrNull() ?: return false
+                return try {
+                    val addr = InetAddress.getByName(ip)
+                    builder.addRoute(addr, prefix)
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+            }
+
+            val usedCustomRoutes = if (routeMode == VpnRouteMode.CUSTOM) {
+                var okCount = 0
+                cidrs.forEach { if (addCidrRoute(it)) okCount++ }
+                okCount > 0
+            } else {
+                false
+            }
+
+            if (!usedCustomRoutes) {
+                // fallback: 全局接管
+                builder.addRoute("0.0.0.0", 0)
+            }
             
             // 添加 DNS (优先使用设置中的 DNS)
             if (settings != null) {
@@ -162,11 +196,53 @@ class SingBoxService : VpnService() {
                 builder.addDnsServer("8.8.4.4")
             }
             
-            // 排除自己
+            // 分应用
+            fun parsePackageList(raw: String): List<String> {
+                return raw
+                    .split("\n", "\r", ",", ";", " ", "\t")
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+            }
+
+            val appMode = settings?.vpnAppMode ?: VpnAppMode.ALL
+            val allowPkgs = parsePackageList(settings?.vpnAllowlist.orEmpty())
+            val blockPkgs = parsePackageList(settings?.vpnBlocklist.orEmpty())
+
             try {
-                builder.addDisallowedApplication(packageName)
+                when (appMode) {
+                    VpnAppMode.ALL -> {
+                        builder.addDisallowedApplication(packageName)
+                    }
+                    VpnAppMode.ALLOWLIST -> {
+                        if (allowPkgs.isEmpty()) {
+                            // avoid a VPN that captures nothing
+                            builder.addDisallowedApplication(packageName)
+                        } else {
+                            allowPkgs.forEach { pkg ->
+                                if (pkg == packageName) return@forEach
+                                try {
+                                    builder.addAllowedApplication(pkg)
+                                } catch (e: PackageManager.NameNotFoundException) {
+                                    Log.w(TAG, "Allowed app not found: $pkg")
+                                }
+                            }
+                            // In allowlist mode, self is excluded by not being in allowlist.
+                        }
+                    }
+                    VpnAppMode.BLOCKLIST -> {
+                        blockPkgs.forEach { pkg ->
+                            try {
+                                builder.addDisallowedApplication(pkg)
+                            } catch (e: PackageManager.NameNotFoundException) {
+                                Log.w(TAG, "Disallowed app not found: $pkg")
+                            }
+                        }
+                        builder.addDisallowedApplication(packageName)
+                    }
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to exclude self from VPN")
+                Log.w(TAG, "Failed to apply per-app VPN settings")
             }
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

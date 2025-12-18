@@ -62,7 +62,7 @@ android {
         abi {
             isEnable = true
             reset()
-            include("armeabi-v7a", "arm64-v8a") // 现代安卓机通常只需要这两个，x86 可移除
+            include("arm64-v8a") // 仅保留 arm64-v8a，现代设备都是64位
             isUniversalApk = false // 关闭通用包，强制生成分体包以减小分发体积
         }
     }
@@ -84,9 +84,11 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
-        // 防止 JNI 库冲突
+        // 优化 JNI 库打包方式，减少安装后占用空间
+        // useLegacyPackaging = false 让系统直接从 APK 读取 .so 文件，无需提取到 lib 目录
+        // 要求 minSdk >= 23 (Android 6.0+)，当前 minSdk=24 满足要求
         jniLibs {
-            useLegacyPackaging = true
+            useLegacyPackaging = false
         }
     }
     

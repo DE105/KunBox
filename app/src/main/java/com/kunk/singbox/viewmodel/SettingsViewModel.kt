@@ -12,6 +12,8 @@ import com.kunk.singbox.model.AppRule
 import com.kunk.singbox.model.AppGroup
 import com.kunk.singbox.model.RuleSet
 import com.kunk.singbox.model.TunStack
+import com.kunk.singbox.model.VpnAppMode
+import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.flow.SharingStarted
@@ -66,6 +68,26 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     
     fun setStrictRoute(value: Boolean) {
         viewModelScope.launch { repository.setStrictRoute(value) }
+    }
+
+    fun setVpnRouteMode(value: VpnRouteMode) {
+        viewModelScope.launch { repository.setVpnRouteMode(value) }
+    }
+
+    fun setVpnRouteIncludeCidrs(value: String) {
+        viewModelScope.launch { repository.setVpnRouteIncludeCidrs(value) }
+    }
+
+    fun setVpnAppMode(value: VpnAppMode) {
+        viewModelScope.launch { repository.setVpnAppMode(value) }
+    }
+
+    fun setVpnAllowlist(value: String) {
+        viewModelScope.launch { repository.setVpnAllowlist(value) }
+    }
+
+    fun setVpnBlocklist(value: String) {
+        viewModelScope.launch { repository.setVpnBlocklist(value) }
     }
     
     // DNS 设置

@@ -27,6 +27,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.model.TunStack
+import com.kunk.singbox.model.VpnAppMode
+import com.kunk.singbox.model.VpnRouteMode
+import com.kunk.singbox.ui.components.AppMultiSelectDialog
 import com.kunk.singbox.ui.components.InputDialog
 import com.kunk.singbox.ui.components.SettingItem
 import com.kunk.singbox.ui.components.SettingSwitchItem
@@ -50,6 +53,11 @@ fun TunSettingsScreen(
     var showStackDialog by remember { mutableStateOf(false) }
     var showMtuDialog by remember { mutableStateOf(false) }
     var showInterfaceDialog by remember { mutableStateOf(false) }
+    var showRouteModeDialog by remember { mutableStateOf(false) }
+    var showRouteCidrsDialog by remember { mutableStateOf(false) }
+    var showAppModeDialog by remember { mutableStateOf(false) }
+    var showAllowlistDialog by remember { mutableStateOf(false) }
+    var showBlocklistDialog by remember { mutableStateOf(false) }
 
     if (showStackDialog) {
         val options = TunStack.entries.map { it.displayName }
@@ -86,6 +94,86 @@ fun TunSettingsScreen(
                 showInterfaceDialog = false 
             },
             onDismiss = { showInterfaceDialog = false }
+        )
+    }
+
+    if (showRouteModeDialog) {
+        val options = VpnRouteMode.entries.map { it.displayName }
+        SingleSelectDialog(
+            title = "接管模式",
+            options = options,
+            selectedIndex = options.indexOf(settings.vpnRouteMode.displayName).coerceAtLeast(0),
+            onSelect = { index ->
+                settingsViewModel.setVpnRouteMode(VpnRouteMode.entries[index])
+                showRouteModeDialog = false
+            },
+            onDismiss = { showRouteModeDialog = false }
+        )
+    }
+
+    if (showRouteCidrsDialog) {
+        InputDialog(
+            title = "接管网段 (CIDR)",
+            initialValue = settings.vpnRouteIncludeCidrs,
+            placeholder = "每行一个，例如\n0.0.0.0/0\n10.0.0.0/8",
+            singleLine = false,
+            minLines = 4,
+            maxLines = 8,
+            onConfirm = {
+                settingsViewModel.setVpnRouteIncludeCidrs(it)
+                showRouteCidrsDialog = false
+            },
+            onDismiss = { showRouteCidrsDialog = false }
+        )
+    }
+
+    if (showAppModeDialog) {
+        val options = VpnAppMode.entries.map { it.displayName }
+        SingleSelectDialog(
+            title = "分应用模式",
+            options = options,
+            selectedIndex = options.indexOf(settings.vpnAppMode.displayName).coerceAtLeast(0),
+            onSelect = { index ->
+                settingsViewModel.setVpnAppMode(VpnAppMode.entries[index])
+                showAppModeDialog = false
+            },
+            onDismiss = { showAppModeDialog = false }
+        )
+    }
+
+    if (showAllowlistDialog) {
+        val selected = settings.vpnAllowlist
+            .split("\n", "\r", ",", ";", " ", "\t")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+
+        AppMultiSelectDialog(
+            title = "选择仅允许走 VPN 的应用",
+            selectedPackages = selected,
+            onConfirm = { packages ->
+                settingsViewModel.setVpnAllowlist(packages.joinToString("\n"))
+                showAllowlistDialog = false
+            },
+            onDismiss = { showAllowlistDialog = false }
+        )
+    }
+
+    if (showBlocklistDialog) {
+        val selected = settings.vpnBlocklist
+            .split("\n", "\r", ",", ";", " ", "\t")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+
+        AppMultiSelectDialog(
+            title = "选择不走 VPN 的应用",
+            selectedPackages = selected,
+            onConfirm = { packages ->
+                settingsViewModel.setVpnBlocklist(packages.joinToString("\n"))
+                showBlocklistDialog = false
+            },
+            onDismiss = { showBlocklistDialog = false }
         )
     }
 
@@ -141,6 +229,49 @@ fun TunSettingsScreen(
                     subtitle = "防止 DNS 泄露",
                     checked = settings.strictRoute,
                     onCheckedChange = { settingsViewModel.setStrictRoute(it) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val cidrCount = settings.vpnRouteIncludeCidrs
+                .split("\n", "\r", ",", ";", " ", "\t")
+                .map { it.trim() }
+                .count { it.isNotEmpty() }
+            val allowCount = settings.vpnAllowlist
+                .split("\n", "\r", ",", ";", " ", "\t")
+                .map { it.trim() }
+                .count { it.isNotEmpty() }
+            val blockCount = settings.vpnBlocklist
+                .split("\n", "\r", ",", ";", " ", "\t")
+                .map { it.trim() }
+                .count { it.isNotEmpty() }
+
+            StandardCard {
+                SettingItem(
+                    title = "接管模式",
+                    value = settings.vpnRouteMode.displayName,
+                    onClick = { showRouteModeDialog = true }
+                )
+                SettingItem(
+                    title = "接管网段",
+                    value = if (settings.vpnRouteMode == VpnRouteMode.CUSTOM) "已设置 $cidrCount 条" else "-",
+                    onClick = { if (settings.vpnRouteMode == VpnRouteMode.CUSTOM) showRouteCidrsDialog = true }
+                )
+                SettingItem(
+                    title = "分应用模式",
+                    value = settings.vpnAppMode.displayName,
+                    onClick = { showAppModeDialog = true }
+                )
+                SettingItem(
+                    title = "仅允许列表",
+                    value = if (settings.vpnAppMode == VpnAppMode.ALLOWLIST) "已设置 $allowCount 个" else "-",
+                    onClick = { if (settings.vpnAppMode == VpnAppMode.ALLOWLIST) showAllowlistDialog = true }
+                )
+                SettingItem(
+                    title = "排除列表",
+                    value = if (settings.vpnAppMode == VpnAppMode.BLOCKLIST) "已设置 $blockCount 个" else "-",
+                    onClick = { if (settings.vpnAppMode == VpnAppMode.BLOCKLIST) showBlocklistDialog = true }
                 )
             }
         }

@@ -18,6 +18,11 @@ data class AppSettings(
     @SerializedName("tunInterfaceName") val tunInterfaceName: String = "tun0",
     @SerializedName("autoRoute") val autoRoute: Boolean = true,
     @SerializedName("strictRoute") val strictRoute: Boolean = true,
+    @SerializedName("vpnRouteMode") val vpnRouteMode: VpnRouteMode = VpnRouteMode.GLOBAL,
+    @SerializedName("vpnRouteIncludeCidrs") val vpnRouteIncludeCidrs: String = "",
+    @SerializedName("vpnAppMode") val vpnAppMode: VpnAppMode = VpnAppMode.ALL,
+    @SerializedName("vpnAllowlist") val vpnAllowlist: String = "",
+    @SerializedName("vpnBlocklist") val vpnBlocklist: String = "",
     
     // DNS 设置
     @SerializedName("localDns") val localDns: String = "8.8.8.8",
@@ -51,6 +56,29 @@ enum class TunStack(val displayName: String) {
     companion object {
         fun fromDisplayName(name: String): TunStack {
             return entries.find { it.displayName == name } ?: GVISOR
+        }
+    }
+}
+
+enum class VpnRouteMode(val displayName: String) {
+    @SerializedName("GLOBAL") GLOBAL("全局接管"),
+    @SerializedName("CUSTOM") CUSTOM("自定义接管");
+
+    companion object {
+        fun fromDisplayName(name: String): VpnRouteMode {
+            return entries.find { it.displayName == name } ?: GLOBAL
+        }
+    }
+}
+
+enum class VpnAppMode(val displayName: String) {
+    @SerializedName("ALL") ALL("全部应用"),
+    @SerializedName("ALLOWLIST") ALLOWLIST("仅允许列表"),
+    @SerializedName("BLOCKLIST") BLOCKLIST("排除列表");
+
+    companion object {
+        fun fromDisplayName(name: String): VpnAppMode {
+            return entries.find { it.displayName == name } ?: ALL
         }
     }
 }

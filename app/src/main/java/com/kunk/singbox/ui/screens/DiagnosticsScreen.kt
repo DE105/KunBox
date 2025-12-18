@@ -9,13 +9,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Analytics
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.NetworkCheck
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -106,21 +109,21 @@ fun DiagnosticsScreen(
                 SettingItem(
                     title = "应用分流诊断",
                     subtitle = if (isAppRoutingDiagLoading) "正在检测..." else "检查 /proc/net 可读性（影响 package_name 生效）",
-                    icon = Icons.Rounded.Route,
+                    icon = Icons.Rounded.Storage,
                     onClick = { viewModel.runAppRoutingDiagnostics() },
                     enabled = !isAppRoutingDiagLoading
                 )
                 SettingItem(
                     title = "连接归属统计",
                     subtitle = if (isConnOwnerStatsLoading) "正在读取..." else "查看 findConnectionOwner 成功/失败计数",
-                    icon = Icons.Rounded.Route,
+                    icon = Icons.Rounded.Analytics,
                     onClick = { viewModel.showConnectionOwnerStats() },
                     enabled = !isConnOwnerStatsLoading
                 )
                 SettingItem(
                     title = "重置连接归属统计",
                     subtitle = "清零计数器（便于复现问题）",
-                    icon = Icons.Rounded.Route,
+                    icon = Icons.Rounded.Refresh,
                     onClick = { viewModel.resetConnectionOwnerStats() },
                     enabled = true
                 )

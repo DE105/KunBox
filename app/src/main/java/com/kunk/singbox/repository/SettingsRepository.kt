@@ -20,6 +20,8 @@ import com.kunk.singbox.model.AppRule
 import com.kunk.singbox.model.AppGroup
 import com.kunk.singbox.model.RuleSet
 import com.kunk.singbox.model.TunStack
+import com.kunk.singbox.model.VpnAppMode
+import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -44,6 +46,11 @@ class SettingsRepository(private val context: Context) {
         val TUN_INTERFACE_NAME = stringPreferencesKey("tun_interface_name")
         val AUTO_ROUTE = booleanPreferencesKey("auto_route")
         val STRICT_ROUTE = booleanPreferencesKey("strict_route")
+        val VPN_ROUTE_MODE = stringPreferencesKey("vpn_route_mode")
+        val VPN_ROUTE_INCLUDE_CIDRS = stringPreferencesKey("vpn_route_include_cidrs")
+        val VPN_APP_MODE = stringPreferencesKey("vpn_app_mode")
+        val VPN_ALLOWLIST = stringPreferencesKey("vpn_allowlist")
+        val VPN_BLOCKLIST = stringPreferencesKey("vpn_blocklist")
         
         // DNS 设置
         val LOCAL_DNS = stringPreferencesKey("local_dns")
@@ -188,6 +195,11 @@ class SettingsRepository(private val context: Context) {
             tunInterfaceName = preferences[PreferencesKeys.TUN_INTERFACE_NAME] ?: "tun0",
             autoRoute = preferences[PreferencesKeys.AUTO_ROUTE] ?: true,
             strictRoute = preferences[PreferencesKeys.STRICT_ROUTE] ?: true,
+            vpnRouteMode = VpnRouteMode.fromDisplayName(preferences[PreferencesKeys.VPN_ROUTE_MODE] ?: VpnRouteMode.GLOBAL.displayName),
+            vpnRouteIncludeCidrs = preferences[PreferencesKeys.VPN_ROUTE_INCLUDE_CIDRS] ?: "",
+            vpnAppMode = VpnAppMode.fromDisplayName(preferences[PreferencesKeys.VPN_APP_MODE] ?: VpnAppMode.ALL.displayName),
+            vpnAllowlist = preferences[PreferencesKeys.VPN_ALLOWLIST] ?: "",
+            vpnBlocklist = preferences[PreferencesKeys.VPN_BLOCKLIST] ?: "",
             
             // DNS 设置
             localDns = preferences[PreferencesKeys.LOCAL_DNS] ?: "8.8.8.8",
@@ -250,6 +262,26 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setStrictRoute(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.STRICT_ROUTE] = value }
+    }
+
+    suspend fun setVpnRouteMode(value: VpnRouteMode) {
+        context.dataStore.edit { it[PreferencesKeys.VPN_ROUTE_MODE] = value.displayName }
+    }
+
+    suspend fun setVpnRouteIncludeCidrs(value: String) {
+        context.dataStore.edit { it[PreferencesKeys.VPN_ROUTE_INCLUDE_CIDRS] = value }
+    }
+
+    suspend fun setVpnAppMode(value: VpnAppMode) {
+        context.dataStore.edit { it[PreferencesKeys.VPN_APP_MODE] = value.displayName }
+    }
+
+    suspend fun setVpnAllowlist(value: String) {
+        context.dataStore.edit { it[PreferencesKeys.VPN_ALLOWLIST] = value }
+    }
+
+    suspend fun setVpnBlocklist(value: String) {
+        context.dataStore.edit { it[PreferencesKeys.VPN_BLOCKLIST] = value }
     }
     
     // DNS 设置
