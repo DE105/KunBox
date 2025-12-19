@@ -30,6 +30,7 @@ import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import java.net.NetworkInterface
 import java.net.ServerSocket
+import java.net.URI
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -156,7 +157,8 @@ class SingBoxCore private constructor(private val context: Context) {
         
         try {
             val settings = SettingsRepository.getInstance(context).settings.first()
-            val url = settings.latencyTestUrl
+            // 根据模式调整 URL（尽量逼近 Clash API 的三种语义）
+            val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
             val timeout = 5000L
             val outboundJson = gson.toJson(outbound)
             
@@ -205,14 +207,8 @@ class SingBoxCore private constructor(private val context: Context) {
                 
                 return@withContext when (methodType) {
                     0 -> result as Long // 直接返回 long 延迟
-                    1 -> { // 返回 URLTest 对象
-                        val delayMethod = result?.javaClass?.getMethod("delay")
-                        val delayValue = delayMethod?.invoke(result) as? Long ?: -1L
-                        if (delayValue <= 0) {
-                            // 有些版本可能使用不同的属性名，尝试 getDelay 或 urlTestDelay
-                            val altDelayMethod = try { result?.javaClass?.getMethod("getDelay") } catch (_: Exception) { null }
-                            (altDelayMethod?.invoke(result) as? Long) ?: delayValue
-                        } else delayValue
+                    1 -> { // 返回 URLTest 对象，尽量从对象中按模式提取指标
+                        extractDelayFromUrlTest(result, settings.latencyTestMethod)
                     }
                     else -> -1L
                 }
@@ -230,6 +226,66 @@ class SingBoxCore private constructor(private val context: Context) {
 
     private var discoveredUrlTestMethod: java.lang.reflect.Method? = null
     private var discoveredMethodType: Int = 0 // 0: long, 1: URLTest object
+    
+    /**
+     * 根据测试模式对 URL 做最小化调整，以近似实现 tcp/handshake/real 语义
+     * - TCP: 强制使用 http（避免 TLS），尽量只包含 TCP 建连 + 简单 HTTP 往返
+     * - HANDSHAKE: 强制使用 https（包含 TLS 握手）
+     * - REAL_RTT: 原样使用
+     */
+    private fun adjustUrlForMode(original: String, method: LatencyTestMethod): String {
+        return try {
+            val u = URI(original)
+            val host = u.host ?: return original
+            val path = if ((u.path ?: "").isNotEmpty()) u.path else "/"
+            val query = u.query
+            val fragment = u.fragment
+            val userInfo = u.userInfo
+            val port = u.port
+            when (method) {
+                LatencyTestMethod.TCP -> {
+                    // 使用 http 以避免 TLS，尽量贴近 TCP 连接耗时
+                    URI("http", userInfo, host, if (port == -1) -1 else port, path, query, fragment).toString()
+                }
+                LatencyTestMethod.HANDSHAKE -> {
+                    // 使用 https 以包含 TLS 握手
+                    URI("https", userInfo, host, if (port == -1) -1 else port, path, query, fragment).toString()
+                }
+                else -> original
+            }
+        } catch (_: Exception) {
+            original
+        }
+    }
+    
+    /**
+     * 从 URLTest 对象中按模式提取延迟，兼容不同 libbox 版本的字段/方法命名
+     */
+    private fun extractDelayFromUrlTest(resultObj: Any?, method: LatencyTestMethod): Long {
+        if (resultObj == null) return -1L
+        fun tryGet(names: Array<String>): Long? {
+            for (n in names) {
+                try {
+                    val m = resultObj.javaClass.getMethod(n)
+                    val v = m.invoke(resultObj)
+                    when (v) {
+                        is Long -> if (v > 0) return v
+                        is Int -> if (v > 0) return v.toLong()
+                    }
+                } catch (_: Exception) { }
+            }
+            return null
+        }
+        // 优先按模式取特定指标，取不到再回落到通用 delay
+        val valueByMode = when (method) {
+            LatencyTestMethod.TCP -> tryGet(arrayOf("tcpDelay", "getTcpDelay", "tcp", "connectDelay", "getConnectDelay", "connect"))
+            LatencyTestMethod.HANDSHAKE -> tryGet(arrayOf("handshakeDelay", "getHandshakeDelay", "tlsDelay", "getTlsDelay", "handshake", "tls"))
+            else -> tryGet(arrayOf("delay", "getDelay", "rtt", "latency", "getLatency"))
+        }
+        if (valueByMode != null) return valueByMode
+        // 最后通用兜底
+        return tryGet(arrayOf("delay", "getDelay")) ?: -1L
+    }
     
     /**
      * 测试单个节点的延迟
