@@ -24,6 +24,11 @@ data class AppSettings(
     @SerializedName("vpnAllowlist") val vpnAllowlist: String = "",
     @SerializedName("vpnBlocklist") val vpnBlocklist: String = "",
     
+    // 代理端口设置
+    @SerializedName("mixedPort") val mixedPort: Int = 2080,
+    @SerializedName("allowLan") val allowLan: Boolean = false,
+    @SerializedName("appendHttpProxy") val appendHttpProxy: Boolean = false,
+    
     // DNS 设置
     @SerializedName("localDns") val localDns: String = "223.5.5.5",
     @SerializedName("remoteDns") val remoteDns: String = "1.1.1.1",
