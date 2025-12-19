@@ -161,6 +161,12 @@ class SingBoxService : VpnService() {
     @Volatile private var lastRuleSetCheckMs: Long = 0L
     private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
 
+    // Auto reconnect
+    private var autoReconnectEnabled: Boolean = false
+    private var lastAutoReconnectAttemptMs: Long = 0L
+    private val autoReconnectDebounceMs: Long = 5000L
+    private var autoReconnectJob: Job? = null
+
     private fun startHealthCheck() {
         stopHealthCheck()
         healthCheckJob = watchdogScope.launch {
