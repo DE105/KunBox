@@ -241,6 +241,63 @@ class SingBoxCore private constructor(private val context: Context) {
             if (methodToUse == null) {
                 Log.w(TAG, "Libbox native URL test methods still not found after discovery")
             }
+            if (methodToUse == null) {
+                try {
+                    val boxServiceClass = Class.forName("io.nekohasekai.libbox.BoxService")
+                    val instanceMethods = boxServiceClass.methods
+                    var instMethod: java.lang.reflect.Method? = null
+                    var instMethodType = 0
+                    for (m in instanceMethods) {
+                        val name = m.name
+                        val params = m.parameterTypes
+                        if ((name == "urlTest" || name == "newURLTest") && (params.size == 3 || params.size == 4) &&
+                            params[0] == String::class.java && params[1] == String::class.java &&
+                            (params[2] == Long::class.javaPrimitiveType || params[2] == Int::class.javaPrimitiveType) &&
+                            !java.lang.reflect.Modifier.isStatic(m.modifiers)) {
+                            instMethod = m
+                            instMethodType = if (m.returnType == Long::class.javaPrimitiveType) 0 else 1
+                            break
+                        }
+                    }
+                    if (instMethod == null) {
+                        for (m in instanceMethods) {
+                            val params = m.parameterTypes
+                            if ((params.size == 3 || (params.size == 4 && params[3].isInterface)) &&
+                                params[0] == String::class.java && params[1] == String::class.java &&
+                                (params[2] == Long::class.javaPrimitiveType || params[2] == Int::class.javaPrimitiveType) &&
+                                !java.lang.reflect.Modifier.isStatic(m.modifiers)) {
+                                instMethod = m
+                                instMethodType = if (m.returnType == Long::class.javaPrimitiveType) 0 else 1
+                                break
+                            }
+                        }
+                    }
+                    if (instMethod != null) {
+                        ensureLibboxSetup(context)
+                        val pi = testPlatformInterface ?: TestPlatformInterface(context)
+                        val minimalConfig = SingBoxConfig(
+                            log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true)
+                        )
+                        val cfgJson = gson.toJson(minimalConfig)
+                        val service = Libbox.newService(cfgJson, pi)
+                        try {
+                            try { service.start() } catch (_: Exception) {}
+                            val p = instMethod!!.parameterTypes
+                            val timeoutParam = if (p[2] == Int::class.javaPrimitiveType) 5000 else 5000L
+                            val args = if (p.size == 4 && p[3].isInterface) arrayOf(outboundJson, url, timeoutParam, pi)
+                            else arrayOf(outboundJson, url, timeoutParam)
+                            val result = instMethod!!.invoke(service, *args)
+                            return@withContext when (instMethodType) {
+                                0 -> result as Long
+                                1 -> extractDelayFromUrlTest(result, settings.latencyTestMethod)
+                                else -> -1L
+                            }
+                        } finally {
+                            try { service.close() } catch (_: Exception) {}
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Libbox native URL test failed: ${e.message}")
         }
