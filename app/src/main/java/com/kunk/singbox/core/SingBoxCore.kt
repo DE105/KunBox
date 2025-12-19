@@ -273,6 +273,17 @@ class SingBoxCore private constructor(private val context: Context) {
 
             // 如果仍然找不到，尝试检查 BoxService (虽然通常是在 Libbox 静态类中)
             if (methodToUse == null) {
+                try {
+                    val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
+                    val allMethods = libboxClass.methods
+                    Log.i(TAG, "Libbox all methods: " + allMethods.joinToString { it.name + "(" + it.parameterTypes.joinToString { p -> p.simpleName } + ")" })
+                    
+                    val boxServiceClass = Class.forName("io.nekohasekai.libbox.BoxService")
+                    val allInstMethods = boxServiceClass.methods
+                    Log.i(TAG, "BoxService all methods: " + allInstMethods.joinToString { it.name + "(" + it.parameterTypes.joinToString { p -> p.simpleName } + ")" })
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to list methods: ${e.message}")
+                }
                 Log.w(TAG, "Libbox native URL test methods still not found after discovery")
             }
             if (methodToUse == null) {
