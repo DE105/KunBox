@@ -1906,8 +1906,7 @@ class ConfigRepository(private val context: Context) {
                     stack = settings.tunStack.name.lowercase(), // gvisor/system/mixed/lwip
                     sniff = true,
                     sniffOverrideDestination = true,
-                    sniffTimeout = "100ms",
-                    tcpFastOpen = true
+                    sniffTimeout = "100ms"
                 )
             )
         } else {
@@ -1920,8 +1919,7 @@ class ConfigRepository(private val context: Context) {
                     listenPort = 2080,
                     sniff = true,
                     sniffOverrideDestination = true,
-                    sniffTimeout = "100ms",
-                    tcpFastOpen = true
+                    sniffTimeout = "100ms"
                 )
             )
         }
