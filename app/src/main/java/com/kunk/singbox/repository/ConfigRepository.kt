@@ -1,6 +1,8 @@
 package com.kunk.singbox.repository
 
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
@@ -9,8 +11,10 @@ import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.model.*
 import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.utils.ClashConfigParser
-import com.kunk.singbox.utils.SecurityUtils
+import java.io.File
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -25,9 +29,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.File
-import java.util.UUID
-import java.util.concurrent.TimeUnit
 
 /**
  * 配置仓库 - 负责获取、解析和存储配置
@@ -1193,34 +1194,30 @@ class ConfigRepository(private val context: Context) {
             }
             
             try {
-                val clashApi = singBoxCore.getClashApiClient()
-
-                val beforeSwitch = clashApi.getCurrentSelection("PROXY")
-                Log.v(TAG, "Before switch: current selection = $beforeSwitch, target = ${node.name}")
-
-                val success = clashApi.selectProxy("PROXY", node.name)
-
-                if (success) {
-                    val afterSwitch = clashApi.getCurrentSelection("PROXY")
-                    Log.v(TAG, "After switch: current selection = $afterSwitch")
-
-                    if (afterSwitch == node.name) {
-                        Log.i(TAG, "Hot switched to node: ${node.name} - VERIFIED")
-                        NodeSwitchResult.Success
-                    } else {
-                        val msg = "切换验证失败，期望: ${node.name}, 实际: $afterSwitch"
-                        Log.e(TAG, msg)
-                        NodeSwitchResult.Failed(msg)
-                    }
-                } else {
-                    val msg = "节点切换请求失败"
-                    Log.e(TAG, "Failed to hot switch node: ${node.name}")
-                    NodeSwitchResult.Failed(msg)
+                val configPath = generateConfigFile()
+                if (configPath.isNullOrBlank()) {
+                    val msg = "配置生成失败"
+                    Log.e(TAG, msg)
+                    return@withContext NodeSwitchResult.Failed(msg)
                 }
-            } catch (e: java.net.ConnectException) {
-                val msg = "无法连接到代理服务"
-                Log.e(TAG, msg, e)
-                NodeSwitchResult.Failed(msg)
+
+                val configPathStr: String = configPath
+
+                val intent = Intent(context, SingBoxService::class.java).apply {
+                    action = SingBoxService.ACTION_START
+                    putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPathStr)
+                }
+
+                // Service is already running (VPN active), so startService is sufficient.
+                // We still keep the SDK gate to avoid background restrictions if the service was somehow not running.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+
+                Log.i(TAG, "Switched node by restarting VPN: ${node.name}")
+                NodeSwitchResult.Success
             } catch (e: Exception) {
                 val msg = "切换异常: ${e.message ?: "未知错误"}"
                 Log.e(TAG, "Error during hot switch", e)
@@ -1311,10 +1308,6 @@ class ConfigRepository(private val context: Context) {
                 Log.v(TAG, "Testing latency for node: ${node.name} (${outbound.type})")
                 val fixedOutbound = fixOutboundForRuntime(outbound)
                 val latency = singBoxCore.testOutboundLatency(fixedOutbound)
-                
-                if (!SingBoxService.isRunning) {
-                    singBoxCore.stopTestService()
-                }
                 
                 // 更新节点延迟
                 _nodes.update { list ->
@@ -1885,13 +1878,7 @@ class ConfigRepository(private val context: Context) {
         // 使用 filesDir 而非 cacheDir，确保 FakeIP 缓存不会被系统清理
         val singboxDataDir = File(context.filesDir, "singbox_data").also { it.mkdirs() }
 
-        val clashApiSecret = SecurityUtils.getClashApiSecret()
-
         val experimental = ExperimentalConfig(
-            clashApi = ClashApiConfig(
-                externalController = "127.0.0.1:9090",
-                secret = clashApiSecret
-            ),
             cacheFile = CacheFileConfig(
                 enabled = true,
                 path = File(singboxDataDir, "cache.db").absolutePath,
@@ -2578,24 +2565,21 @@ class ConfigRepository(private val context: Context) {
      * 导出节点链接
      */
     fun exportNode(nodeId: String): String? {
-        val node = _nodes.value.find { it.id == nodeId }
-        if (node == null) {
-             Log.e(TAG, "exportNode: Node not found in UI list: $nodeId")
-             return null
+        val node = _nodes.value.find { it.id == nodeId } ?: run {
+            Log.e(TAG, "exportNode: Node not found in UI list: $nodeId")
+            return null
         }
-        
-        val config = loadConfig(node.sourceProfileId)
-        if (config == null) {
-             Log.e(TAG, "exportNode: Config not found for profile: ${node.sourceProfileId}")
-             return null
+
+        val config = loadConfig(node.sourceProfileId) ?: run {
+            Log.e(TAG, "exportNode: Config not found for profile: ${node.sourceProfileId}")
+            return null
         }
-        
-        val outbound = config.outbounds?.find { it.tag == node.name }
-        if (outbound == null) {
-             Log.e(TAG, "exportNode: Outbound not found in config with tag: ${node.name}")
-             return null
+
+        val outbound = config.outbounds?.find { it.tag == node.name } ?: run {
+            Log.e(TAG, "exportNode: Outbound not found in config with tag: ${node.name}")
+            return null
         }
-        
+
         Log.d(TAG, "exportNode: Found outbound ${outbound.tag} of type ${outbound.type}")
 
         val link = when (outbound.type) {

@@ -15,12 +15,12 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.os.SystemClock
 import android.system.OsConstants
 import android.util.Log
 import android.service.quicksettings.TileService
 import android.content.ComponentName
 import com.kunk.singbox.MainActivity
-import com.kunk.singbox.utils.SecurityUtils
 import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.VpnAppMode
@@ -63,10 +63,6 @@ class SingBoxService : VpnService() {
         const val ACTION_SWITCH_NODE = "com.kunk.singbox.SWITCH_NODE"
         const val EXTRA_CONFIG_PATH = "config_path"
         
-        const val CLASH_API_PORT = 9090
-
-        fun getClashApiSecret(): String = SecurityUtils.getClashApiSecret()
-        
         @Volatile
         var isRunning = false
             private set(value) {
@@ -94,10 +90,6 @@ class SingBoxService : VpnService() {
         var isManuallyStopped = false
             private set
         
-        @Volatile
-        var clashApiPort = CLASH_API_PORT
-            private set
-
         private var lastConfigPath: String? = null
 
         private fun setLastError(message: String?) {
@@ -891,13 +883,13 @@ class SingBoxService : VpnService() {
                             pendingStartConfigPath = configPath
                             stopSelfRequested = false
                             lastConfigPath = configPath
-                            return START_STICKY
+                            return START_NOT_STICKY
                         }
                         if (isStopping) {
                             pendingStartConfigPath = configPath
                             stopSelfRequested = false
                             lastConfigPath = configPath
-                            return START_STICKY
+                            return START_NOT_STICKY
                         }
                         // If already running, do a clean restart to avoid half-broken tunnel state
                         if (isRunning) {
@@ -926,7 +918,8 @@ class SingBoxService : VpnService() {
                 switchNextNode()
             }
         }
-        return START_STICKY
+        // Do not restart automatically with null intents; explicit start/stop is required.
+        return START_NOT_STICKY
     }
     
     private fun switchNextNode() {
@@ -1073,8 +1066,9 @@ class SingBoxService : VpnService() {
             isStopping = true
         }
 
-        startVpnJob?.cancel()
+        val jobToJoin = startVpnJob
         startVpnJob = null
+        jobToJoin?.cancel()
 
         vpnHealthJob?.cancel()
         vpnHealthJob = null
@@ -1107,6 +1101,11 @@ class SingBoxService : VpnService() {
         vpnInterface = null
 
         cleanupScope.launch(NonCancellable) {
+            try {
+                jobToJoin?.join()
+            } catch (_: Exception) {
+            }
+
             try {
                 platformInterface.closeDefaultInterfaceMonitor(listener)
             } catch (_: Exception) {
@@ -1144,10 +1143,34 @@ class SingBoxService : VpnService() {
             }
 
             if (!startAfterStop.isNullOrBlank()) {
+                // Avoid restarting while system VPN transport is still tearing down.
+                waitForSystemVpnDown(timeoutMs = 1500L)
                 withContext(Dispatchers.Main) {
                     startVpn(startAfterStop)
                 }
             }
+        }
+    }
+
+    private suspend fun waitForSystemVpnDown(timeoutMs: Long) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val cm = try {
+            getSystemService(ConnectivityManager::class.java)
+        } catch (_: Exception) {
+            null
+        } ?: return
+
+        val start = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - start < timeoutMs) {
+            val hasVpn = runCatching {
+                cm.allNetworks.any { network ->
+                    val caps = cm.getNetworkCapabilities(network) ?: return@any false
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                }
+            }.getOrDefault(false)
+
+            if (!hasVpn) return
+            delay(50)
         }
     }
 

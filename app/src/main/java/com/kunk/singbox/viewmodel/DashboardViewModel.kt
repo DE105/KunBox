@@ -3,10 +3,12 @@ package com.kunk.singbox.viewmodel
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.net.TrafficStats
 import android.net.VpnService
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -32,12 +34,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import okhttp3.WebSocket
 
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
     
@@ -87,13 +89,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _isPingTesting = MutableStateFlow(false)
     val isPingTesting: StateFlow<Boolean> = _isPingTesting.asStateFlow()
     
-    private var trafficWebSocket: WebSocket? = null
     private var pingTestJob: Job? = null
     private var lastErrorToastJob: Job? = null
     private var startMonitorJob: Job? = null
-
-    private var pendingProxySelectionName: String? = null
-    private var hasSyncedFromServiceThisSession: Boolean = false
     
     // 用于平滑流量显示的缓存
     private var lastUploadSpeed: Long = 0
@@ -130,6 +128,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         )
     
     private var trafficSmoothingJob: Job? = null
+    private var trafficBaseTxBytes: Long = 0
+    private var trafficBaseRxBytes: Long = 0
+    private var lastTrafficTxBytes: Long = 0
+    private var lastTrafficRxBytes: Long = 0
+    private var lastTrafficSampleAtElapsedMs: Long = 0
     
     // Status
     private val _updateStatus = MutableStateFlow<String?>(null)
@@ -179,28 +182,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     _connectionState.value = ConnectionState.Connected
                     _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
                     startTrafficMonitor()
-
-                    // If user just started VPN with an explicit node selection, prefer it.
-                    // Otherwise, on app process restart/reinstall, sync UI from actual service selection.
-                    val intended = pendingProxySelectionName
-                    pendingProxySelectionName = null
-                    try {
-                        val clashApi = singBoxCore.getClashApiClient()
-                        if (!intended.isNullOrBlank()) {
-                            clashApi.selectProxy("PROXY", intended)
-                        } else if (!hasSyncedFromServiceThisSession) {
-                            val selected = clashApi.getCurrentSelection("PROXY")
-                            configRepository.syncActiveNodeFromProxySelection(selected)
-                            hasSyncedFromServiceThisSession = true
-                        }
-
-                        if (!intended.isNullOrBlank()) {
-                            val selectedAfter = clashApi.getCurrentSelection("PROXY")
-                            configRepository.syncActiveNodeFromProxySelection(selectedAfter)
-                            hasSyncedFromServiceThisSession = true
-                        }
-                    } catch (_: Exception) {
-                    }
                     // VPN 启动后自动对当前节点进行测速
                     startPingTest()
                 } else if (!SingBoxService.isStarting) {
@@ -210,8 +191,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     stopPingTest()
                     _statsBase.value = ConnectionStats(0, 0, 0, 0, 0)
                     _currentNodePing.value = null
-
-                    hasSyncedFromServiceThisSession = false
                 }
             }
         }
@@ -284,14 +263,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     private fun startVpn() {
         val context = getApplication<Application>()
-
-        // Record the user-intended node before starting. When the service becomes running,
-        // we will try to enforce this selection via Clash API to avoid jumping back.
-        val intendedNodeId = activeNodeId.value
-        val intendedName = intendedNodeId?.let { id ->
-            configRepository.nodes.value.find { it.id == id }?.name
-        }
-        pendingProxySelectionName = intendedName
         
         // 检查 VPN 权限
         val prepareIntent = VpnService.prepare(context)
@@ -426,8 +397,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     return@launch
                 }
                 
-                val activeNodeId = activeNodeId.value
-                if (activeNodeId == null) {
+                val activeNodeId = activeNodeId.value ?: withTimeoutOrNull(1500L) {
+                    this@DashboardViewModel.activeNodeId.filterNotNull().first()
+                }
+                if (activeNodeId.isNullOrBlank()) {
                     Log.w(TAG, "No active node to test ping")
                     _isPingTesting.value = false
                     _currentNodePing.value = -1L // 标记为失败
@@ -523,23 +496,53 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         lastUploadSpeed = 0
         lastDownloadSpeed = 0
         
-        // 连接 WebSocket 获取实时流量，使用平滑处理
-        trafficWebSocket = singBoxCore.getClashApiClient().connectTrafficWebSocket { up, down ->
-            // 使用指数移动平均进行平滑处理，减少闪烁
-            val smoothFactor = 0.3 // 平滑因子，越小越平滑
-            val smoothedUp = if (lastUploadSpeed == 0L) up else (lastUploadSpeed * (1 - smoothFactor) + up * smoothFactor).toLong()
-            val smoothedDown = if (lastDownloadSpeed == 0L) down else (lastDownloadSpeed * (1 - smoothFactor) + down * smoothFactor).toLong()
-            
-            lastUploadSpeed = smoothedUp
-            lastDownloadSpeed = smoothedDown
-            
-            _statsBase.update { current ->
-                current.copy(
-                    uploadSpeed = smoothedUp,
-                    downloadSpeed = smoothedDown,
-                    uploadTotal = current.uploadTotal + up,
-                    downloadTotal = current.downloadTotal + down
-                )
+        val uid = Process.myUid()
+        val tx0 = TrafficStats.getUidTxBytes(uid).let { if (it > 0) it else 0L }
+        val rx0 = TrafficStats.getUidRxBytes(uid).let { if (it > 0) it else 0L }
+        trafficBaseTxBytes = tx0
+        trafficBaseRxBytes = rx0
+        lastTrafficTxBytes = tx0
+        lastTrafficRxBytes = rx0
+        lastTrafficSampleAtElapsedMs = SystemClock.elapsedRealtime()
+
+        trafficSmoothingJob = viewModelScope.launch(Dispatchers.Default) {
+            while (true) {
+                delay(1000)
+
+                val nowElapsed = SystemClock.elapsedRealtime()
+                val tx = TrafficStats.getUidTxBytes(uid).let { if (it > 0) it else 0L }
+                val rx = TrafficStats.getUidRxBytes(uid).let { if (it > 0) it else 0L }
+
+                val dtMs = (nowElapsed - lastTrafficSampleAtElapsedMs).coerceAtLeast(1L)
+                val dTx = (tx - lastTrafficTxBytes).coerceAtLeast(0L)
+                val dRx = (rx - lastTrafficRxBytes).coerceAtLeast(0L)
+
+                val up = (dTx * 1000L) / dtMs
+                val down = (dRx * 1000L) / dtMs
+
+                // 使用指数移动平均进行平滑处理，减少闪烁
+                val smoothFactor = 0.3 // 平滑因子，越小越平滑
+                val smoothedUp = if (lastUploadSpeed == 0L) up else (lastUploadSpeed * (1 - smoothFactor) + up * smoothFactor).toLong()
+                val smoothedDown = if (lastDownloadSpeed == 0L) down else (lastDownloadSpeed * (1 - smoothFactor) + down * smoothFactor).toLong()
+
+                lastUploadSpeed = smoothedUp
+                lastDownloadSpeed = smoothedDown
+
+                val totalTx = (tx - trafficBaseTxBytes).coerceAtLeast(0L)
+                val totalRx = (rx - trafficBaseRxBytes).coerceAtLeast(0L)
+
+                _statsBase.update { current ->
+                    current.copy(
+                        uploadSpeed = smoothedUp,
+                        downloadSpeed = smoothedDown,
+                        uploadTotal = totalTx,
+                        downloadTotal = totalRx
+                    )
+                }
+
+                lastTrafficTxBytes = tx
+                lastTrafficRxBytes = rx
+                lastTrafficSampleAtElapsedMs = nowElapsed
             }
         }
     }
@@ -547,15 +550,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun stopTrafficMonitor() {
         trafficSmoothingJob?.cancel()
         trafficSmoothingJob = null
-        try {
-            trafficWebSocket?.close(1000, "Stop monitoring")
-        } catch (e: Exception) {
-            Log.w(TAG, "Error closing traffic WebSocket", e)
-        } finally {
-            trafficWebSocket = null
-        }
         lastUploadSpeed = 0
         lastDownloadSpeed = 0
+        trafficBaseTxBytes = 0
+        trafficBaseRxBytes = 0
+        lastTrafficTxBytes = 0
+        lastTrafficRxBytes = 0
+        lastTrafficSampleAtElapsedMs = 0
     }
     
     /**

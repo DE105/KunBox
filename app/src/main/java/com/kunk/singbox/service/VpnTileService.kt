@@ -1,5 +1,6 @@
 package com.kunk.singbox.service
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
@@ -33,7 +34,7 @@ class VpnTileService : TileService() {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean(KEY_VPN_ACTIVE, isActive)
-                .apply()
+                .commit()
         }
     }
 
@@ -77,14 +78,18 @@ class VpnTileService : TileService() {
 
         // If system has no VPN but persisted says active, this is almost certainly a stale tile after force-stop.
         // First click should only clear persisted state + refresh the tile, never start VPN.
-        if (!hasSystemVpn && persistedState && !SingBoxService.isRunning) {
+        if (!hasSystemVpn && persistedState && !isSingBoxServiceRunning()) {
             persistVpnState(this, false)
             updateTile()
+            val intent = Intent(this, SingBoxService::class.java).apply {
+                action = SingBoxService.ACTION_STOP
+            }
+            startService(intent)
             return
         }
 
         // If another VPN is active, don't attempt to start ours from the tile.
-        if (hasSystemVpn && !persistedState && !SingBoxService.isRunning) {
+        if (hasSystemVpn && !persistedState && !isSingBoxServiceRunning()) {
             updateTile()
             return
         }
@@ -100,10 +105,6 @@ class VpnTileService : TileService() {
             updateTile()
             return
         }
-        if (!displayedActive && isRunning) {
-            updateTile()
-            return
-        }
         
         // Update tile state immediately for responsive feel
         if (tile != null) {
@@ -112,11 +113,13 @@ class VpnTileService : TileService() {
         }
 
         if (isRunning) {
+            persistVpnState(this, false)
             val intent = Intent(this, SingBoxService::class.java).apply {
                 action = SingBoxService.ACTION_STOP
             }
             startService(intent)
         } else {
+            persistVpnState(this, true)
             serviceScope.launch {
                 val configRepository = ConfigRepository.getInstance(applicationContext)
                 val configPath = configRepository.generateConfigFile()
@@ -131,6 +134,7 @@ class VpnTileService : TileService() {
                         startService(intent)
                     }
                 } else {
+                    persistVpnState(this@VpnTileService, false)
                     // Revert tile state if start fails
                     updateTile()
                 }
@@ -175,23 +179,21 @@ class VpnTileService : TileService() {
             true
         }
 
-        // 如果系统没有 VPN 网络，一定不活跃
-        if (!hasSystemVpn) {
-            return false
+        val persistedState = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_VPN_ACTIVE, false)
+
+        if (SingBoxService.isRunning || isSingBoxServiceRunning()) {
+            return true
         }
 
-        // 系统有 VPN 网络，检查是否是我们的
-        // 优先使用进程内状态（最准确）
-        if (SingBoxService.isRunning) {
-            return true
+        // 如果系统没有 VPN 网络，一定不活跃
+        if (!hasSystemVpn) {
+            return persistedState
         }
 
         // 进程内状态为 false，但系统有 VPN 网络
         // 这可能是其他 VPN 应用，或者我们的 VPN 刚刚关闭但网络还没断开
         // 此时以系统网络状态为准，但需要持久化状态辅助判断
-        val persistedState = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_VPN_ACTIVE, false)
-        
         // 如果持久化状态也是 false，说明不是我们的 VPN
         if (!persistedState) {
             return false
@@ -201,6 +203,15 @@ class VpnTileService : TileService() {
         // This can happen due to process restart or stale prefs; we conservatively treat as active
         // for tile display, but clicks will still self-correct via onClick stale handling.
         return true
+    }
+
+    private fun isSingBoxServiceRunning(): Boolean {
+        return runCatching {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return@runCatching false
+            @Suppress("DEPRECATION")
+            val running = am.getRunningServices(Int.MAX_VALUE)
+            running.any { it.service.className == SingBoxService::class.java.name }
+        }.getOrDefault(false)
     }
 
     override fun onDestroy() {

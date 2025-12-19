@@ -19,35 +19,6 @@ object SecurityUtils {
     private const val GCM_IV_LENGTH = 12
     private const val GCM_TAG_LENGTH = 128
 
-    @Volatile
-    private var clashApiSecret: String? = null
-    private val secretLock = Any()
-
-    fun generateClashApiSecret(): String {
-        synchronized(secretLock) {
-            clashApiSecret?.let { return it }
-            val bytes = ByteArray(16)
-            SecureRandom().nextBytes(bytes)
-            val secret = Base64.encodeToString(bytes, Base64.NO_WRAP or Base64.URL_SAFE)
-                .replace("=", "")
-                .take(22)
-            clashApiSecret = secret
-            return secret
-        }
-    }
-
-    fun getClashApiSecret(): String {
-        synchronized(secretLock) {
-            return clashApiSecret ?: generateClashApiSecret()
-        }
-    }
-
-    fun resetClashApiSecret() {
-        synchronized(secretLock) {
-            clashApiSecret = null
-        }
-    }
-
     private fun getOrCreateSecretKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 

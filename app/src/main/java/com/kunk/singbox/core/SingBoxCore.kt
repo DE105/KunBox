@@ -14,18 +14,13 @@ import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.flow.first
 import com.kunk.singbox.service.SingBoxService
 import io.nekohasekai.libbox.*
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import java.net.NetworkInterface
@@ -55,45 +50,21 @@ class SingBoxCore private constructor(private val context: Context) {
     
     // libbox 是否可用
     private var libboxAvailable = false
-    
-    // Clash API 客户端
-    private val clashApiClient = ClashApiClient()
-    
-    // 临时测试服务（用于在 VPN 未运行时进行延迟测试）
-    private var testService: BoxService? = null
-    private var testServiceClashBaseUrl: String? = null
-    private var testServiceClashPort: Int = 0
-    private var testPlatformInterface: TestPlatformInterface? = null
-    
-    // 后台保活相关
-    private var testServiceStartTime: Long = 0
-    private var testServiceOutboundTags: MutableSet<String> = mutableSetOf()
-    private var keepAliveJob: kotlinx.coroutines.Job? = null
-    private val serviceLock = Any()
-    
-    // 基准延迟（非网络开销），用于校准
-    private var baselineLatency: Long = 0
-    private var baselineCalibrated = false
-    
+
     companion object {
         private const val TAG = "SingBoxCore"
-        private const val URL_TEST_URL = "https://www.gstatic.com/generate_204"
-        private const val URL_TEST_TIMEOUT = 5000 // 5 seconds
-        private const val TEST_SERVICE_KEEP_ALIVE_MS = 30_000L // 保活 30 秒
 
         private val libboxSetupDone = AtomicBoolean(false)
         // 最近一次原生测速预热时间（避免每次都预热）
         @Volatile
         private var lastNativeWarmupAt: Long = 0
-        
+
         @Volatile
         private var instance: SingBoxCore? = null
-        
+
         fun getInstance(context: Context): SingBoxCore {
             return instance ?: synchronized(this) {
-                instance ?: SingBoxCore(context.applicationContext).also {
-                    instance = it
-                }
+                instance ?: SingBoxCore(context.applicationContext).also { instance = it }
             }
         }
 
@@ -303,7 +274,7 @@ class SingBoxCore private constructor(private val context: Context) {
                                 Modifier.isStatic(m.modifiers)
                         if (okParams) {
                             try {
-                                val pi = testPlatformInterface ?: TestPlatformInterface(context)
+                                val pi = TestPlatformInterface(context)
                                 val args = buildUrlTestArgs(params, outboundJson, url, pi)
                                 val rt = m.returnType
                                 if (rt == Long::class.javaPrimitiveType || hasDelayAccessors(rt)) {
@@ -328,7 +299,7 @@ class SingBoxCore private constructor(private val context: Context) {
                                     Modifier.isStatic(m.modifiers)
                             if (okParams) {
                                 try {
-                                    val pi = testPlatformInterface ?: TestPlatformInterface(context)
+                                    val pi = TestPlatformInterface(context)
                                     val args = buildUrlTestArgs(params, outboundJson, fallbackUrl, pi)
                                     val rt = m.returnType
                                     if (rt == Long::class.javaPrimitiveType || hasDelayAccessors(rt)) {
@@ -361,7 +332,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 
                 val args = if (params.size == 4 && params[3].isInterface) {
                     // 需要 PlatformInterface
-                    val pi = testPlatformInterface ?: TestPlatformInterface(context)
+                    val pi = TestPlatformInterface(context)
                     arrayOf(outboundJson, url, timeoutParam, pi)
                 } else {
                     arrayOf(outboundJson, url, timeoutParam)
@@ -426,7 +397,7 @@ class SingBoxCore private constructor(private val context: Context) {
                     }
                     if (instMethod != null) {
                         ensureLibboxSetup(context)
-                        val pi = testPlatformInterface ?: TestPlatformInterface(context)
+                        val pi = TestPlatformInterface(context)
                         val minimalConfig = SingBoxConfig(
                             log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true)
                         )
@@ -449,7 +420,7 @@ class SingBoxCore private constructor(private val context: Context) {
                     }
 
                     ensureLibboxSetup(context)
-                    val pi = testPlatformInterface ?: TestPlatformInterface(context)
+                    val pi = TestPlatformInterface(context)
                     val minimalConfig = SingBoxConfig(
                         log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true)
                     )
@@ -686,36 +657,10 @@ class SingBoxCore private constructor(private val context: Context) {
      */
     suspend fun testOutboundLatency(outbound: Outbound): Long = withContext(Dispatchers.IO) {
         val settings = SettingsRepository.getInstance(context).settings.first()
-        
-        // 当 VPN 正在运行且启用了原生测速，优先使用运行实例原生 URLTest
-        if (SingBoxService.isRunning && settings.useLibboxUrlTest) {
-            val nativeLatency = testOutboundLatencyWithLibbox(outbound, settings)
-            if (nativeLatency >= 0) return@withContext nativeLatency
-            // 原生失败时，回退到 Clash API，提升成功率
-            clashApiClient.setBaseUrl("http://127.0.0.1:9090")
-            return@withContext testOutboundLatencyWithClashApi(outbound)
-        }
 
-        // VPN 未运行时：为稳定起见，优先使用临时服务 + Clash API；仅在设置关闭原生时也走 Clash API
-        try {
-            ensureTestServiceRunning(listOf(outbound))
-            var clashLatency = testOutboundLatencyWithClashApi(outbound)
-            if (clashLatency < 0 && settings.useLibboxUrlTest) {
-                // 服务可能尚在启动，等待片刻再试一次
-                delay(250)
-                clashLatency = testOutboundLatencyWithClashApi(outbound)
-            }
-            if (clashLatency >= 0 || !settings.useLibboxUrlTest) return@withContext clashLatency
-            // Clash API 仍失败且开启原生，则再尝试原生静态路径
-            return@withContext testOutboundLatencyWithLibbox(outbound, settings)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to test latency with temporary service", e)
-            -1L
-        } finally {
-            if (!SingBoxService.isRunning) {
-                stopTestService()
-            }
-        }
+        // Native-only strategy: use libbox URLTest and local HTTP-proxy based testing only.
+        // We intentionally avoid Clash API (HTTP/WebSocket) to remove secret/auth/process issues.
+        return@withContext testOutboundLatencyWithLibbox(outbound, settings)
     }
     
     /**
@@ -728,8 +673,8 @@ class SingBoxCore private constructor(private val context: Context) {
         onResult: (tag: String, latency: Long) -> Unit
     ) = withContext(Dispatchers.IO) {
         val settings = SettingsRepository.getInstance(context).settings.first()
-        
-        // 优先使用原生 URLTest（运行实例路径，降低并发至 6），对 -1 做 Clash API 回退
+
+        // Native-only batch test: libbox URLTest first.
         if (libboxAvailable && settings.useLibboxUrlTest && SingBoxService.isRunning) {
             // 先做一次轻量预热，避免批量首个请求落在 link 验证/路由冷启动窗口
             try {
@@ -742,13 +687,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 val jobs = outbounds.map { outbound ->
                     async {
                         semaphore.withPermit {
-                            var latency = testOutboundLatencyWithLibbox(outbound, settings)
-                            if (latency < 0) {
-                                try {
-                                    clashApiClient.setBaseUrl("http://127.0.0.1:9090")
-                                    latency = testOutboundLatencyWithClashApi(outbound)
-                                } catch (_: Exception) {}
-                            }
+                            val latency = testOutboundLatencyWithLibbox(outbound, settings)
                             onResult(outbound.tag, latency)
                         }
                     }
@@ -758,249 +697,20 @@ class SingBoxCore private constructor(private val context: Context) {
             return@withContext
         }
 
-        // 其它情况按 Clash API 路径
-        if (SingBoxService.isRunning) {
-            performClashApiBatchTest(outbounds, onResult)
-            return@withContext
-        }
-
-        // 默认使用临时服务的 Clash API 批量测试
-        performClashApiBatchTest(outbounds, onResult)
-    }
-
-    private suspend fun performClashApiBatchTest(
-        outbounds: List<Outbound>,
-        onResult: (tag: String, latency: Long) -> Unit
-    ) = coroutineScope {
-        try {
-            if (!SingBoxService.isRunning) {
-                ensureTestServiceRunning(outbounds)
-            } else {
-                clashApiClient.setBaseUrl("http://127.0.0.1:9090")
-            }
-
-            val semaphore = kotlinx.coroutines.sync.Semaphore(permits = 4)
+        // Other cases: still stay native-only.
+        // Running or not running doesn't matter for the local HTTP-proxy fallback inside testOutboundLatencyWithLibbox.
+        val semaphore = Semaphore(permits = 4)
+        coroutineScope {
             val jobs = outbounds.map { outbound ->
                 async {
                     semaphore.withPermit {
-                        try {
-                            val latency = testOutboundLatencyWithClashApi(outbound)
-                            onResult(outbound.tag, latency)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Latency test failed for ${outbound.tag}", e)
-                            onResult(outbound.tag, -1L)
-                        }
+                        val latency = testOutboundLatencyWithLibbox(outbound, settings)
+                        onResult(outbound.tag, latency)
                     }
                 }
             }
             jobs.awaitAll()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start test service", e)
-            outbounds.forEach { onResult(it.tag, -1L) }
-        } finally {
-            if (!SingBoxService.isRunning) {
-                stopTestService()
-            }
         }
-    }
-    
-    /**
-     * 确保测试服务正在运行，如果已运行则检查是否需要更新配置
-     */
-    private suspend fun ensureTestServiceRunning(outbounds: List<Outbound>) {
-        val needStart = synchronized(serviceLock) {
-            val newTags = outbounds.map { it.tag }.toSet()
-            
-            // 检查是否需要重启服务（新节点不在当前配置中）
-            val needRestart = testService != null && !testServiceOutboundTags.containsAll(newTags)
-            
-            if (testService != null && !needRestart) {
-                // 服务已运行且包含所需节点，重置保活计时器
-                Log.v(TAG, "Reusing existing test service")
-                testServiceStartTime = System.currentTimeMillis()
-                scheduleServiceShutdown()
-                return@synchronized false
-            }
-            
-            if (needRestart) {
-                Log.d(TAG, "Restarting test service with new nodes")
-                stopTestServiceInternal()
-            }
-            true
-        }
-        
-        // 启动新服务（在锁外执行，避免持锁时间过长）
-        if (needStart) {
-            startTestServiceWithKeepAlive(outbounds)
-        }
-    }
-    
-    /**
-     * 启动带保活功能的测试服务
-     */
-    private suspend fun startTestServiceWithKeepAlive(outbounds: List<Outbound>) {
-        synchronized(serviceLock) {
-            if (testService != null) return
-            
-            testServiceClashPort = allocateLocalPort()
-            val clashBaseUrl = "http://127.0.0.1:$testServiceClashPort"
-            val config = buildBatchTestConfig(outbounds, testServiceClashPort)
-            val configJson = gson.toJson(config)
-            if (Log.isLoggable(TAG, Log.VERBOSE)) {
-                Log.v(TAG, "Batch test config length: ${configJson.length}")
-            }
-            
-            try {
-                ensureLibboxSetup(context)
-
-                testServiceClashBaseUrl = clashBaseUrl
-                clashApiClient.setBaseUrl(clashBaseUrl)
-                testServiceOutboundTags = outbounds.map { it.tag }.toMutableSet()
-                testServiceStartTime = System.currentTimeMillis()
-
-                val platformInterface = TestPlatformInterface(context)
-                testPlatformInterface = platformInterface
-                testService = Libbox.newService(configJson, platformInterface)
-                testService?.start()
-                Log.i(TAG, "Test service started with keep-alive")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start test service", e)
-                stopTestServiceInternal()
-                throw e
-            }
-        }
-        
-        // 等待 API 就绪
-        var retry = 0
-        while (retry < 20) {
-            delay(100)
-            if (clashApiClient.isAvailable()) {
-                Log.v(TAG, "Test service API ready after ${(retry + 1) * 100}ms")
-                break
-            }
-            retry++
-        }
-        if (retry >= 20) {
-            Log.e(TAG, "Test service API failed to start")
-            stopTestService()
-            throw Exception("Test service API failed to start")
-        }
-        
-        // 调度自动关闭
-        scheduleServiceShutdown()
-    }
-    
-    private val keepAliveSupervisorJob = SupervisorJob()
-    private val keepAliveScope = CoroutineScope(Dispatchers.IO + keepAliveSupervisorJob)
-
-    private fun scheduleServiceShutdown() {
-        keepAliveJob?.cancel()
-        keepAliveJob = keepAliveScope.launch {
-            try {
-                delay(TEST_SERVICE_KEEP_ALIVE_MS)
-                synchronized(serviceLock) {
-                    val elapsed = System.currentTimeMillis() - testServiceStartTime
-                    if (elapsed >= TEST_SERVICE_KEEP_ALIVE_MS) {
-                        Log.v(TAG, "Test service keep-alive expired, stopping")
-                        stopTestServiceInternal()
-                    }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                Log.v(TAG, "Keep-alive job cancelled")
-            }
-        }
-    }
-
-    /**
-     * 强制停止测试服务（公开方法，供外部调用）
-     */
-    fun stopTestService() {
-        synchronized(serviceLock) {
-            keepAliveJob?.cancel()
-            keepAliveJob = null
-            stopTestServiceInternal()
-        }
-    }
-    
-    /**
-     * 内部停止服务方法（需要在锁内调用）
-     */
-    private fun stopTestServiceInternal() {
-        val serviceToClose = testService
-        val oldTestBaseUrl = testServiceClashBaseUrl
-        val platformToClose = testPlatformInterface
-        testService = null
-        testServiceClashBaseUrl = null
-        testPlatformInterface = null
-
-        testServiceOutboundTags.clear()
-        testServiceStartTime = 0
-        testServiceClashPort = 0
-        
-        try {
-            try {
-                platformToClose?.closeDefaultInterfaceMonitor(null)
-            } catch (_: Exception) {
-            }
-            serviceToClose?.close()
-            if (serviceToClose != null) {
-                Log.i(TAG, "Test service stopped")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error stopping test service", e)
-        } finally {
-            oldTestBaseUrl?.let {
-                clashApiClient.setBaseUrl("http://127.0.0.1:9090")
-            }
-        }
-    }
-    
-    /**
-     * 检查测试服务是否正在运行
-     */
-    fun isTestServiceRunning(): Boolean = synchronized(serviceLock) { testService != null }
-
-    private fun buildBatchTestConfig(outbounds: List<Outbound>, clashPort: Int): SingBoxConfig {
-        // 创建一个包含所有待测试节点的配置
-        // 必须确保 tags 唯一，这里假设传入的 outbounds 已经是唯一的或者 sing-box 能处理
-        // 添加一个 direct 出站以防万一
-        val direct = Outbound(type = "direct", tag = "direct")
-        
-        // 过滤掉 direct 和 block，避免重复（虽然 config repo 应该已经处理了）
-        val testOutbounds = ArrayList<Outbound>()
-        testOutbounds.addAll(outbounds.filter { it.type != "direct" && it.type != "block" })
-        testOutbounds.add(direct)
-        
-              return SingBoxConfig(
-                  log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
-                  dns = com.kunk.singbox.model.DnsConfig(
-                      servers = listOf(
-                          com.kunk.singbox.model.DnsServer(tag = "google", address = "8.8.8.8", detour = "direct"),
-                          com.kunk.singbox.model.DnsServer(tag = "local", address = "223.5.5.5", detour = "direct")
-                      )
-                  ),
-              experimental = com.kunk.singbox.model.ExperimentalConfig(
-                        clashApi = com.kunk.singbox.model.ClashApiConfig(
-                            externalController = "127.0.0.1:$clashPort",
-                            secret = com.kunk.singbox.utils.SecurityUtils.getClashApiSecret()
-                        ),
-                      cacheFile = com.kunk.singbox.model.CacheFileConfig(
-                          enabled = false,
-                          path = File(tempDir, "cache_test.db").absolutePath,
-                          storeFakeip = false
-                      )
-                  ),
-              // 不包含 inbounds，这样 libbox 不会尝试打开 TUN
-              inbounds = null,
-              outbounds = testOutbounds,
-              route = com.kunk.singbox.model.RouteConfig(
-                  rules = listOf(
-                      com.kunk.singbox.model.RouteRule(protocol = listOf("dns"), outbound = "direct")
-                  ),
-                  finalOutbound = "direct",
-                  autoDetectInterface = true
-              )
-          )
     }
 
     private fun allocateLocalPort(): Int {
@@ -1031,83 +741,6 @@ class SingBoxCore private constructor(private val context: Context) {
         }
     }
 
-    /**
-     * 校准基准延迟（测量非网络开销）
-     * 通过测试 direct 出站访问本地 Clash API 的响应时间
-     */
-    private val baselineMutex = Mutex()
-    private suspend fun calibrateBaseline() {
-        if (baselineCalibrated) return
-        
-        baselineMutex.withLock {
-            if (baselineCalibrated) return@withLock
-            
-            try {
-                // 测试 direct 出站访问本地 Clash API 的延迟作为基准
-                val startTime = System.currentTimeMillis()
-                val available = clashApiClient.isAvailable()
-                val elapsed = System.currentTimeMillis() - startTime
-                
-                if (available) {
-                    // 多次测量取平均值
-                    var totalTime = elapsed
-                    repeat(2) {
-                        val t1 = System.currentTimeMillis()
-                        clashApiClient.isAvailable()
-                        totalTime += System.currentTimeMillis() - t1
-                    }
-                    baselineLatency = totalTime / 3
-                    baselineCalibrated = true
-                    Log.v(TAG, "Baseline latency calibrated: ${baselineLatency}ms")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to calibrate baseline", e)
-            }
-        }
-    }
-    
-    /**
-     * 校正延迟值，减去非网络开销
-     */
-    private fun calibrateLatency(rawLatency: Long): Long {
-        if (rawLatency <= 0) return rawLatency
-        if (!baselineCalibrated || baselineLatency <= 0) return rawLatency
-        
-        val calibrated = rawLatency - baselineLatency
-        return if (calibrated > 0) calibrated else rawLatency
-    }
-
-    /**
-     * 使用 Clash API 进行真实延迟测试（VPN 运行时）
-     */
-    private suspend fun testOutboundLatencyWithClashApi(outbound: Outbound): Long {
-        return try {
-            // 如果尚未校准，先校准基准延迟
-            if (!baselineCalibrated) {
-                calibrateBaseline()
-            }
-            
-            val settings = SettingsRepository.getInstance(context).settings.first()
-            val type = when (settings.latencyTestMethod) {
-                LatencyTestMethod.TCP -> "tcp"
-                LatencyTestMethod.HANDSHAKE -> "handshake"
-                else -> "real"
-            }
-            
-            val rawDelay = clashApiClient.testProxyDelay(outbound.tag, testUrl = settings.latencyTestUrl, type = type)
-            if (rawDelay > 0) {
-                val calibratedDelay = calibrateLatency(rawDelay)
-                Log.v(TAG, "Latency for ${outbound.tag}: raw=${rawDelay}ms, type=$type, calibrated=${calibratedDelay}ms (baseline=${baselineLatency}ms)")
-                calibratedDelay
-            } else {
-                Log.w(TAG, "Latency test failed for ${outbound.tag} (result: $rawDelay, type=$type)")
-                rawDelay
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Clash API latency test failed for ${outbound.tag}: ${e.message}")
-            -1L
-        }
-    }
 
     /**
      * 验证配置是否有效
@@ -1135,12 +768,6 @@ class SingBoxCore private constructor(private val context: Context) {
     }
     
     fun formatConfig(config: SingBoxConfig): String = gson.toJson(config)
-    
-    fun getTestModeDescription(): String = "使用 Clash API 进行真实延迟测试"
-    
-    fun canTestRealLatency(): Boolean = true // Always true now as we spin up service if needed
-    
-    fun getClashApiClient(): ClashApiClient = clashApiClient
 
     // --- Inner Classes for Platform Interface ---
 
@@ -1278,11 +905,5 @@ class SingBoxCore private constructor(private val context: Context) {
     }
     
     fun cleanup() {
-        synchronized(serviceLock) {
-            keepAliveJob?.cancel()
-            keepAliveJob = null
-            keepAliveSupervisorJob.cancel()
-            stopTestServiceInternal()
-        }
     }
 }
