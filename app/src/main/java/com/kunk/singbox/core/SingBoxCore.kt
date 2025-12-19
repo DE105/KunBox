@@ -213,7 +213,6 @@ class SingBoxCore private constructor(private val context: Context) {
                     }
                 }
 
-                // 宽松匹配（安全版）：参数满足 (String,String,int/long[,Interface]) 的静态方法，且返回 long 或返回对象具备 delay 访问器
                 if (methodToUse == null) {
                     for (m in methods) {
                         val params = m.parameterTypes
@@ -237,7 +236,7 @@ class SingBoxCore private constructor(private val context: Context) {
                             } catch (_: Exception) { }
                         }
                     }
-                    // 打印候选方法，便于诊断
+                    
                     try {
                         val candidates = methods.filter { (it.parameterTypes.size == 3 || (it.parameterTypes.size == 4 && it.parameterTypes[3].isInterface)) && it.parameterTypes[0] == String::class.java && it.parameterTypes[1] == String::class.java && (it.parameterTypes[2] == Long::class.javaPrimitiveType || it.parameterTypes[2] == Int::class.javaPrimitiveType) && Modifier.isStatic(it.modifiers) }
                         if (candidates.isNotEmpty()) {
@@ -330,7 +329,6 @@ class SingBoxCore private constructor(private val context: Context) {
                         }
                     }
 
-                    // 宽松匹配（安全版）：参数满足 (String,String,int/long[,Interface]) 的实例方法，且返回 long 或返回对象具备 delay 访问器
                     ensureLibboxSetup(context)
                     val pi = testPlatformInterface ?: TestPlatformInterface(context)
                     val minimalConfig = SingBoxConfig(
@@ -361,7 +359,7 @@ class SingBoxCore private constructor(private val context: Context) {
                                 } catch (_: Exception) { }
                             }
                         }
-                        // 打印候选实例方法
+                        
                         try {
                             val candidates = instanceMethods.filter { (it.parameterTypes.size == 3 || (it.parameterTypes.size == 4 && it.parameterTypes[3].isInterface)) && it.parameterTypes[0] == String::class.java && it.parameterTypes[1] == String::class.java && (it.parameterTypes[2] == Long::class.javaPrimitiveType || it.parameterTypes[2] == Int::class.javaPrimitiveType) && !Modifier.isStatic(it.modifiers) }
                             if (candidates.isNotEmpty()) {
@@ -484,7 +482,7 @@ class SingBoxCore private constructor(private val context: Context) {
         params: Array<Class<*>>,
         outboundJson: String,
         url: String,
-        pi: PlatformInterface
+        pi: Any
     ): Array<Any> {
         val args = ArrayList<Any>(params.size)
         args.add(outboundJson)
