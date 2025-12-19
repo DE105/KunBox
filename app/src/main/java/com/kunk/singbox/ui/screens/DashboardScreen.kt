@@ -246,148 +246,153 @@ fun DashboardScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-        // 1. Status Bar (Chips)
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // App Logo & Title
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 8.dp)
-            ) {
-                // Use AndroidView to render adaptive icon correctly
-                AndroidView(
-                    factory = { ctx ->
-                        ImageView(ctx).apply {
-                            setImageResource(R.mipmap.ic_launcher_round)
-                        }
-                    },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .padding(end = 12.dp)
-                )
-                Text(
-                    text = "SingBox",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = TextPrimary
-                )
-            }
-
-            Row(
+            // 1. Status Bar (Chips)
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                StatusChip(
-                    label = when (connectionState) {
-                        ConnectionState.Idle -> "未连接"
-                        ConnectionState.Connecting -> "连接中..."
-                        ConnectionState.Connected -> "已连接"
-                        ConnectionState.Disconnecting -> "断开中..."
-                        ConnectionState.Error -> "错误"
-                    },
-                    isActive = connectionState == ConnectionState.Connected
-                )
-                
-                val indicatorColor = when (connectionState) {
-                    ConnectionState.Connected -> Color(0xFF4CAF50) // Green
-                    ConnectionState.Error -> Color(0xFFF44336) // Red
-                    else -> Neutral500 // Grey
+                // App Logo & Title
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                ) {
+                    // Use AndroidView to render adaptive icon correctly
+                    AndroidView(
+                        factory = { ctx ->
+                            ImageView(ctx).apply {
+                                setImageResource(R.mipmap.ic_launcher_round)
+                            }
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .padding(end = 12.dp)
+                    )
+                    Text(
+                        text = "SingBox",
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = TextPrimary
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    StatusChip(
+                        label = when (connectionState) {
+                            ConnectionState.Idle -> "未连接"
+                            ConnectionState.Connecting -> "连接中..."
+                            ConnectionState.Connected -> "已连接"
+                            ConnectionState.Disconnecting -> "断开中..."
+                            ConnectionState.Error -> "错误"
+                        },
+                        isActive = connectionState == ConnectionState.Connected
+                    )
+                    
+                    val indicatorColor = when (connectionState) {
+                        ConnectionState.Connected -> Color(0xFF4CAF50) // Green
+                        ConnectionState.Error -> Color(0xFFF44336) // Red
+                        else -> Neutral500 // Grey
+                    }
+                    
+                    ModeChip(
+                        mode = currentMode,
+                        indicatorColor = indicatorColor
+                    ) { showModeDialog = true }
                 }
                 
-                ModeChip(
-                    mode = currentMode,
-                    indicatorColor = indicatorColor
-                ) { showModeDialog = true }
-            }
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Start
-            ) {
-                StatusChip(
-                    label = activeProfileName ?: "未选择配置",
-                    onClick = {
-                        navController.navigate(Screen.Profiles.route) {
-                            popUpTo(Screen.Dashboard.route) {
-                                saveState = true
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    StatusChip(
+                        label = activeProfileName ?: "未选择配置",
+                        onClick = {
+                            navController.navigate(Screen.Profiles.route) {
+                                popUpTo(Screen.Dashboard.route) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
                         }
-                    }
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                StatusChip(
-                    label = activeNodeName ?: "未选择节点",
-                    onClick = {
-                        navController.navigate(Screen.Nodes.route) {
-                            popUpTo(Screen.Dashboard.route) {
-                                saveState = true
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    StatusChip(
+                        label = activeNodeName ?: "未选择节点",
+                        onClick = {
+                            navController.navigate(Screen.Nodes.route) {
+                                popUpTo(Screen.Dashboard.route) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                            launchSingleTop = true
-                            restoreState = true
                         }
-                    }
-                )
-            }
-        }
-
-        // 2. Main Toggle - 居中显示
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.weight(1f)
-        ) {
-            BigToggle(
-                isRunning = connectionState == ConnectionState.Connected || connectionState == ConnectionState.Connecting || connectionState == ConnectionState.Disconnecting,
-                onClick = {
-                    viewModel.toggleConnection()
+                    )
                 }
-            )
-        }
+            }
 
-        // 3. Stats & Quick Actions
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Always show InfoCard but with placeholder data when not connected
-            val isConnected = connectionState == ConnectionState.Connected
-            // 优先使用 VPN 启动后测得的实时延迟，如果没有则使用缓存的延迟
-            // currentNodePing: null = 未测试, -1 = 超时/失败, >0 = 实际延迟
-            val displayPing = when {
-                currentNodePing != null && currentNodePing!! > 0 -> currentNodePing
-                currentNodePing == null && activeNodeLatency != null -> activeNodeLatency
-                else -> currentNodePing // 可能是 -1（超时）或 null
-            }
-            // 使用明确的 isPingTesting 状态来控制加载动画
-            val isPingLoading = isConnected && isPingTesting
-            // 格式化延迟显示：超时显示"超时"，未测试显示"-"
-            val pingText = when {
-                !isConnected -> "-"
-                displayPing != null && displayPing > 0 -> "${displayPing} ms"
-                displayPing == -1L -> "超时"
-                else -> "-"
-            }
-            InfoCard(
-                uploadSpeed = if (isConnected) "${formatBytes(stats.uploadSpeed)}/s" else "-/s",
-                downloadSpeed = if (isConnected) "${formatBytes(stats.downloadSpeed)}/s" else "-/s",
-                ping = pingText,
-                isPingLoading = isPingLoading
-            )
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            // Quick Actions
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+            // 2. Main Toggle - 居中显示
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f)
             ) {
-                QuickActionButton(Icons.Rounded.Refresh, "更新订阅") { showUpdateDialog = true }
-                QuickActionButton(Icons.Rounded.Bolt, "延迟测试") { showTestDialog = true }
-                QuickActionButton(Icons.Rounded.Terminal, "运行日志") { navController.navigate(Screen.Logs.route) }
-                QuickActionButton(Icons.Rounded.BugReport, "网络诊断") { navController.navigate(Screen.Diagnostics.route) }
+                BigToggle(
+                    isRunning = connectionState == ConnectionState.Connected || connectionState == ConnectionState.Connecting || connectionState == ConnectionState.Disconnecting,
+                    onClick = {
+                        viewModel.toggleConnection()
+                    }
+                )
+            }
+
+            // 3. Stats & Quick Actions
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Always show InfoCard but with placeholder data when not connected
+                val isConnected = connectionState == ConnectionState.Connected
+                // 优先使用 VPN 启动后测得的实时延迟，如果没有则使用缓存的延迟
+                // currentNodePing: null = 未测试, -1 = 超时/失败, >0 = 实际延迟
+                val displayPing = when {
+                    currentNodePing != null && currentNodePing!! > 0 -> currentNodePing
+                    currentNodePing == null && activeNodeLatency != null -> activeNodeLatency
+                    else -> currentNodePing // 可能是 -1（超时）或 null
+                }
+                // 使用明确的 isPingTesting 状态来控制加载动画
+                val isPingLoading = isConnected && isPingTesting
+                // 格式化延迟显示：超时显示"超时"，未测试显示"-"
+                val pingText = when {
+                    !isConnected -> "-"
+                    displayPing != null && displayPing > 0 -> "${displayPing} ms"
+                    displayPing == -1L -> "超时"
+                    else -> "-"
+                }
+                InfoCard(
+                    uploadSpeed = if (isConnected) "${formatBytes(stats.uploadSpeed)}/s" else "-/s",
+                    downloadSpeed = if (isConnected) "${formatBytes(stats.downloadSpeed)}/s" else "-/s",
+                    ping = pingText,
+                    isPingLoading = isPingLoading,
+                    onPingClick = if (isConnected) {
+                        { viewModel.retestCurrentNodePing() }
+                    } else {
+                        null
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Quick Actions
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    QuickActionButton(Icons.Rounded.Refresh, "更新订阅") { showUpdateDialog = true }
+                    QuickActionButton(Icons.Rounded.Bolt, "延迟测试") { showTestDialog = true }
+                    QuickActionButton(Icons.Rounded.Terminal, "运行日志") { navController.navigate(Screen.Logs.route) }
+                    QuickActionButton(Icons.Rounded.BugReport, "网络诊断") { navController.navigate(Screen.Diagnostics.route) }
                 }
             }
         }

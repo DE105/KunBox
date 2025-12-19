@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,7 +37,8 @@ fun InfoCard(
     uploadSpeed: String = "0 KB/s",
     downloadSpeed: String = "0 KB/s",
     ping: String = "0 ms",
-    isPingLoading: Boolean = false
+    isPingLoading: Boolean = false,
+    onPingClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = modifier
@@ -57,6 +59,11 @@ fun InfoCard(
             value = downloadSpeed
         )
         InfoItem(
+            modifier = if (onPingClick != null) {
+                Modifier.clickable(enabled = !isPingLoading) { onPingClick() }
+            } else {
+                Modifier
+            },
             icon = Icons.Rounded.Speed,
             label = "Ping",
             value = ping,
@@ -67,12 +74,14 @@ fun InfoCard(
 
 @Composable
 private fun InfoItem(
+    modifier: Modifier = Modifier,
     icon: ImageVector,
     label: String,
     value: String,
     isLoading: Boolean = false
 ) {
     Column(
+        modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(

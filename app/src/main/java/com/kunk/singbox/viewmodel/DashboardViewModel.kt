@@ -373,6 +373,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
      */
     private fun startPingTest() {
         stopPingTest()
+
+        _isPingTesting.value = true
+        _currentNodePing.value = null
         
         pingTestJob = viewModelScope.launch {
             try {
@@ -442,6 +445,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         pingTestJob?.cancel()
         pingTestJob = null
         _isPingTesting.value = false
+    }
+
+    fun retestCurrentNodePing() {
+        if (_connectionState.value != ConnectionState.Connected) return
+        if (_isPingTesting.value) return
+        startPingTest()
     }
     
     fun onVpnPermissionResult(granted: Boolean) {
