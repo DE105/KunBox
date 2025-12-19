@@ -163,7 +163,7 @@ fun SingBoxApp() {
             var navigationStartTime by remember { mutableStateOf(0L) }
             
             // Get current destination
-            val navBackStackEntry = navController.androidx.navigation.compose.currentBackStackEntryAsState()
+            val navBackStackEntry = navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry.value?.destination?.route
             val showBottomBar = currentRoute != com.kunk.singbox.ui.navigation.Screen.Splash.route
 
