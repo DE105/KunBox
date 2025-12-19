@@ -11,6 +11,7 @@ import com.kunk.singbox.model.Outbound
 import com.kunk.singbox.model.SingBoxConfig
 import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.repository.SettingsRepository
+import kotlinx.coroutines.flow.first
 import com.kunk.singbox.service.SingBoxService
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.CoroutineScope
