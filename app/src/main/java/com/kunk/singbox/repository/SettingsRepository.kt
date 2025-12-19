@@ -98,6 +98,7 @@ class SettingsRepository(private val context: Context) {
         val RULE_SETS = stringPreferencesKey("rule_sets")
         val APP_RULES = stringPreferencesKey("app_rules")
         val APP_GROUPS = stringPreferencesKey("app_groups")
+        val DNS_MIGRATED = booleanPreferencesKey("dns_migrated")
     }
     
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
@@ -229,14 +230,8 @@ class SettingsRepository(private val context: Context) {
             vpnBlocklist = preferences[PreferencesKeys.VPN_BLOCKLIST] ?: "",
             
             // DNS 设置
-            localDns = preferences[PreferencesKeys.LOCAL_DNS].let { dns ->
-                if (dns == "8.8.8.8" || dns == "223.5.5.5") "https://dns.alidns.com/dns-query"
-                else dns ?: "https://dns.alidns.com/dns-query"
-            },
-            remoteDns = preferences[PreferencesKeys.REMOTE_DNS].let { dns ->
-                if (dns == "1.1.1.1") "https://dns.google/dns-query"
-                else dns ?: "https://dns.google/dns-query"
-            },
+            localDns = preferences[PreferencesKeys.LOCAL_DNS] ?: "https://dns.alidns.com/dns-query",
+            remoteDns = preferences[PreferencesKeys.REMOTE_DNS] ?: "https://dns.google/dns-query",
             fakeDnsEnabled = preferences[PreferencesKeys.FAKE_DNS_ENABLED] ?: true,
             fakeIpRange = preferences[PreferencesKeys.FAKE_IP_RANGE] ?: "198.18.0.0/15",
             dnsStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.DNS_STRATEGY] ?: "优先 IPv4"),
@@ -459,6 +454,7 @@ class SettingsRepository(private val context: Context) {
             }
 
             val currentSettings = settings.first()
+            val isDnsMigrated = preferences[PreferencesKeys.DNS_MIGRATED] ?: false
             
             // 自动迁移: 优化 TUN MTU (1500 -> 1280)
             if (currentSettings.tunMtu == 1500) {
@@ -466,16 +462,21 @@ class SettingsRepository(private val context: Context) {
                 setTunMtu(1280)
             }
             
-            // 自动迁移: 优化本地 DNS (8.8.8.8/223.5.5.5 -> AliDNS DoH)
-            if (currentSettings.localDns == "8.8.8.8" || currentSettings.localDns == "223.5.5.5") {
-                Log.i("SettingsRepository", "Migrating Local DNS to AliDNS DoH")
-                setLocalDns("https://dns.alidns.com/dns-query")
-            }
-            
-            // 自动迁移: 优化远程 DNS (1.1.1.1 -> Google DoH)
-            if (currentSettings.remoteDns == "1.1.1.1") {
-                Log.i("SettingsRepository", "Migrating Remote DNS to Google DoH")
-                setRemoteDns("https://dns.google/dns-query")
+            if (!isDnsMigrated) {
+                // 自动迁移: 优化本地 DNS (8.8.8.8/223.5.5.5 -> AliDNS DoH)
+                if (currentSettings.localDns == "8.8.8.8" || currentSettings.localDns == "223.5.5.5") {
+                    Log.i("SettingsRepository", "Migrating Local DNS to AliDNS DoH")
+                    setLocalDns("https://dns.alidns.com/dns-query")
+                }
+                
+                // 自动迁移: 优化远程 DNS (1.1.1.1 -> Google DoH)
+                if (currentSettings.remoteDns == "1.1.1.1") {
+                    Log.i("SettingsRepository", "Migrating Remote DNS to Google DoH")
+                    setRemoteDns("https://dns.google/dns-query")
+                }
+                
+                // 标记已迁移，防止后续用户手动改回 IP 后再次被覆盖
+                context.dataStore.edit { it[PreferencesKeys.DNS_MIGRATED] = true }
             }
 
             val originalRuleSets = currentSettings.ruleSets
