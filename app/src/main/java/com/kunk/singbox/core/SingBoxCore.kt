@@ -182,7 +182,7 @@ class SingBoxCore private constructor(private val context: Context) {
                     val params = m.parameterTypes
                     
                     // 匹配签名: (String, String, long/int) 或 (String, String, long/int, PlatformInterface)
-                    if ((name == "urlTest" || name == "newURLTest") && (params.size == 3 || params.size == 4) && 
+                    if ((name.equals("urlTest", true) || name.equals("newURLTest", true)) && (params.size == 3 || params.size == 4) && 
                         params[0] == String::class.java && params[1] == String::class.java &&
                         (params[2] == Long::class.javaPrimitiveType || params[2] == Int::class.javaPrimitiveType)) {
                         
@@ -222,6 +222,7 @@ class SingBoxCore private constructor(private val context: Context) {
                                 val pi = testPlatformInterface ?: TestPlatformInterface(context)
                                 val args = buildUrlTestArgs(params, outboundJson, url, pi)
                                 val result = m.invoke(null, *args)
+                                Log.i(TAG, "Invoked candidate native URL test method: ${m.name}(${params.joinToString { it.simpleName }}) -> ${m.returnType.simpleName}")
                                 return@withContext when {
                                     m.returnType == Long::class.javaPrimitiveType -> result as Long
                                     else -> extractDelayFromUrlTest(result, settings.latencyTestMethod)
@@ -229,6 +230,13 @@ class SingBoxCore private constructor(private val context: Context) {
                             } catch (_: Exception) { }
                         }
                     }
+                    // 打印候选方法，便于诊断
+                    try {
+                        val candidates = methods.filter { it.parameterTypes.size >= 2 && it.parameterTypes[0] == String::class.java && it.parameterTypes[1] == String::class.java && Modifier.isStatic(it.modifiers) }
+                        if (candidates.isNotEmpty()) {
+                            Log.v(TAG, "Libbox static candidates: " + candidates.joinToString { it.name + "(" + it.parameterTypes.joinToString { p -> p.simpleName } + ") -> " + it.returnType.simpleName })
+                        }
+                    } catch (_: Exception) { }
                 }
             }
 
@@ -269,7 +277,7 @@ class SingBoxCore private constructor(private val context: Context) {
                     for (m in instanceMethods) {
                         val name = m.name
                         val params = m.parameterTypes
-                        if ((name == "urlTest" || name == "newURLTest") && (params.size == 3 || params.size == 4) &&
+                        if ((name.equals("urlTest", true) || name.equals("newURLTest", true)) && (params.size == 3 || params.size == 4) &&
                             params[0] == String::class.java && params[1] == String::class.java &&
                             (params[2] == Long::class.javaPrimitiveType || params[2] == Int::class.javaPrimitiveType) &&
                             !java.lang.reflect.Modifier.isStatic(m.modifiers)) {
@@ -304,6 +312,7 @@ class SingBoxCore private constructor(private val context: Context) {
                             val p = instMethod!!.parameterTypes
                             val args = buildUrlTestArgs(p, outboundJson, url, pi)
                             val result = instMethod!!.invoke(service, *args)
+                            Log.i(TAG, "Invoked BoxService native URL test method: ${instMethod!!.name}(${p.joinToString { it.simpleName }}) -> ${instMethod!!.returnType.simpleName}")
                             return@withContext when (instMethodType) {
                                 0 -> result as Long
                                 1 -> extractDelayFromUrlTest(result, settings.latencyTestMethod)
@@ -330,6 +339,7 @@ class SingBoxCore private constructor(private val context: Context) {
                                 try {
                                     val args = buildUrlTestArgs(params, outboundJson, url, pi)
                                     val result = m.invoke(service, *args)
+                                    Log.i(TAG, "Invoked BoxService candidate method: ${m.name}(${params.joinToString { it.simpleName }}) -> ${m.returnType.simpleName}")
                                     return@withContext when {
                                         m.returnType == Long::class.javaPrimitiveType -> result as Long
                                         else -> extractDelayFromUrlTest(result, settings.latencyTestMethod)
@@ -337,6 +347,13 @@ class SingBoxCore private constructor(private val context: Context) {
                                 } catch (_: Exception) { }
                             }
                         }
+                        // 打印候选实例方法
+                        try {
+                            val candidates = instanceMethods.filter { it.parameterTypes.size >= 2 && it.parameterTypes[0] == String::class.java && it.parameterTypes[1] == String::class.java && !Modifier.isStatic(it.modifiers) }
+                            if (candidates.isNotEmpty()) {
+                                Log.v(TAG, "BoxService instance candidates: " + candidates.joinToString { it.name + "(" + it.parameterTypes.joinToString { p -> p.simpleName } + ") -> " + it.returnType.simpleName })
+                            }
+                        } catch (_: Exception) { }
                     } finally {
                         try { service.close() } catch (_: Exception) {}
                     }
@@ -414,6 +431,25 @@ class SingBoxCore private constructor(private val context: Context) {
         if (valueByMode != null) return valueByMode
         // 最后通用兜底
         return tryGet(arrayOf("delay", "getDelay")) ?: -1L
+    }
+
+    private fun buildUrlTestArgs(
+        params: Array<Class<*>>,
+        outboundJson: String,
+        url: String,
+        pi: PlatformInterface
+    ): Array<Any> {
+        val args = ArrayList<Any>(params.size)
+        args.add(outboundJson)
+        args.add(url)
+        if (params.size >= 3) {
+            val p2 = params[2]
+            args.add(if (p2 == Int::class.javaPrimitiveType) 5000 else 5000L)
+        }
+        if (params.size >= 4) {
+            args.add(pi)
+        }
+        return args.toTypedArray()
     }
 
     private suspend fun testWithLocalHttpProxy(outbound: Outbound, targetUrl: String, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
