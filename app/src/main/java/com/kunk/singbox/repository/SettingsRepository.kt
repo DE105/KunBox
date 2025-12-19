@@ -229,8 +229,8 @@ class SettingsRepository(private val context: Context) {
             vpnBlocklist = preferences[PreferencesKeys.VPN_BLOCKLIST] ?: "",
             
             // DNS 设置
-            localDns = preferences[PreferencesKeys.LOCAL_DNS] ?: "223.5.5.5",
-            remoteDns = preferences[PreferencesKeys.REMOTE_DNS] ?: "1.1.1.1",
+            localDns = preferences[PreferencesKeys.LOCAL_DNS] ?: "https://dns.alidns.com/dns-query",
+            remoteDns = preferences[PreferencesKeys.REMOTE_DNS] ?: "https://dns.google/dns-query",
             fakeDnsEnabled = preferences[PreferencesKeys.FAKE_DNS_ENABLED] ?: true,
             fakeIpRange = preferences[PreferencesKeys.FAKE_IP_RANGE] ?: "198.18.0.0/15",
             dnsStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.DNS_STRATEGY] ?: "优先 IPv4"),
@@ -460,10 +460,16 @@ class SettingsRepository(private val context: Context) {
                 setTunMtu(1280)
             }
             
-            // 自动迁移: 优化本地 DNS (8.8.8.8 -> 223.5.5.5)
-            if (currentSettings.localDns == "8.8.8.8") {
-                Log.i("SettingsRepository", "Migrating Local DNS from 8.8.8.8 to 223.5.5.5")
-                setLocalDns("223.5.5.5")
+            // 自动迁移: 优化本地 DNS (8.8.8.8/223.5.5.5 -> AliDNS DoH)
+            if (currentSettings.localDns == "8.8.8.8" || currentSettings.localDns == "223.5.5.5") {
+                Log.i("SettingsRepository", "Migrating Local DNS to AliDNS DoH")
+                setLocalDns("https://dns.alidns.com/dns-query")
+            }
+            
+            // 自动迁移: 优化远程 DNS (1.1.1.1 -> Google DoH)
+            if (currentSettings.remoteDns == "1.1.1.1") {
+                Log.i("SettingsRepository", "Migrating Remote DNS to Google DoH")
+                setRemoteDns("https://dns.google/dns-query")
             }
 
             val originalRuleSets = currentSettings.ruleSets
