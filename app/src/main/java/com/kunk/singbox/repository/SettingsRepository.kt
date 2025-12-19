@@ -125,9 +125,9 @@ class SettingsRepository(private val context: Context) {
         val ruleSetsJson = preferences[PreferencesKeys.RULE_SETS]
         val ruleSets = if (ruleSetsJson != null) {
             try {
-                Log.d("SettingsRepository", "Loading rule sets from JSON (length=${ruleSetsJson.length})")
+                // Log only if it's a significant read or in verbose mode
+                // Log.v(TAG, "Loading rule sets from JSON (length=${ruleSetsJson.length})")
                 val list = gson.fromJson<List<RuleSet>>(ruleSetsJson, object : TypeToken<List<RuleSet>>() {}.type) ?: emptyList()
-                Log.d("SettingsRepository", "Parsed ${list.size} rule sets")
                 
                 // 自动修复并去重
                 val migratedList = list.map { ruleSet ->
@@ -137,7 +137,6 @@ class SettingsRepository(private val context: Context) {
                     // 1. 强制重命名旧的广告规则集标识
                     if (updatedTag.equals("geosite-ads", ignoreCase = true)) {
                         updatedTag = "geosite-category-ads-all"
-                        Log.d("SettingsRepository", "Migrating tag: ${ruleSet.tag} -> $updatedTag")
                     }
                     
                     // 2. 修复错误的广告规则集 URL
@@ -174,7 +173,6 @@ class SettingsRepository(private val context: Context) {
                     }
 
                     if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
-                        Log.d("SettingsRepository", "RuleSet migrated: ${ruleSet.tag} -> $updatedTag, URL: ${ruleSet.url} -> $updatedUrl")
                         ruleSet.copy(tag = updatedTag, url = updatedUrl)
                     } else {
                         ruleSet
@@ -182,9 +180,7 @@ class SettingsRepository(private val context: Context) {
                 }
                 
                 // 去重：如果存在相同 tag 的规则集，保留最后一个（通常是较新的或已迁移的）
-                val result = migratedList.distinctBy { it.tag }
-                Log.d("SettingsRepository", "Final rule sets tags: ${result.map { it.tag }}")
-                result
+                migratedList.distinctBy { it.tag }
             } catch (e: Exception) {
                 Log.e("SettingsRepository", "Failed to parse rule sets JSON", e)
                 emptyList()

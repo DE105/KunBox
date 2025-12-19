@@ -866,7 +866,7 @@ class SingBoxService : VpnService() {
                 
                 // 创建并启动 BoxService
                 boxService = Libbox.newService(configContent, platformInterface)
-                boxService?.start()
+                boxService?.startAndRegister()
                 Log.i(TAG, "BoxService started")
                 
                 isRunning = true
@@ -924,13 +924,9 @@ class SingBoxService : VpnService() {
             }
 
             try {
-                serviceToClose?.close()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error closing BoxService", e)
-            }
-
-            try {
-                interfaceToClose?.close()
+                // 优先关闭服务并注销运行中引用
+                try { serviceToClose?.closeAndUnregister() } catch (_: Exception) {}
+                try { interfaceToClose?.close() } catch (_: Exception) {}
             } catch (e: Exception) {
                 Log.e(TAG, "Error closing VPN interface", e)
             }
