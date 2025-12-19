@@ -155,6 +155,10 @@ class SingBoxCore private constructor(private val context: Context) {
         
         try {
             val settings = SettingsRepository.getInstance(context).settings.first()
+            if (!settings.useLibboxUrlTest) {
+                Log.v(TAG, "Libbox.urlTest is disabled in settings")
+                return@withContext -1L
+            }
             val url = settings.latencyTestUrl
             val timeout = 5000L // 5秒超时
             
@@ -221,8 +225,10 @@ class SingBoxCore private constructor(private val context: Context) {
         outbounds: List<Outbound>,
         onResult: (tag: String, latency: Long) -> Unit
     ) = withContext(Dispatchers.IO) {
+        val settings = SettingsRepository.getInstance(context).settings.first()
+        
         // 尝试使用 Libbox.urlTest 进行批量测试
-        if (libboxAvailable) {
+        if (libboxAvailable && settings.useLibboxUrlTest) {
             val semaphore = Semaphore(permits = 10) // 原始测试更轻量，可以增加并发
             val jobs = outbounds.map { outbound ->
                 async {

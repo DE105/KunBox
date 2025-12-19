@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -16,13 +17,20 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -40,6 +48,8 @@ import com.kunk.singbox.ui.navigation.Screen
 import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.TextPrimary
+import com.kunk.singbox.ui.theme.TextSecondary
+import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -152,7 +162,34 @@ fun RoutingSettingsScreen(
                 SettingItem(title = "路由模式", value = settings.routingMode.displayName, onClick = { showModeDialog = true })
                 SettingItem(title = "默认规则", value = settings.defaultRule.displayName, onClick = { showDefaultRuleDialog = true })
                 SettingItem(title = "延迟测试方式", value = settings.latencyTestMethod.displayName, onClick = { showLatencyMethodDialog = true })
-                SettingItem(title = "延迟测试地址", value = settings.latencyTestUrl, onClick = { showLatencyUrlDialog = true })
+                SettingItem(
+                    title = "延迟测试地址",
+                    onClick = { showLatencyUrlDialog = true },
+                    trailing = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = settings.latencyTestUrl,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 220.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Rounded.ChevronRight,
+                                contentDescription = null,
+                                tint = Neutral500
+                            )
+                        }
+                    }
+                )
+                SettingSwitchItem(
+                    title = "使用原生 sing-box 测速",
+                    subtitle = "不依赖 Clash API 桥接，更轻量高效",
+                    checked = settings.useLibboxUrlTest,
+                    onCheckedChange = { settingsViewModel.setUseLibboxUrlTest(it) }
+                )
                 SettingItem(title = "GitHub 镜像", value = settings.ghProxyMirror.displayName, onClick = { showMirrorDialog = true })
             }
             
