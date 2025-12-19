@@ -165,7 +165,7 @@ fun SingBoxApp() {
             // Get current destination
             val navBackStackEntry = navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry.value?.destination?.route
-            val showBottomBar = currentRoute != com.kunk.singbox.ui.navigation.Screen.Splash.route
+            val showBottomBar = currentRoute != null
 
             // Reset isNavigating after animation completes
         LaunchedEffect(navigationStartTime) {

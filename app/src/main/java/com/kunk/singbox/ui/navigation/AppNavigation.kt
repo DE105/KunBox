@@ -3,7 +3,6 @@ package com.kunk.singbox.ui.navigation
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
@@ -30,12 +29,10 @@ import com.kunk.singbox.ui.screens.LogsScreen
 import com.kunk.singbox.ui.screens.RuleSetsScreen
 import com.kunk.singbox.ui.screens.CustomRulesScreen
 import com.kunk.singbox.ui.screens.AppRoutingScreen
-import com.kunk.singbox.ui.screens.SplashScreen
 import com.kunk.singbox.ui.screens.RuleSetHubScreen
 import com.kunk.singbox.ui.screens.RuleSetRoutingScreen
 
 sealed class Screen(val route: String) {
-    object Splash : Screen("splash")
     object Dashboard : Screen("dashboard")
     object Nodes : Screen("nodes")
     object Profiles : Screen("profiles")
@@ -136,20 +133,8 @@ fun AppNavigation(navController: NavHostController) {
 
     NavHost(
         navController = navController,
-        startDestination = Screen.Splash.route
+        startDestination = Screen.Dashboard.route
     ) {
-        composable(
-            route = Screen.Splash.route,
-            enterTransition = { androidx.compose.animation.EnterTransition.None },
-            exitTransition = { androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(500)) }
-        ) {
-            SplashScreen(onSplashComplete = {
-                navController.navigate(Screen.Dashboard.route) {
-                    popUpTo(Screen.Splash.route) { inclusive = true }
-                }
-            })
-        }
-
         // Main Tabs
         composable(
             route = Screen.Dashboard.route,
