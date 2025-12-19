@@ -1906,7 +1906,7 @@ class ConfigRepository(private val context: Context) {
                     stack = settings.tunStack.name.lowercase(), // gvisor/system/mixed/lwip
                     sniff = true,
                     sniffOverrideDestination = true,
-                    sniffTimeout = "100ms"
+                    sniffTimeout = "300ms"
                 )
             )
         } else {
@@ -1919,7 +1919,7 @@ class ConfigRepository(private val context: Context) {
                     listenPort = 2080,
                     sniff = true,
                     sniffOverrideDestination = true,
-                    sniffTimeout = "100ms"
+                    sniffTimeout = "300ms"
                 )
             )
         }
@@ -1928,7 +1928,17 @@ class ConfigRepository(private val context: Context) {
         val dnsServers = mutableListOf<DnsServer>()
         val dnsRules = mutableListOf<DnsRule>()
 
-        // 远程 DNS
+        // 1. 本地 DNS (放在前面或作为 final 可以提高非匹配域名的解析速度)
+        val localDnsAddr = settings.localDns.takeIf { it.isNotBlank() } ?: "223.5.5.5"
+        dnsServers.add(
+            DnsServer(
+                tag = "local",
+                address = localDnsAddr,
+                detour = "direct"
+            )
+        )
+
+        // 2. 远程 DNS (走代理)
         dnsServers.add(
             DnsServer(
                 tag = "remote",
@@ -1936,17 +1946,12 @@ class ConfigRepository(private val context: Context) {
                 detour = "PROXY"
             )
         )
+
+        // 3. 备用国内 DNS
         dnsServers.add(
             DnsServer(
                 tag = "dnspod",
                 address = "119.29.29.29",
-                detour = "direct"
-            )
-        )
-        dnsServers.add(
-            DnsServer(
-                tag = "local",
-                address = settings.localDns,
                 detour = "direct"
             )
         )
@@ -1969,10 +1974,9 @@ class ConfigRepository(private val context: Context) {
             )
         }
 
-        // 优化：直连/绕过类域名的 DNS 走 local
+        // 优化：直连/绕过类域名的 DNS 强制走 local
         val directRuleSets = mutableListOf<String>()
         if (settings.ruleSets.any { it.tag == "geosite-cn" }) directRuleSets.add("geosite-cn")
-        if (settings.ruleSets.any { it.tag == "geoip-cn" }) directRuleSets.add("geoip-cn")
         
         if (directRuleSets.isNotEmpty()) {
             dnsRules.add(
@@ -1983,7 +1987,7 @@ class ConfigRepository(private val context: Context) {
             )
         }
         
-        // 优化：代理类域名的 DNS 走 remote
+        // 优化：代理类域名的 DNS 强制走 remote
         val proxyRuleSets = mutableListOf<String>()
         val possibleProxyTags = listOf(
             "geosite-geolocation-!cn", "geosite-google", "geosite-openai", 
@@ -2006,6 +2010,7 @@ class ConfigRepository(private val context: Context) {
         val dns = DnsConfig(
             servers = dnsServers,
             rules = dnsRules,
+            finalServer = "local", // 兜底使用本地 DNS，保证基础联网不卡死
             strategy = when (settings.dnsStrategy) {
                 DnsStrategy.PREFER_IPV4 -> "prefer_ipv4"
                 DnsStrategy.PREFER_IPV6 -> "prefer_ipv6"
