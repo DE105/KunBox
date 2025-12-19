@@ -1911,9 +1911,7 @@ class ConfigRepository(private val context: Context) {
                     listenPort = settings.proxyPort,
                     sniff = true,
                     sniffOverrideDestination = true,
-                    sniffTimeout = "300ms",
-                    allowLan = settings.allowLan,
-                    setSystemProxy = false // We handle this via Android VpnService if needed
+                    sniffTimeout = "300ms"
                 )
             )
         }
