@@ -61,6 +61,7 @@ class VpnTileService : TileService() {
     companion object {
         private const val PREFS_NAME = "vpn_state"
         private const val KEY_VPN_ACTIVE = "vpn_active"
+        private const val KEY_VPN_PENDING = "vpn_pending"
         
         /**
          * 持久化 VPN 状态到 SharedPreferences
@@ -70,6 +71,14 @@ class VpnTileService : TileService() {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean(KEY_VPN_ACTIVE, isActive)
+                .commit()
+        }
+
+        fun persistVpnPending(context: Context, pending: String?) {
+            val value = pending.orEmpty()
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_VPN_PENDING, value)
                 .commit()
         }
     }
@@ -107,16 +116,21 @@ class VpnTileService : TileService() {
     }
 
     private fun updateTile() {
-        val persisted = runCatching {
+        val persistedActive = runCatching {
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(KEY_VPN_ACTIVE, false)
         }.getOrDefault(false)
 
+        val pending = runCatching {
+            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_VPN_PENDING, "")
+        }.getOrNull().orEmpty()
+
         if (!serviceBound || boundService == null) {
-            lastServiceState = if (persisted) {
-                SingBoxService.ServiceState.RUNNING
-            } else {
-                SingBoxService.ServiceState.STOPPED
+            lastServiceState = when (pending) {
+                "starting" -> SingBoxService.ServiceState.STARTING
+                "stopping" -> SingBoxService.ServiceState.STOPPING
+                else -> if (persistedActive) SingBoxService.ServiceState.RUNNING else SingBoxService.ServiceState.STOPPED
             }
         }
 
@@ -142,15 +156,24 @@ class VpnTileService : TileService() {
     }
 
     private fun toggle() {
-        val persisted = runCatching {
+        val persistedActive = runCatching {
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(KEY_VPN_ACTIVE, false)
         }.getOrDefault(false)
 
+        val pending = runCatching {
+            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_VPN_PENDING, "")
+        }.getOrNull().orEmpty()
+
         val effectiveState = if (serviceBound && boundService != null) {
             boundService?.getCurrentState() ?: lastServiceState
         } else {
-            if (persisted) SingBoxService.ServiceState.RUNNING else SingBoxService.ServiceState.STOPPED
+            when (pending) {
+                "starting" -> SingBoxService.ServiceState.STARTING
+                "stopping" -> SingBoxService.ServiceState.STOPPING
+                else -> if (persistedActive) SingBoxService.ServiceState.RUNNING else SingBoxService.ServiceState.STOPPED
+            }
         }
 
         lastServiceState = effectiveState
@@ -158,13 +181,17 @@ class VpnTileService : TileService() {
         when (effectiveState) {
             SingBoxService.ServiceState.RUNNING,
             SingBoxService.ServiceState.STARTING -> {
+                persistVpnPending(this, "stopping")
                 persistVpnState(this, false)
+                updateTile()
                 val intent = Intent(this, SingBoxService::class.java).apply {
                     action = SingBoxService.ACTION_STOP
                 }
                 startService(intent)
             }
             SingBoxService.ServiceState.STOPPED -> {
+                persistVpnPending(this, "starting")
+                updateTile()
                 serviceScope.launch {
                     runCatching {
                         Toast.makeText(this@VpnTileService, "正在切换 VPN...", Toast.LENGTH_SHORT).show()
@@ -172,6 +199,7 @@ class VpnTileService : TileService() {
                     val configRepository = ConfigRepository.getInstance(applicationContext)
                     val configPath = configRepository.generateConfigFile()
                     if (configPath != null) {
+                        persistVpnPending(this@VpnTileService, "starting")
                         val intent = Intent(this@VpnTileService, SingBoxService::class.java).apply {
                             action = SingBoxService.ACTION_START
                             putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPath)
@@ -182,6 +210,7 @@ class VpnTileService : TileService() {
                             startService(intent)
                         }
                     } else {
+                        persistVpnPending(this@VpnTileService, "")
                         persistVpnState(this@VpnTileService, false)
                         updateTile()
                     }

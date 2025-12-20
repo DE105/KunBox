@@ -1481,7 +1481,7 @@ class ConfigRepository(private val context: Context) {
                         name = outbound.tag,
                         protocol = outbound.type,
                         group = group,
-                        regionFlag = finalRegionFlag ?: regionFlag, // 强制显示国旗
+                        regionFlag = finalRegionFlag,
                         latencyMs = null,
                         isFavorite = false,
                         sourceProfileId = profileId,

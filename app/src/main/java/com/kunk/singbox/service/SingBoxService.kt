@@ -1010,6 +1010,7 @@ class SingBoxService : VpnService() {
         when (intent?.action) {
             ACTION_START -> {
                 isManuallyStopped = false
+                VpnTileService.persistVpnPending(applicationContext, "starting")
                 val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
                 if (configPath != null) {
                     updateServiceState(ServiceState.STARTING)
@@ -1043,6 +1044,7 @@ class SingBoxService : VpnService() {
             ACTION_STOP -> {
                 Log.i(TAG, "Received ACTION_STOP (manual) -> stopping VPN")
                 isManuallyStopped = true
+                VpnTileService.persistVpnPending(applicationContext, "stopping")
                 updateServiceState(ServiceState.STOPPING)
                 synchronized(this) {
                     pendingStartConfigPath = null
@@ -1118,6 +1120,7 @@ class SingBoxService : VpnService() {
                     Log.w(TAG, msg)
                     setLastError(msg)
                     VpnTileService.persistVpnState(applicationContext, false)
+                    VpnTileService.persistVpnPending(applicationContext, "")
                     updateServiceState(ServiceState.STOPPED)
                     updateTileState()
 
@@ -1207,6 +1210,7 @@ class SingBoxService : VpnService() {
                 setLastError(null)
                 Log.i(TAG, "SingBox VPN started successfully")
                 VpnTileService.persistVpnState(applicationContext, true)
+                VpnTileService.persistVpnPending(applicationContext, "")
                 updateServiceState(ServiceState.RUNNING)
                 updateTileState()
 
@@ -1294,6 +1298,7 @@ class SingBoxService : VpnService() {
 
                 Log.e(TAG, reason, e)
                 setLastError(reason)
+                VpnTileService.persistVpnPending(applicationContext, "")
 
                 if (isLockdown || isTunEstablishFail) {
                     runCatching {
@@ -1425,6 +1430,7 @@ class SingBoxService : VpnService() {
                 }
                 Log.i(TAG, "VPN stopped")
                 VpnTileService.persistVpnState(applicationContext, false)
+                VpnTileService.persistVpnPending(applicationContext, "")
                 updateServiceState(ServiceState.STOPPED)
                 updateTileState()
             }
@@ -1582,6 +1588,7 @@ class SingBoxService : VpnService() {
     override fun onRevoke() {
         Log.i(TAG, "onRevoke called -> stopVpn(stopService=true)")
         isManuallyStopped = true
+        VpnTileService.persistVpnPending(applicationContext, "stopping")
         setLastError("VPN revoked by system (another VPN may have started)")
         
         // 记录日志，告知用户原因
