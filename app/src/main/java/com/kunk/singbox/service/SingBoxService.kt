@@ -1203,7 +1203,15 @@ class SingBoxService : VpnService() {
                 
                 // 创建并启动 BoxService
                 boxService = Libbox.newService(configContent, platformInterface)
-                boxService?.startAndRegister()
+                val canStartAndRegister = com.kunk.singbox.core.LibboxNativeSupport.hasSymbol(
+                    this@SingBoxService,
+                    "Java_io_nekohasekai_libbox_BoxService_startAndRegister"
+                )
+                if (canStartAndRegister) {
+                    boxService?.startAndRegister()
+                } else {
+                    boxService?.start()
+                }
                 Log.i(TAG, "BoxService started")
                 
                 isRunning = true
@@ -1413,7 +1421,15 @@ class SingBoxService : VpnService() {
 
             try {
                 // 优先关闭服务并注销运行中引用
-                try { serviceToClose?.closeAndUnregister() } catch (_: Exception) {}
+                val canCloseAndUnregister = com.kunk.singbox.core.LibboxNativeSupport.hasSymbol(
+                    this@SingBoxService,
+                    "Java_io_nekohasekai_libbox_BoxService_closeAndUnregister"
+                )
+                if (canCloseAndUnregister) {
+                    try { serviceToClose?.closeAndUnregister() } catch (_: Exception) {}
+                } else {
+                    try { serviceToClose?.close() } catch (_: Exception) {}
+                }
                 try { interfaceToClose?.close() } catch (_: Exception) {}
             } catch (e: Exception) {
                 Log.e(TAG, "Error closing VPN interface", e)
