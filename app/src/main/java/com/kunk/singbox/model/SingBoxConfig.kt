@@ -57,6 +57,7 @@ data class DnsRule(
     @SerializedName("geosite") val geosite: List<String>? = null,
     @SerializedName("rule_set") val ruleSet: List<String>? = null,
     @SerializedName("query_type") val queryType: List<String>? = null,
+    @SerializedName("package_name") val packageName: List<String>? = null,
     @SerializedName("server") val server: String? = null,
     @SerializedName("outbound") val outbound: String? = null
 )

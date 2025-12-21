@@ -2660,6 +2660,17 @@ class ConfigRepository(private val context: Context) {
             )
         }
         
+        // 5. 应用特定 DNS 规则（确保应用分流的应用 DNS 走正确的服务器）
+        val appPackagesForDns = (settings.appRules.filter { it.enabled }.map { it.packageName } +
+                settings.appGroups.filter { it.enabled }.flatMap { it.apps.map { it.packageName } }).distinct()
+        
+        if (appPackagesForDns.isNotEmpty()) {
+            dnsRules.add(0, DnsRule(
+                packageName = appPackagesForDns,
+                server = if (settings.fakeDnsEnabled) "fakeip-dns" else "remote"
+            ))
+        }
+        
         // Fake DNS 兜底
         if (settings.fakeDnsEnabled) {
             dnsRules.add(
@@ -2999,7 +3010,7 @@ class ConfigRepository(private val context: Context) {
         val allRules = listOf(
             // DNS 流量走 dns-out
             RouteRule(protocol = listOf("dns"), outbound = "dns-out")
-        ) + quicRule + bypassLanRules + customRuleSetRules + adBlockRules + appRoutingRules
+        ) + quicRule + bypassLanRules + appRoutingRules + customRuleSetRules + adBlockRules
         
         // 记录所有生成的路由规则
         Log.v(TAG, "=== Generated Route Rules (${allRules.size} total) ===")
@@ -3020,6 +3031,7 @@ class ConfigRepository(private val context: Context) {
             ruleSet = filteredAdBlockRuleSets + customRuleSets,
             rules = allRules,
             finalOutbound = selectorTag, // 路由指向 Selector
+            findProcess = true,
             autoDetectInterface = true
         )
 
