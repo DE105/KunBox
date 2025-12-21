@@ -2670,6 +2670,16 @@ class ConfigRepository(private val context: Context) {
             )
         }
 
+        val fakeIpConfig = if (settings.fakeDnsEnabled) {
+            DnsFakeIpConfig(
+                enabled = true,
+                inet4Range = "198.18.0.0/15",
+                inet6Range = "fc00::/18"
+            )
+        } else {
+            null
+        }
+
         val dns = DnsConfig(
             servers = dnsServers,
             rules = dnsRules,
