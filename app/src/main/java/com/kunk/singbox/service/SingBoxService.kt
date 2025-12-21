@@ -12,11 +12,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.ProxyInfo
 import android.net.VpnService
-import android.os.Binder
 import android.os.Build
-import android.os.Handler
-import android.os.IBinder
-import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.os.SystemClock
@@ -26,11 +22,14 @@ import android.util.Log
 import android.service.quicksettings.TileService
 import android.content.ComponentName
 import com.kunk.singbox.MainActivity
+import com.kunk.singbox.R
 import com.kunk.singbox.core.SingBoxCore
+import com.kunk.singbox.ipc.SingBoxIpcHub
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.repository.ConfigRepository
+import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
 import io.nekohasekai.libbox.*
@@ -48,7 +47,6 @@ import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.Proxy
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -154,47 +152,31 @@ class SingBoxService : VpnService() {
         STOPPING
     }
 
-    interface StateCallback {
-        fun onStateChanged(state: ServiceState)
-    }
-
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private val stateCallbacks = CopyOnWriteArrayList<StateCallback>()
     @Volatile private var serviceState: ServiceState = ServiceState.STOPPED
 
-    private val localBinder = LocalBinder()
-
-    inner class LocalBinder : Binder() {
-        fun getService(): SingBoxService = this@SingBoxService
+    private fun getActiveLabelInternal(): String {
+        return runCatching {
+            val repo = ConfigRepository.getInstance(applicationContext)
+            val activeNodeId = repo.activeNodeId.value
+            realTimeNodeName
+                ?: repo.nodes.value.find { it.id == activeNodeId }?.name
+                ?: ""
+        }.getOrDefault("")
     }
 
-    override fun onBind(intent: Intent): IBinder? {
-        return if (intent.action == ACTION_SERVICE) {
-            localBinder
-        } else {
-            super.onBind(intent)
-        }
-    }
-
-    fun getCurrentState(): ServiceState = serviceState
-
-    fun registerStateCallback(callback: StateCallback) {
-        stateCallbacks.addIfAbsent(callback)
-        mainHandler.post { callback.onStateChanged(serviceState) }
-    }
-
-    fun unregisterStateCallback(callback: StateCallback) {
-        stateCallbacks.remove(callback)
+    private fun notifyRemoteState() {
+        SingBoxIpcHub.update(
+            state = serviceState,
+            activeLabel = getActiveLabelInternal(),
+            lastError = lastErrorFlow.value.orEmpty(),
+            manuallyStopped = isManuallyStopped
+        )
     }
 
     private fun updateServiceState(state: ServiceState) {
         if (serviceState == state) return
         serviceState = state
-        mainHandler.post {
-            for (cb in stateCallbacks) {
-                cb.onStateChanged(state)
-            }
-        }
+        notifyRemoteState()
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -210,7 +192,12 @@ class SingBoxService : VpnService() {
     @Volatile private var connectionOwnerPermissionDeniedLogged = false
     @Volatile private var startVpnJob: Job? = null
     @Volatile private var realTimeNodeName: String? = null
-    @Volatile private var nodePollingJob: Job? = null
+    // @Volatile private var nodePollingJob: Job? = null // Removed in favor of CommandClient
+
+    private var commandServer: io.nekohasekai.libbox.CommandServer? = null
+    private var commandClient: io.nekohasekai.libbox.CommandClient? = null
+    private var commandClientConnections: io.nekohasekai.libbox.CommandClient? = null
+    @Volatile private var activeConnectionNode: String? = null
 
     @Volatile private var lastRuleSetCheckMs: Long = 0L
     private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
@@ -1072,6 +1059,12 @@ class SingBoxService : VpnService() {
         connectivityManager = getSystemService(ConnectivityManager::class.java)
 
         serviceScope.launch {
+            lastErrorFlow.collect {
+                notifyRemoteState()
+            }
+        }
+
+        serviceScope.launch {
             SettingsRepository.getInstance(this@SingBoxService)
                 .settings
                 .map { it.autoReconnect }
@@ -1086,6 +1079,7 @@ class SingBoxService : VpnService() {
             ConfigRepository.getInstance(this@SingBoxService).activeNodeId.collect { activeNodeId ->
                 if (isRunning) {
                     updateNotification()
+                    notifyRemoteState()
                 }
             }
         }
@@ -1296,6 +1290,13 @@ class SingBoxService : VpnService() {
                 boxService = Libbox.newService(configContent, platformInterface)
                 boxService?.start()
                 Log.i(TAG, "BoxService started")
+
+                // 启动 CommandServer 和 CommandClient 以监听实时节点变化
+                try {
+                    startCommandServerAndClient()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start Command Server/Client", e)
+                }
                 
                 isRunning = true
                 setLastError(null)
@@ -1304,65 +1305,6 @@ class SingBoxService : VpnService() {
                 VpnTileService.persistVpnPending(applicationContext, "")
                 updateServiceState(ServiceState.RUNNING)
                 updateTileState()
-
-                // Start node polling to observe real-time outbound (e.g. for split tunneling/url-test)
-                nodePollingJob?.cancel()
-                nodePollingJob = serviceScope.launch {
-                    val configRepo = ConfigRepository.getInstance(this@SingBoxService)
-                    while (isActive && isRunning) {
-                        try {
-                            val box = boxService
-                            if (box != null) {
-                                // Try to find getOutboundGroup or similar method via reflection to avoid compile error
-                                // while supporting different libbox versions
-                                val boxClass = box.javaClass
-                                var selected: String? = null
-                                
-                                // Attempt 1: getOutboundGroup (newer sing-box/libbox versions)
-                                val getOutboundGroupMethod = boxClass.methods.find { 
-                                    it.name == "getOutboundGroup" && it.parameterTypes.size == 1 && it.parameterTypes[0] == String::class.java 
-                                }
-                                if (getOutboundGroupMethod != null) {
-                                    val group = getOutboundGroupMethod.invoke(box, "PROXY")
-                                    if (group != null) {
-                                        val selectedField = group.javaClass.methods.find { it.name == "getSelected" || it.name == "selected" }
-                                        selected = selectedField?.invoke(group) as? String
-                                    }
-                                }
-                                
-                                // Attempt 2: getTracker (NB4A style)
-                                if (selected.isNullOrBlank()) {
-                                    val getTrackerMethod = boxClass.methods.find { it.name == "getTracker" }
-                                    val tracker = getTrackerMethod?.invoke(box)
-                                    if (tracker != null) {
-                                        val getOutboundGroupOnTracker = tracker.javaClass.methods.find {
-                                            it.name == "getOutboundGroup" && it.parameterTypes.size == 1 && it.parameterTypes[0] == String::class.java
-                                        }
-                                        val group = getOutboundGroupOnTracker?.invoke(tracker, "PROXY")
-                                        if (group != null) {
-                                            val selectedField = group.javaClass.methods.find { it.name == "getSelected" || it.name == "selected" }
-                                            selected = selectedField?.invoke(group) as? String
-                                        }
-                                    }
-                                }
-                                
-                                if (!selected.isNullOrBlank() && selected != realTimeNodeName) {
-                                    realTimeNodeName = selected
-                                    Log.i(TAG, "Observed outbound change: $selected")
-                                    // Sync back to ConfigRepository to update UI in app
-                                    configRepo.syncActiveNodeFromProxySelection(selected)
-                                    updateNotification()
-                                }
-                            }
-                        } catch (e: Exception) {
-                            // If API is not available or fails, we stay with the static name from ConfigRepository
-                            if (Log.isLoggable(TAG, Log.VERBOSE)) {
-                                Log.v(TAG, "Failed to poll real-time node: ${e.message}")
-                            }
-                        }
-                        delay(3000)
-                    }
-                }
 
                 serviceScope.launch postStart@{
                     val delays = listOf(800L, 2000L, 5000L)
@@ -1522,8 +1464,8 @@ class SingBoxService : VpnService() {
 
         vpnHealthJob?.cancel()
         vpnHealthJob = null
-        nodePollingJob?.cancel()
-        nodePollingJob = null
+        // nodePollingJob?.cancel()
+        // nodePollingJob = null
         nativeUrlTestWarmupJob?.cancel()
         nativeUrlTestWarmupJob = null
 
@@ -1552,6 +1494,18 @@ class SingBoxService : VpnService() {
 
         val interfaceToClose = vpnInterface
         vpnInterface = null
+
+        // Stop command client/server
+        try {
+            commandClient?.disconnect()
+            commandClient = null
+            commandClientConnections?.disconnect()
+            commandClientConnections = null
+            commandServer?.close()
+            commandServer = null
+        } catch (e: Exception) {
+            Log.w(TAG, "Error closing command server/client", e)
+        }
 
         cleanupScope.launch(NonCancellable) {
             try {
@@ -1683,7 +1637,8 @@ class SingBoxService : VpnService() {
         
         val configRepository = ConfigRepository.getInstance(this)
         val activeNodeId = configRepository.activeNodeId.value
-        val activeNodeName = realTimeNodeName ?: configRepository.nodes.value.find { it.id == activeNodeId }?.name ?: "已连接"
+        // 优先显示活跃连接的节点，其次显示代理组选中的节点，最后显示配置选中的节点
+        val activeNodeName = activeConnectionNode ?: realTimeNodeName ?: configRepository.nodes.value.find { it.id == activeNodeId }?.name ?: "已连接"
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
@@ -1741,8 +1696,12 @@ class SingBoxService : VpnService() {
     override fun onRevoke() {
         Log.i(TAG, "onRevoke called -> stopVpn(stopService=true)")
         isManuallyStopped = true
-        VpnTileService.persistVpnPending(applicationContext, "stopping")
+        // Another VPN took over. Persist OFF state immediately so QS tile won't stay active.
+        VpnTileService.persistVpnState(applicationContext, false)
+        VpnTileService.persistVpnPending(applicationContext, "")
         setLastError("VPN revoked by system (another VPN may have started)")
+        updateServiceState(ServiceState.STOPPED)
+        updateTileState()
         
         // 记录日志，告知用户原因
         com.kunk.singbox.repository.LogRepository.getInstance()
@@ -1846,6 +1805,144 @@ class SingBoxService : VpnService() {
         }
     }
     
+    private fun startCommandServerAndClient() {
+        if (boxService == null) return
+
+        // CommandServer Handler
+        val serverHandler = object : CommandServerHandler {
+            override fun serviceReload() {
+                // No-op for now, or implement reload logic if needed
+            }
+            override fun postServiceClose() {}
+            override fun getSystemProxyStatus(): SystemProxyStatus? = null
+            override fun setSystemProxyEnabled(isEnabled: Boolean) {
+                // No-op
+            }
+        }
+
+        // CommandClient Handler
+        val clientHandler = object : CommandClientHandler {
+            override fun connected() {
+                Log.d(TAG, "CommandClient connected")
+            }
+
+            override fun disconnected(message: String?) {
+                Log.w(TAG, "CommandClient disconnected: $message")
+            }
+
+            override fun clearLogs() {}
+            override fun writeLogs(messageList: StringIterator?) {}
+            override fun writeStatus(message: StatusMessage?) {}
+
+            override fun writeGroups(groups: OutboundGroupIterator?) {
+                if (groups == null) return
+                val configRepo = ConfigRepository.getInstance(this@SingBoxService)
+                
+                try {
+                    while (groups.hasNext()) {
+                        val group = groups.next()
+                        // 关注 "PROXY" 组的选择状态
+                        // 注意：这里区分大小写，通常主 selector 叫 "PROXY" 或 "Proxy"
+                        if (group.tag.equals("PROXY", ignoreCase = true)) {
+                            val selected = group.selected
+                            // Log.v(TAG, "Group PROXY update: selected=$selected, current=$realTimeNodeName")
+                            if (!selected.isNullOrBlank() && selected != realTimeNodeName) {
+                                realTimeNodeName = selected
+                                Log.i(TAG, "Real-time node update: $selected")
+                                // Sync back to ConfigRepository to update UI in app
+                                serviceScope.launch {
+                                    configRepo.syncActiveNodeFromProxySelection(selected)
+                                }
+                                updateNotification()
+                            }
+                            break
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error processing groups update", e)
+                }
+            }
+
+            override fun initializeClashMode(modeList: StringIterator?, currentMode: String?) {}
+            override fun updateClashMode(newMode: String?) {}
+            override fun writeConnections(message: Connections?) {
+                message ?: return
+                try {
+                    val iterator = message.iterator()
+                    var newestConnection: Connection? = null
+                    
+                    while (iterator.hasNext()) {
+                        val conn = iterator.next()
+                        if (conn.closedAt > 0) continue // 忽略已关闭连接
+                        
+                        // 忽略 DNS 连接 (通常 rule 是 dns-out)
+                        if (conn.rule == "dns-out") continue
+                        
+                        // 找到最新的活跃连接
+                        if (newestConnection == null || conn.createdAt > newestConnection.createdAt) {
+                            newestConnection = conn
+                        }
+                    }
+                    
+                    var newNode: String? = null
+                    if (newestConnection != null) {
+                        val chainIter = newestConnection.chain()
+                        // 遍历 chain 找到最后一个节点
+                        while (chainIter.hasNext()) {
+                            newNode = chainIter.next()
+                        }
+                        // 如果 chain 为空或者最后一个节点是 selector 名字，可能需要处理
+                        // 但通常 chain 的最后一个就是落地节点
+                    }
+                    
+                    // 只有当检测到新的活跃连接节点，或者活跃连接消失（变为null）时才更新
+                    // 为了避免闪烁，如果 newNode 为 null，我们保留 activeConnectionNode 一段时间？
+                    // 不，直接更新，fallback 逻辑由 createNotification 处理 (回退到 realTimeNodeName)
+                    if (newNode != activeConnectionNode) {
+                        activeConnectionNode = newNode
+                        if (newNode != null) {
+                            Log.v(TAG, "Active connection node: $newNode")
+                        }
+                        updateNotification()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error processing connections update", e)
+                }
+            }
+        }
+
+        // 1. Create and start CommandServer
+        commandServer = Libbox.newCommandServer(serverHandler, 300)
+        commandServer?.setService(boxService)
+        commandServer?.start()
+        Log.i(TAG, "CommandServer started")
+
+        // 2. Create and connect CommandClient
+        val options = CommandClientOptions()
+        options.command = Libbox.CommandGroup // 5
+        options.statusInterval = 1500 * 1000 * 1000 // 1.5s (unit: ns? wait, let's check unit)
+        // libbox code: ticker := time.NewTicker(time.Duration(interval))
+        // Go's time.Duration is nanoseconds.
+        // But let's check how it's passed. Java/Kotlin long -> Go int64.
+        // Usually Go bind maps basic types directly.
+        // Wait, command_client.go:87 binary.Write(conn, ..., c.options.StatusInterval)
+        // command_server.go:33 binary.Read(conn, ..., &interval); ticker := time.NewTicker(time.Duration(interval))
+        // So yes, it is nanoseconds. 1.5s = 1_500_000_000 ns.
+        
+        commandClient = Libbox.newCommandClient(clientHandler, options)
+        commandClient?.connect()
+        Log.i(TAG, "CommandClient connected")
+
+        // 3. Create and connect CommandClient for Connections (to show real-time routing)
+        val optionsConn = CommandClientOptions()
+        optionsConn.command = Libbox.CommandConnections // 14
+        optionsConn.statusInterval = 2000 * 1000 * 1000 // 2s
+        
+        commandClientConnections = Libbox.newCommandClient(clientHandler, optionsConn)
+        commandClientConnections?.connect()
+        Log.i(TAG, "CommandClient (Connections) connected")
+    }
+
     /**
      * 如果 openTun 时未找到物理网络，短时间内快速重试绑定，避免等待 5s 健康检查
      */

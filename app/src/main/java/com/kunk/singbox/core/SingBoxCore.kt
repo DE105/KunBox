@@ -11,17 +11,17 @@ import com.kunk.singbox.model.Outbound
 import com.kunk.singbox.model.SingBoxConfig
 import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.repository.SettingsRepository
+import com.kunk.singbox.ipc.VpnStateStore
 import kotlinx.coroutines.flow.first
-import com.kunk.singbox.service.SingBoxService
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.NetworkInterface
 import java.net.ServerSocket
@@ -464,9 +464,9 @@ class SingBoxCore private constructor(private val context: Context) {
         method: LatencyTestMethod
     ): Long = withContext(Dispatchers.IO) {
         // 尝试调用 native 方法 (如果 VPN 正在运行)
-        if (SingBoxService.isRunning && libboxAvailable) {
-             val rtt = testWithLibboxStaticUrlTest(outbound, targetUrl, timeoutMs, method)
-             if (rtt >= 0) return@withContext rtt
+        if (VpnStateStore.getActive(context) && libboxAvailable) {
+            val rtt = testWithLibboxStaticUrlTest(outbound, targetUrl, timeoutMs, method)
+            if (rtt >= 0) return@withContext rtt
         }
         
         // 内核不支持或未运行，直接走 HTTP 代理测速
@@ -496,7 +496,7 @@ class SingBoxCore private constructor(private val context: Context) {
 
         // When VPN is running, prefer running-instance URLTest.
         // When VPN is stopped, try Libbox static URLTest first, then local HTTP proxy fallback.
-        if (SingBoxService.isRunning) {
+        if (VpnStateStore.getActive(context)) {
             return@withContext testOutboundLatencyWithLibbox(outbound, settings)
         }
 
@@ -533,7 +533,7 @@ class SingBoxCore private constructor(private val context: Context) {
         val settings = SettingsRepository.getInstance(context).settings.first()
 
         // Native-only batch test: libbox URLTest first.
-        if (libboxAvailable && SingBoxService.isRunning) {
+        if (libboxAvailable && VpnStateStore.getActive(context)) {
             // 先做一次轻量预热，避免批量首个请求落在 link 验证/路由冷启动窗口
             try {
                 val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")

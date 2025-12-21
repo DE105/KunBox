@@ -3,6 +3,7 @@ package com.kunk.singbox.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.repository.ConfigRepository
 import kotlinx.coroutines.Job
@@ -87,7 +88,7 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val node = nodes.value.find { it.id == nodeId }
             val success = configRepository.setActiveNode(nodeId)
-            if (com.kunk.singbox.service.SingBoxService.isRunning && node != null) {
+            if (SingBoxRemote.isRunning.value && node != null) {
                 _switchResult.value = if (success) {
                     "已切换到 ${node.name}"
                 } else {

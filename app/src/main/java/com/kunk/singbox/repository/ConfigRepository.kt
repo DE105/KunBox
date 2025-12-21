@@ -8,6 +8,7 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
 import com.kunk.singbox.core.SingBoxCore
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.*
 import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.utils.parser.Base64Parser
@@ -18,20 +19,8 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.yaml.snakeyaml.Yaml
@@ -414,25 +403,23 @@ class ConfigRepository(private val context: Context) {
             return when (type) {
                 "vless" -> {
                     val uuid = asString(proxyMap["uuid"]) ?: return null
-                    val network = asString(proxyMap["network"])?.lowercase()
+                    val alterId = asInt(proxyMap["alterId"]) ?: 0
+                    val cipher = asString(proxyMap["cipher"]) ?: "auto"
+                    val network = asString(proxyMap["network"])
                     val tlsEnabled = asBool(proxyMap["tls"]) == true
-                    val serverName = asString(proxyMap["servername"]) ?: asString(proxyMap["sni"]) ?: server
-                    val fingerprint = asString(proxyMap["client-fingerprint"])
+                    val sni = asString(proxyMap["servername"]) ?: asString(proxyMap["sni"]) ?: server
                     val insecure = asBool(proxyMap["skip-cert-verify"]) == true
                     val alpn = asStringList(proxyMap["alpn"])
                     val finalAlpn = if (tlsEnabled && network == "ws" && (alpn == null || alpn.isEmpty())) listOf("http/1.1") else alpn
-
+                    
                     val tlsConfig = if (tlsEnabled) {
                         TlsConfig(
                             enabled = true,
-                            serverName = serverName,
+                            serverName = sni,
                             insecure = insecure,
-                            alpn = finalAlpn,
-                            utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                            alpn = finalAlpn
                         )
-                    } else {
-                        null
-                    }
+                    } else null
 
                     val transport = when (network) {
                         "ws" -> {
@@ -445,36 +432,26 @@ class ConfigRepository(private val context: Context) {
                                 val vs = asString(v) ?: return@forEach
                                 headers[ks] = vs
                             }
-                            val host = headers["Host"] ?: headers["host"] ?: serverName
-                            val userAgent = if (fingerprint?.contains("chrome", ignoreCase = true) == true) {
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
-                            } else {
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0"
+                            if (!headers.containsKey("Host") && !sni.isNullOrBlank()) {
+                                headers["Host"] = sni
                             }
-                            val finalHeaders = mutableMapOf<String, String>()
-                            if (!host.isNullOrBlank()) finalHeaders["Host"] = host
-                            finalHeaders["User-Agent"] = userAgent
-
                             TransportConfig(
                                 type = "ws",
                                 path = path,
-                                headers = finalHeaders,
-                                maxEarlyData = 2048,
-                                earlyDataHeaderName = "Sec-WebSocket-Protocol"
+                                headers = headers
                             )
                         }
                         "grpc" -> {
                             val grpcOpts = proxyMap["grpc-opts"] as? Map<*, *>
                             val serviceName = asString(grpcOpts?.get("grpc-service-name"))
-                                ?: asString(grpcOpts?.get("service-name"))
-                                ?: asString(proxyMap["grpc-service-name"])
-                                ?: ""
+                                ?: asString(grpcOpts?.get("service-name")) ?: ""
                             TransportConfig(type = "grpc", serviceName = serviceName)
                         }
                         "h2", "http" -> {
-                            val path = asString(proxyMap["path"])
-                            val host = asString(proxyMap["host"])?.let { listOf(it) }
-                            TransportConfig(type = "http", path = path, host = host)
+                             val h2Opts = proxyMap["h2-opts"] as? Map<*, *>
+                             val path = asString(h2Opts?.get("path"))
+                             val host = asStringList(h2Opts?.get("host"))
+                             TransportConfig(type = "http", path = path, host = host)
                         }
                         else -> null
                     }
@@ -485,6 +462,8 @@ class ConfigRepository(private val context: Context) {
                         server = server,
                         serverPort = port,
                         uuid = uuid,
+                        alterId = alterId,
+                        security = cipher,
                         tls = tlsConfig,
                         transport = transport
                     )
@@ -1345,37 +1324,6 @@ class ConfigRepository(private val context: Context) {
             val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
             val fingerprint = params["fp"]
             
-            val transportType = params["type"] ?: "tcp"
-            val transport = when (transportType) {
-                "ws" -> {
-                    val host = params["host"] ?: sni
-                    val userAgent = if (fingerprint?.contains("chrome") == true) {
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
-                    } else {
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0"
-                    }
-                    val headers = mutableMapOf<String, String>()
-                    if (!host.isNullOrBlank()) {
-                        headers["Host"] = host
-                    }
-                    headers["User-Agent"] = userAgent
-
-                    TransportConfig(
-                        type = "ws",
-                        path = params["path"] ?: "/",
-                        headers = headers,
-                        maxEarlyData = 2048,
-                        earlyDataHeaderName = "Sec-WebSocket-Protocol"
-                    )
-                }
-                "grpc" -> TransportConfig(
-                    type = "grpc",
-                    serviceName = params["serviceName"] ?: params["sn"] ?: ""
-                )
-                "tcp" -> null
-                else -> null
-            }
-            
             return Outbound(
                 type = "trojan",
                 tag = name,
@@ -1388,8 +1336,7 @@ class ConfigRepository(private val context: Context) {
                     insecure = insecure,
                     alpn = alpnList,
                     utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
-                ),
-                transport = transport
+                )
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse trojan link", e)
@@ -1732,8 +1679,8 @@ class ConfigRepository(private val context: Context) {
     }
     
     sealed class NodeSwitchResult {
-        data object Success : NodeSwitchResult()
-        data object NotRunning : NodeSwitchResult()
+        object Success : NodeSwitchResult()
+        object NotRunning : NodeSwitchResult()
         data class Failed(val reason: String) : NodeSwitchResult()
     }
 
@@ -1745,7 +1692,7 @@ class ConfigRepository(private val context: Context) {
     suspend fun setActiveNodeWithResult(nodeId: String): NodeSwitchResult {
         _activeNodeId.value = nodeId
         
-        if (!com.kunk.singbox.service.SingBoxService.isRunning) {
+        if (!VpnStateStore.getActive(context)) {
             return NodeSwitchResult.NotRunning
         }
         

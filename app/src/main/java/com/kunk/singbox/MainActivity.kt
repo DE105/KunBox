@@ -61,7 +61,7 @@ import androidx.navigation.compose.rememberNavController
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.viewmodel.DashboardViewModel
 import com.kunk.singbox.model.ConnectionState
-import com.kunk.singbox.service.SingBoxService
+import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.service.VpnTileService
 import com.kunk.singbox.ui.components.AppNavBar
 import com.kunk.singbox.ui.navigation.AppNavigation
@@ -107,6 +107,7 @@ fun SingBoxApp() {
     )
 
     LaunchedEffect(Unit) {
+        SingBoxRemote.ensureBound(context)
         // Best-effort: ask system to refresh QS tile state after app process restarts/force-stops.
         runCatching {
             TileService.requestListeningState(context, ComponentName(context, VpnTileService::class.java))
@@ -126,18 +127,21 @@ fun SingBoxApp() {
     val settings by settingsRepository.settings.collectAsState(initial = null)
     val dashboardViewModel: DashboardViewModel = viewModel()
     val connectionState by dashboardViewModel.connectionState.collectAsState()
+    val isRunning by SingBoxRemote.isRunning.collectAsState()
+    val isStarting by SingBoxRemote.isStarting.collectAsState()
+    val manuallyStopped by SingBoxRemote.manuallyStopped.collectAsState()
 
     // 自动连接逻辑
     LaunchedEffect(settings?.autoConnect, connectionState) {
         if (settings?.autoConnect == true && 
             connectionState == ConnectionState.Idle && 
-            !SingBoxService.isRunning &&
-            !SingBoxService.isStarting &&
-            !SingBoxService.isManuallyStopped
+            !isRunning &&
+            !isStarting &&
+            !manuallyStopped
         ) {
             // Delay a bit to ensure everything is initialized
             delay(1000)
-            if (connectionState == ConnectionState.Idle && !SingBoxService.isRunning) {
+            if (connectionState == ConnectionState.Idle && !isRunning) {
                 dashboardViewModel.toggleConnection()
             }
         }
@@ -156,7 +160,7 @@ fun SingBoxApp() {
     LaunchedEffect(Unit) {
         SettingsRepository.restartRequiredEvents.collect {
             // 如果 VPN 没有在运行，也没有正在启动，就不弹窗（因为下次启动自然生效）
-            if (!SingBoxService.isRunning && !SingBoxService.isStarting) return@collect
+            if (!isRunning && !isStarting) return@collect
 
             // 如果已经有重启提示，就不再显示新的
             if (snackbarHostState.currentSnackbarData?.visuals?.message?.contains("重启") == true) return@collect
@@ -230,7 +234,7 @@ fun SingBoxApp() {
                                             .heightIn(min = 24.dp)
                                             .clickable {
                                                 data.dismiss()
-                                                if (SingBoxService.isRunning || SingBoxService.isStarting) {
+                                                if (isRunning || isStarting) {
                                                     dashboardViewModel.restartVpn()
                                                 }
                                             }

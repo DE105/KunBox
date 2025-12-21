@@ -6,12 +6,16 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.Toast
+import com.kunk.singbox.aidl.ISingBoxService
+import com.kunk.singbox.aidl.ISingBoxServiceCallback
 import com.kunk.singbox.R
+import com.kunk.singbox.ipc.SingBoxIpcService
 import com.kunk.singbox.repository.ConfigRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,14 +29,17 @@ class VpnTileService : TileService() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var bindTimeoutJob: Job? = null
     @Volatile private var lastServiceState: SingBoxService.ServiceState = SingBoxService.ServiceState.STOPPED
-    private var boundService: SingBoxService? = null
     private var serviceBound = false
     private var bindRequested = false
     private var tapPending = false
-    private val stateCallback = object : SingBoxService.StateCallback {
-        override fun onStateChanged(state: SingBoxService.ServiceState) {
-            lastServiceState = state
-            updateTile()
+
+    @Volatile private var remoteService: ISingBoxService? = null
+
+    private val remoteCallback = object : ISingBoxServiceCallback.Stub() {
+        override fun onStateChanged(state: Int, activeLabel: String?, lastError: String?, manuallyStopped: Boolean) {
+            lastServiceState = SingBoxService.ServiceState.values().getOrNull(state)
+                ?: SingBoxService.ServiceState.STOPPED
+            updateTile(activeLabelOverride = activeLabel)
         }
     }
 
@@ -40,7 +47,6 @@ class VpnTileService : TileService() {
         private const val PREFS_NAME = "vpn_state"
         private const val KEY_VPN_ACTIVE = "vpn_active"
         private const val KEY_VPN_PENDING = "vpn_pending"
-        
         /**
          * 持久化 VPN 状态到 SharedPreferences
          * 在 SingBoxService 启动/停止时调用
@@ -63,8 +69,8 @@ class VpnTileService : TileService() {
 
     override fun onStartListening() {
         super.onStartListening()
-        bindService()
         updateTile()
+        bindService()
     }
 
     override fun onStopListening() {
@@ -81,7 +87,7 @@ class VpnTileService : TileService() {
         toggle()
     }
 
-    private fun updateTile() {
+    private fun updateTile(activeLabelOverride: String? = null) {
         var persistedActive = runCatching {
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(KEY_VPN_ACTIVE, false)
@@ -98,7 +104,7 @@ class VpnTileService : TileService() {
                 .getString(KEY_VPN_PENDING, "")
         }.getOrNull().orEmpty()
 
-        if (!serviceBound || boundService == null) {
+        if (!serviceBound || remoteService == null) {
             lastServiceState = when (pending) {
                 "starting" -> SingBoxService.ServiceState.STARTING
                 "stopping" -> SingBoxService.ServiceState.STOPPING
@@ -122,11 +128,13 @@ class VpnTileService : TileService() {
         val activeLabel = if (lastServiceState == SingBoxService.ServiceState.RUNNING ||
             lastServiceState == SingBoxService.ServiceState.STARTING
         ) {
-            runCatching {
-                val repo = ConfigRepository.getInstance(applicationContext)
-                val nodeId = repo.activeNodeId.value
-                if (!nodeId.isNullOrBlank()) repo.getNodeById(nodeId)?.name else null
-            }.getOrNull()
+            activeLabelOverride?.takeIf { it.isNotBlank() }
+                ?: runCatching { remoteService?.activeLabel }.getOrNull()?.takeIf { it.isNotBlank() }
+                ?: runCatching {
+                    val repo = ConfigRepository.getInstance(applicationContext)
+                    val nodeId = repo.activeNodeId.value
+                    if (!nodeId.isNullOrBlank()) repo.getNodeById(nodeId)?.name else null
+                }.getOrNull()
         } else {
             null
         }
@@ -159,8 +167,10 @@ class VpnTileService : TileService() {
                 .getString(KEY_VPN_PENDING, "")
         }.getOrNull().orEmpty()
 
-        val effectiveState = if (serviceBound && boundService != null) {
-            boundService?.getCurrentState() ?: lastServiceState
+        val effectiveState = if (serviceBound && remoteService != null) {
+            val state = runCatching { remoteService?.state }.getOrNull()
+            SingBoxService.ServiceState.values().getOrNull(state ?: -1)
+                ?: SingBoxService.ServiceState.STOPPED
         } else {
             when (pending) {
                 "starting" -> SingBoxService.ServiceState.STARTING
@@ -174,7 +184,7 @@ class VpnTileService : TileService() {
         when (effectiveState) {
             SingBoxService.ServiceState.RUNNING,
             SingBoxService.ServiceState.STARTING -> {
-                if (!serviceBound || boundService == null) {
+                if (!serviceBound || remoteService == null) {
                     tapPending = true
                     bindService(force = true)
                     updateTile()
@@ -189,6 +199,17 @@ class VpnTileService : TileService() {
                 startService(intent)
             }
             SingBoxService.ServiceState.STOPPED -> {
+                val prepareIntent = VpnService.prepare(this)
+                if (prepareIntent != null) {
+                    persistVpnPending(this, "")
+                    persistVpnState(this, false)
+                    lastServiceState = SingBoxService.ServiceState.STOPPED
+                    updateTile()
+                    prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    runCatching { startActivityAndCollapse(prepareIntent) }
+                    return
+                }
+
                 persistVpnPending(this, "starting")
                 updateTile()
                 serviceScope.launch {
@@ -223,7 +244,8 @@ class VpnTileService : TileService() {
 
     private fun bindService(force: Boolean = false) {
         if (serviceBound || bindRequested) return
-        val shouldBind = runCatching {
+
+        val persistedActive = runCatching {
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(KEY_VPN_ACTIVE, false)
         }.getOrDefault(false)
@@ -233,20 +255,20 @@ class VpnTileService : TileService() {
                 .getString(KEY_VPN_PENDING, "")
         }.getOrNull().orEmpty()
 
-        val shouldTryBind = force || shouldBind || pending == "starting" || pending == "stopping"
+        val shouldTryBind = force || persistedActive || pending == "starting" || pending == "stopping"
         if (!shouldTryBind) return
-        val intent = Intent(this, SingBoxService::class.java).apply {
-            action = SingBoxService.ACTION_SERVICE
-        }
+
+        val intent = Intent(this, SingBoxIpcService::class.java)
+
         val ok = runCatching {
-            bindService(intent, serviceConnection, 0)
+            bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
         }.getOrDefault(false)
         bindRequested = ok
 
         bindTimeoutJob?.cancel()
         bindTimeoutJob = serviceScope.launch {
             delay(1200)
-            if (serviceBound || boundService != null) return@launch
+            if (serviceBound || remoteService != null) return@launch
             if (!bindRequested) return@launch
 
             val active = runCatching {
@@ -268,7 +290,7 @@ class VpnTileService : TileService() {
             }
         }
 
-        if (!ok && pending != "starting" && (shouldBind || pending == "stopping")) {
+        if (!ok && pending != "starting" && (persistedActive || pending == "stopping")) {
             tapPending = false
             persistVpnState(this, false)
             persistVpnPending(this, "")
@@ -279,13 +301,14 @@ class VpnTileService : TileService() {
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as? SingBoxService.LocalBinder ?: return
-            boundService = binder.getService()
-            boundService?.registerStateCallback(stateCallback)
+            val binder = ISingBoxService.Stub.asInterface(service)
+            remoteService = binder
+            runCatching { binder.registerCallback(remoteCallback) }
             serviceBound = true
             bindRequested = true
-            lastServiceState = boundService?.getCurrentState() ?: SingBoxService.ServiceState.STOPPED
-            updateTile()
+            lastServiceState = SingBoxService.ServiceState.values().getOrNull(runCatching { binder.state }.getOrNull() ?: -1)
+                ?: SingBoxService.ServiceState.STOPPED
+            updateTile(activeLabelOverride = runCatching { binder.activeLabel }.getOrNull())
             if (tapPending) {
                 tapPending = false
                 toggle()
@@ -293,11 +316,10 @@ class VpnTileService : TileService() {
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            boundService?.unregisterStateCallback(stateCallback)
-            boundService = null
+            runCatching { remoteService?.unregisterCallback(remoteCallback) }
+            remoteService = null
             serviceBound = false
             bindRequested = false
-            lastServiceState = SingBoxService.ServiceState.STOPPED
             updateTile()
         }
     }
@@ -306,11 +328,9 @@ class VpnTileService : TileService() {
         if (!bindRequested) return
         bindTimeoutJob?.cancel()
         bindTimeoutJob = null
-        if (serviceBound) {
-            boundService?.unregisterStateCallback(stateCallback)
-        }
+        runCatching { remoteService?.unregisterCallback(remoteCallback) }
         runCatching { unbindService(serviceConnection) }
-        boundService = null
+        remoteService = null
         serviceBound = false
         bindRequested = false
     }

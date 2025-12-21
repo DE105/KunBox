@@ -73,6 +73,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
+import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.ui.components.InputDialog
@@ -100,8 +101,8 @@ fun NodesScreen(
     val switchResult by viewModel.switchResult.collectAsState()
     val latencyMessage by viewModel.latencyMessage.collectAsState()
 
-    val isVpnRunning by SingBoxService.isRunningFlow.collectAsState()
-    val isVpnStarting by SingBoxService.isStartingFlow.collectAsState()
+    val isVpnRunning by SingBoxRemote.isRunning.collectAsState()
+    val isVpnStarting by SingBoxRemote.isStarting.collectAsState()
     
     val snackbarHostState = remember { SnackbarHostState() }
 

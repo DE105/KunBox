@@ -17,6 +17,7 @@ import com.kunk.singbox.model.ConnectionState
 import com.kunk.singbox.model.ConnectionStats
 import com.kunk.singbox.model.ProfileUi
 import com.kunk.singbox.repository.SettingsRepository
+import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.service.VpnTileService
 import com.kunk.singbox.core.SingBoxCore
@@ -146,6 +147,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val vpnPermissionNeeded: StateFlow<Boolean> = _vpnPermissionNeeded.asStateFlow()
     
     init {
+        runCatching { SingBoxRemote.ensureBound(getApplication()) }
+
         // Best-effort initial sync for UI state after process restart/force-stop.
         // We rely on system VPN presence + persisted state, and clear stale persisted state.
         runCatching {
@@ -170,21 +173,21 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 // If process restarted while VPN is still up, show as connected until flows catch up.
                 _connectionState.value = ConnectionState.Connected
                 _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
-            } else if (!SingBoxService.isStarting) {
+            } else if (!SingBoxRemote.isStarting.value) {
                 _connectionState.value = ConnectionState.Idle
             }
         }
 
         // Observe SingBoxService running and starting state to keep UI in sync
         viewModelScope.launch {
-            SingBoxService.isRunningFlow.collect { running ->
+            SingBoxRemote.isRunning.collect { running ->
                 if (running) {
                     _connectionState.value = ConnectionState.Connected
                     _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
                     startTrafficMonitor()
                     // VPN 启动后自动对当前节点进行测速
                     startPingTest()
-                } else if (!SingBoxService.isStarting) {
+                } else if (!SingBoxRemote.isStarting.value) {
                     _connectionState.value = ConnectionState.Idle
                     _connectedAtElapsedMs.value = null
                     stopTrafficMonitor()
@@ -197,7 +200,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
         // Surface service-level startup errors on UI
         viewModelScope.launch {
-            SingBoxService.lastErrorFlow.collect { err ->
+            SingBoxRemote.lastError.collect { err ->
                 if (!err.isNullOrBlank()) {
                     _testStatus.value = err
                     lastErrorToastJob?.cancel()
@@ -212,10 +215,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         viewModelScope.launch {
-            SingBoxService.isStartingFlow.collect { starting ->
+            SingBoxRemote.isStarting.collect { starting ->
                 if (starting) {
                     _connectionState.value = ConnectionState.Connecting
-                } else if (!SingBoxService.isRunning) {
+                } else if (!SingBoxRemote.isRunning.value) {
                     _connectionState.value = ConnectionState.Idle
                 }
             }
@@ -248,12 +251,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 return@launch
             }
 
-            val wasRunning = SingBoxService.isRunning || SingBoxService.isStarting
+            val wasRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
             if (wasRunning) {
                 stopVpn()
 
                 withTimeoutOrNull(5000) {
-                    SingBoxService.isRunningFlow.first { running -> !running }
+                    SingBoxRemote.isRunning.first { running -> !running }
                 }
             }
 
@@ -309,13 +312,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     var showedStartingHint = false
 
                     while (true) {
-                        if (SingBoxService.isRunning) {
+                        if (SingBoxRemote.isRunning.value) {
                             _connectionState.value = ConnectionState.Connected
                             startTrafficMonitor()
                             return@launch
                         }
 
-                        val err = SingBoxService.lastErrorFlow.value
+                        val err = SingBoxRemote.lastError.value
                         if (!err.isNullOrBlank()) {
                             _connectionState.value = ConnectionState.Error
                             _testStatus.value = err
