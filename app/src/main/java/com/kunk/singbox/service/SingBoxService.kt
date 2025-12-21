@@ -49,6 +49,7 @@ import java.net.NetworkInterface
 import java.net.Proxy
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 class SingBoxService : VpnService() {
@@ -211,6 +212,27 @@ class SingBoxService : VpnService() {
 
     @Volatile private var lastRuleSetCheckMs: Long = 0L
     private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
+
+    private val uidToPackageCache = ConcurrentHashMap<Int, String>()
+    @Volatile private var uidToPackageCacheReady: Boolean = false
+    private fun ensureUidToPackageCache() {
+        if (uidToPackageCacheReady) return
+        synchronized(uidToPackageCache) {
+            if (uidToPackageCacheReady) return
+            try {
+                val apps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+                for (app in apps) {
+                    val uid = app.uid
+                    if (uid > 0 && !uidToPackageCache.containsKey(uid)) {
+                        uidToPackageCache[uid] = app.packageName
+                    }
+                }
+                uidToPackageCacheReady = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to build uid->package cache", e)
+            }
+        }
+    }
 
     // Auto reconnect
     private var connectivityManager: ConnectivityManager? = null
@@ -662,9 +684,15 @@ class SingBoxService : VpnService() {
             if (uid <= 0) return ""
             return try {
                 val pkgs = packageManager.getPackagesForUid(uid)
-                if (!pkgs.isNullOrEmpty()) pkgs[0] else ""
+                if (!pkgs.isNullOrEmpty()) {
+                    pkgs[0]
+                } else {
+                    ensureUidToPackageCache()
+                    uidToPackageCache[uid] ?: ""
+                }
             } catch (_: Exception) {
-                ""
+                ensureUidToPackageCache()
+                uidToPackageCache[uid] ?: ""
             }
         }
         

@@ -2419,6 +2419,15 @@ class ConfigRepository(private val context: Context) {
         nodeTagResolver: (String?) -> String?
     ): List<RouteRule> {
         val rules = mutableListOf<RouteRule>()
+
+        fun resolveUidByPackageName(pkg: String): Int {
+            return try {
+                val info = context.packageManager.getApplicationInfo(pkg, 0)
+                info.uid
+            } catch (_: Exception) {
+                0
+            }
+        }
         
         fun resolveOutboundTag(mode: RuleSetOutboundMode?, value: String?): String {
             return when (mode ?: RuleSetOutboundMode.DIRECT) {
@@ -2445,11 +2454,23 @@ class ConfigRepository(private val context: Context) {
         // 1. 处理应用规则（单个应用）
         settings.appRules.filter { it.enabled }.forEach { rule ->
             val outboundTag = resolveOutboundTag(rule.outboundMode, rule.outboundValue)
-            
-            rules.add(RouteRule(
-                packageName = listOf(rule.packageName),
-                outbound = outboundTag
-            ))
+
+            val uid = resolveUidByPackageName(rule.packageName)
+            if (uid > 0) {
+                rules.add(
+                    RouteRule(
+                        userId = listOf(uid),
+                        outbound = outboundTag
+                    )
+                )
+            }
+
+            rules.add(
+                RouteRule(
+                    packageName = listOf(rule.packageName),
+                    outbound = outboundTag
+                )
+            )
             
             Log.v(TAG, "Added app rule: ${rule.appName} (${rule.packageName}) -> $outboundTag")
         }
@@ -2461,10 +2482,22 @@ class ConfigRepository(private val context: Context) {
             // 将分组中的所有应用包名添加到一条规则中
             val packageNames = group.apps.map { it.packageName }
             if (packageNames.isNotEmpty()) {
-                rules.add(RouteRule(
-                    packageName = packageNames,
-                    outbound = outboundTag
-                ))
+                val uids = packageNames.map { resolveUidByPackageName(it) }.filter { it > 0 }.distinct()
+                if (uids.isNotEmpty()) {
+                    rules.add(
+                        RouteRule(
+                            userId = uids,
+                            outbound = outboundTag
+                        )
+                    )
+                }
+
+                rules.add(
+                    RouteRule(
+                        packageName = packageNames,
+                        outbound = outboundTag
+                    )
+                )
                 
                 Log.v(TAG, "Added app group rule: ${group.name} (${packageNames.size} apps) -> $outboundTag")
             }
@@ -2678,10 +2711,32 @@ class ConfigRepository(private val context: Context) {
                 settings.appGroups.filter { it.enabled }.flatMap { it.apps.map { it.packageName } }).distinct()
         
         if (appPackagesForDns.isNotEmpty()) {
-            dnsRules.add(0, DnsRule(
-                packageName = appPackagesForDns,
-                server = if (settings.fakeDnsEnabled) "fakeip-dns" else "remote"
-            ))
+            val serverTag = if (settings.fakeDnsEnabled) "fakeip-dns" else "remote"
+            val uids = appPackagesForDns.map {
+                try {
+                    context.packageManager.getApplicationInfo(it, 0).uid
+                } catch (_: Exception) {
+                    0
+                }
+            }.filter { it > 0 }.distinct()
+
+            if (uids.isNotEmpty()) {
+                dnsRules.add(
+                    0,
+                    DnsRule(
+                        userId = uids,
+                        server = serverTag
+                    )
+                )
+            }
+
+            dnsRules.add(
+                if (uids.isNotEmpty()) 1 else 0,
+                DnsRule(
+                    packageName = appPackagesForDns,
+                    server = serverTag
+                )
+            )
         }
         
         // Fake DNS 兜底

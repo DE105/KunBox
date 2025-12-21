@@ -17,6 +17,7 @@ import java.io.IOException
 import android.util.Log
 import com.google.gson.annotations.SerializedName
 import com.kunk.singbox.repository.RuleSetRepository
+import com.kunk.singbox.model.GithubFile
 
 class RuleSetViewModel(application: Application) : AndroidViewModel(application) {
     
@@ -150,10 +151,4 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    data class GithubFile(
-        @SerializedName("name") val name: String,
-        @SerializedName("path") val path: String,
-        @SerializedName("size") val size: Long,
-        @SerializedName("download_url") val download_url: String?
-    )
 }

@@ -11,6 +11,7 @@ import com.kunk.singbox.model.RoutingMode
 import com.kunk.singbox.model.AppRule
 import com.kunk.singbox.model.AppGroup
 import com.kunk.singbox.model.RuleSet
+import com.kunk.singbox.model.RuleSetType
 import com.kunk.singbox.model.TunStack
 import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.model.VpnAppMode

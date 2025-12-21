@@ -45,10 +45,17 @@ fun RuleSetHubScreen(
     settingsViewModel: SettingsViewModel = viewModel(),
     ruleSetViewModel: RuleSetViewModel = viewModel()
 ) {
+    // 强制使用 Activity 的 ViewModel 实例，避免重新创建
+    // 注意：在实际项目中最好通过 Hilt 注入或在 MainActivity 中传递，这里简化处理
+    val activityRuleSetViewModel: RuleSetViewModel = viewModel(
+        viewModelStoreOwner = (navController.context as? androidx.activity.ComponentActivity)
+            ?: throw IllegalStateException("Context is not a ComponentActivity")
+    )
+    
     var searchQuery by remember { mutableStateOf("") }
-    val ruleSets by ruleSetViewModel.ruleSets.collectAsState()
-    val isLoading by ruleSetViewModel.isLoading.collectAsState()
-    val error by ruleSetViewModel.error.collectAsState()
+    val ruleSets by activityRuleSetViewModel.ruleSets.collectAsState()
+    val isLoading by activityRuleSetViewModel.isLoading.collectAsState()
+    val error by activityRuleSetViewModel.error.collectAsState()
     val downloadingRuleSets by settingsViewModel.downloadingRuleSets.collectAsState()
     
     val snackbarHostState = remember { SnackbarHostState() }
@@ -80,7 +87,7 @@ fun RuleSetHubScreen(
                     }
                 },
                 actions = {
-                     IconButton(onClick = { ruleSetViewModel.fetchRuleSets() }) {
+                     IconButton(onClick = { activityRuleSetViewModel.fetchRuleSets() }) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = PureWhite)
                     }
                 },
@@ -131,7 +138,7 @@ fun RuleSetHubScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(text = error!!, color = MaterialTheme.colorScheme.error)
-                        Button(onClick = { ruleSetViewModel.fetchRuleSets() }) {
+                        Button(onClick = { activityRuleSetViewModel.fetchRuleSets() }) {
                             Text("重试")
                         }
                     }
@@ -145,10 +152,11 @@ fun RuleSetHubScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filteredRuleSets) { ruleSet ->
-                        HubRuleSetItem(
-                            ruleSet = ruleSet,
-                            isDownloading = downloadingRuleSets.contains(ruleSet.name),
-                            onAddSource = {
+                HubRuleSetItem(
+                    ruleSet = ruleSet,
+                    isDownloading = downloadingRuleSets.contains(ruleSet.name),
+                    isDownloaded = activityRuleSetViewModel.isDownloaded(ruleSet.name),
+                    onAddSource = {
                                 settingsViewModel.addRuleSet(
                                     RuleSet(
                                         tag = ruleSet.name,
@@ -185,7 +193,8 @@ fun HubRuleSetItem(
     ruleSet: HubRuleSet,
     isDownloading: Boolean = false,
     onAddSource: () -> Unit,
-    onAddBinary: () -> Unit
+    onAddBinary: () -> Unit,
+    isDownloaded: Boolean
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = SurfaceCard),
@@ -218,7 +227,7 @@ fun HubRuleSetItem(
                             strokeWidth = 2.dp,
                             color = TextPrimary
                         )
-                    } else if (ruleSetViewModel.isDownloaded(ruleSet.name)) {
+                    } else if (isDownloaded) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
                             color = Color(0xFF2E7D32),
