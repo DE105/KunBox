@@ -4,6 +4,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
 import android.service.quicksettings.Tile
@@ -80,10 +82,16 @@ class VpnTileService : TileService() {
     }
 
     private fun updateTile() {
-        val persistedActive = runCatching {
+        var persistedActive = runCatching {
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(KEY_VPN_ACTIVE, false)
         }.getOrDefault(false)
+
+        if (persistedActive && !hasSystemVpnTransport()) {
+            persistVpnState(this, false)
+            persistVpnPending(this, "")
+            persistedActive = false
+        }
 
         val pending = runCatching {
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -129,6 +137,15 @@ class VpnTileService : TileService() {
         } catch (_: Exception) {
         }
         tile.updateTile()
+    }
+
+    private fun hasSystemVpnTransport(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return false
+        return cm.allNetworks.any { network ->
+            val caps = cm.getNetworkCapabilities(network) ?: return@any false
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        }
     }
 
     private fun toggle() {
