@@ -375,6 +375,7 @@ fun SingleSelectDialog(
     title: String,
     options: List<String>,
     selectedIndex: Int,
+    optionsHeight: androidx.compose.ui.unit.Dp? = null,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -397,7 +398,13 @@ fun SingleSelectDialog(
             
             Column(
                 modifier = Modifier
-                    .weight(weight = 1f, fill = false) // Allow flexible height but constrained by screen
+                    .then(
+                        if (optionsHeight != null) {
+                            Modifier.height(optionsHeight)
+                        } else {
+                            Modifier.weight(weight = 1f, fill = false) // Allow flexible height but constrained by screen
+                        }
+                    )
                     .verticalScroll(rememberScrollState())
             ) {
                 options.forEachIndexed { index, option ->

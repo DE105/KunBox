@@ -87,6 +87,7 @@ fun DashboardScreen(
     val activeNodeLatency by viewModel.activeNodeLatency.collectAsState()
     val currentNodePing by viewModel.currentNodePing.collectAsState()
     val isPingTesting by viewModel.isPingTesting.collectAsState()
+    val nodes by viewModel.nodes.collectAsState()
     
     // 获取活跃配置和节点的名称
     val activeProfileName = profiles.find { it.id == activeProfileId }?.name
@@ -96,9 +97,12 @@ fun DashboardScreen(
     var currentMode by remember { mutableStateOf("规则模式") }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showTestDialog by remember { mutableStateOf(false) }
+    var showProfileDialog by remember { mutableStateOf(false) }
+    var showNodeDialog by remember { mutableStateOf(false) }
     
     val updateStatus by viewModel.updateStatus.collectAsState()
     val testStatus by viewModel.testStatus.collectAsState()
+    val actionStatus by viewModel.actionStatus.collectAsState()
     val vpnPermissionNeeded by viewModel.vpnPermissionNeeded.collectAsState()
     
     // VPN 权限请求处理
@@ -142,6 +146,12 @@ fun DashboardScreen(
         }
     }
 
+    LaunchedEffect(actionStatus) {
+        actionStatus?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     if (showModeDialog) {
         val options = listOf("规则模式", "全局代理", "全局直连")
         SingleSelectDialog(
@@ -179,6 +189,47 @@ fun DashboardScreen(
                 showTestDialog = false
             },
             onDismiss = { showTestDialog = false }
+        )
+    }
+
+    if (showProfileDialog) {
+        val options = profiles.map { it.name }
+        SingleSelectDialog(
+            title = "选择配置",
+            options = options,
+            selectedIndex = profiles.indexOfFirst { it.id == activeProfileId }.let { idx ->
+                when {
+                    options.isEmpty() -> -1
+                    idx >= 0 -> idx
+                    else -> 0
+                }
+            },
+            onSelect = { index ->
+                profiles.getOrNull(index)?.id?.let { viewModel.setActiveProfile(it) }
+                showProfileDialog = false
+            },
+            onDismiss = { showProfileDialog = false }
+        )
+    }
+
+    if (showNodeDialog) {
+        val options = nodes.map { it.displayName }
+        SingleSelectDialog(
+            title = "选择节点",
+            options = options,
+            selectedIndex = nodes.indexOfFirst { it.id == activeNodeId }.let { idx ->
+                when {
+                    options.isEmpty() -> -1
+                    idx >= 0 -> idx
+                    else -> 0
+                }
+            },
+            optionsHeight = 360.dp,
+            onSelect = { index ->
+                nodes.getOrNull(index)?.id?.let { viewModel.setActiveNode(it) }
+                showNodeDialog = false
+            },
+            onDismiss = { showNodeDialog = false }
         )
     }
     
@@ -309,12 +360,10 @@ fun DashboardScreen(
                     StatusChip(
                         label = activeProfileName ?: "未选择配置",
                         onClick = {
-                            navController.navigate(Screen.Profiles.route) {
-                                popUpTo(Screen.Dashboard.route) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
+                            if (profiles.isNotEmpty()) {
+                                showProfileDialog = true
+                            } else {
+                                Toast.makeText(context, "暂无可用配置", Toast.LENGTH_SHORT).show()
                             }
                         }
                     )
@@ -322,12 +371,10 @@ fun DashboardScreen(
                     StatusChip(
                         label = activeNodeName ?: "未选择节点",
                         onClick = {
-                            navController.navigate(Screen.Nodes.route) {
-                                popUpTo(Screen.Dashboard.route) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
+                            if (nodes.isNotEmpty()) {
+                                showNodeDialog = true
+                            } else {
+                                Toast.makeText(context, "暂无可用节点", Toast.LENGTH_SHORT).show()
                             }
                         }
                     )

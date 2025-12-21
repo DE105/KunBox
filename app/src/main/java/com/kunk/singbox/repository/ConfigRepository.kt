@@ -2593,12 +2593,14 @@ class ConfigRepository(private val context: Context) {
 
         // 0. Bootstrap DNS (必须是 IP，用于解析其他 DoH/DoT 域名)
         // 使用多个 IP 以提高可靠性
+        // 使用用户配置的服务器地址策略
+        val bootstrapStrategy = mapDnsStrategy(settings.serverAddressStrategy) ?: "ipv4_only"
         dnsServers.add(
             DnsServer(
                 tag = "dns-bootstrap",
                 address = "223.5.5.5", // AliDNS IP
                 detour = "direct",
-                strategy = "ipv4_only"
+                strategy = bootstrapStrategy
             )
         )
         dnsServers.add(
@@ -2606,7 +2608,7 @@ class ConfigRepository(private val context: Context) {
                 tag = "dns-bootstrap-backup",
                 address = "119.29.29.29", // DNSPod IP
                 detour = "direct",
-                strategy = "ipv4_only"
+                strategy = bootstrapStrategy
             )
         )
         // 也可以使用一个多地址的 Server (如果内核支持)
@@ -2760,10 +2762,16 @@ class ConfigRepository(private val context: Context) {
         }
 
         val fakeIpConfig = if (settings.fakeDnsEnabled) {
+            // 解析用户配置的 fakeIpRange，支持同时指定 IPv4 和 IPv6 范围
+            // 格式: "198.18.0.0/15" 或 "198.18.0.0/15,fc00::/18"
+            val fakeIpRanges = settings.fakeIpRange.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val inet4Range = fakeIpRanges.firstOrNull { it.contains(".") } ?: "198.18.0.0/15"
+            val inet6Range = fakeIpRanges.firstOrNull { it.contains(":") } ?: "fc00::/18"
+            
             DnsFakeIpConfig(
                 enabled = true,
-                inet4Range = "198.18.0.0/15",
-                inet6Range = "fc00::/18"
+                inet4Range = inet4Range,
+                inet6Range = inet6Range
             )
         } else {
             null

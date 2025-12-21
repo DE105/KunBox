@@ -15,6 +15,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.model.ConnectionState
 import com.kunk.singbox.model.ConnectionStats
+import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.model.ProfileUi
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.ipc.SingBoxRemote
@@ -73,6 +74,41 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun setActiveProfile(profileId: String) {
+        configRepository.setActiveProfile(profileId)
+        val name = profiles.value.find { it.id == profileId }?.name
+        if (!name.isNullOrBlank()) {
+            viewModelScope.launch {
+                _actionStatus.value = "已切换到 $name"
+                delay(1500)
+                if (_actionStatus.value == "已切换到 $name") {
+                    _actionStatus.value = null
+                }
+            }
+        }
+    }
+
+    fun setActiveNode(nodeId: String) {
+        viewModelScope.launch {
+            val node = nodes.value.find { it.id == nodeId }
+            val result = configRepository.setActiveNodeWithResult(nodeId)
+
+            if (SingBoxRemote.isRunning.value && node != null) {
+                val msg = when (result) {
+                    is ConfigRepository.NodeSwitchResult.Success,
+                    is ConfigRepository.NodeSwitchResult.NotRunning -> "已切换到 ${node.name}"
+
+                    is ConfigRepository.NodeSwitchResult.Failed -> "切换到 ${node.name} 失败"
+                }
+                _actionStatus.value = msg
+                delay(1500)
+                if (_actionStatus.value == msg) {
+                    _actionStatus.value = null
+                }
+            }
+        }
+    }
+
     val stats: StateFlow<ConnectionStats> = combine(_statsBase, durationMsFlow) { base, duration ->
         base.copy(duration = duration)
     }.stateIn(
@@ -127,6 +163,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    val nodes: StateFlow<List<NodeUi>> = configRepository.nodes
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
     
     private var trafficSmoothingJob: Job? = null
     private var trafficBaseTxBytes: Long = 0
@@ -141,6 +184,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     private val _testStatus = MutableStateFlow<String?>(null)
     val testStatus: StateFlow<String?> = _testStatus.asStateFlow()
+
+    private val _actionStatus = MutableStateFlow<String?>(null)
+    val actionStatus: StateFlow<String?> = _actionStatus.asStateFlow()
 
     // VPN 权限请求结果
     private val _vpnPermissionNeeded = MutableStateFlow(false)
