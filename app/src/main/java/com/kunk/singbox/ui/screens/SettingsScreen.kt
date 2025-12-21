@@ -38,7 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
 import com.kunk.singbox.repository.RuleSetRepository
-import com.kunk.singbox.ui.components.ConfirmDialog
+import com.kunk.singbox.ui.components.AboutDialog
 import com.kunk.singbox.ui.components.SettingItem
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.navigation.Screen
@@ -56,11 +56,7 @@ fun SettingsScreen(navController: NavController) {
     var updateMessage by remember { mutableStateOf("") }
 
     if (showAboutDialog) {
-        ConfirmDialog(
-            title = "关于 SingBox",
-            message = "SingBox for Android\n版本: 1.0.0 (Alpha)\n\n基于 Sing-box 内核构建。\n\nDesigned by KunK.",
-            confirmText = "确定",
-            onConfirm = { showAboutDialog = false },
+        AboutDialog(
             onDismiss = { showAboutDialog = false }
         )
     }
@@ -188,7 +184,6 @@ fun SettingsScreen(navController: NavController) {
         StandardCard {
             SettingItem(
                 title = "关于应用",
-                value = "v1.0.0",
                 icon = Icons.Rounded.Info,
                 onClick = { showAboutDialog = true }
             )

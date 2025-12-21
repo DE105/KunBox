@@ -69,6 +69,13 @@
 4.  同步 Gradle 项目。
 5.  连接 Android 设备并运行。
 
+## ❤️ 致谢
+
+本项目参考了以下开源项目，特此感谢：
+
+*   **[SagerNet/sing-box](https://github.com/SagerNet/sing-box)**: 强大的通用代理平台，为本项目提供了核心引擎支持。
+*   **[MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)**: 优秀的 Android 代理客户端，本项目的实现参考了其部分代码设计。
+
 ## 📝 许可证
 
 本项目基于 [MIT 许可证](LICENSE) 开源。

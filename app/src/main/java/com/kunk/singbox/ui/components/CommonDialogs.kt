@@ -1,7 +1,9 @@
 package com.kunk.singbox.ui.components
 
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -50,6 +52,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.core.graphics.drawable.toBitmap
 import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Destructive
@@ -459,6 +466,74 @@ fun SingleSelectDialog(
                 colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
             ) {
                 Text("取消")
+            }
+        }
+    }
+}
+
+@Composable
+fun AboutDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val githubUrl = "https://github.com/roseforljh/singboxforandriod.git"
+
+    val annotatedString = buildAnnotatedString {
+        append("SingBox for Android\n\n地址: ")
+        pushStringAnnotation(tag = "URL", annotation = githubUrl)
+        withStyle(
+            style = SpanStyle(
+                color = PureWhite,
+                textDecoration = TextDecoration.Underline
+            )
+        ) {
+            append("SingBoxForAndroid")
+        }
+        pop()
+        append("\n\n基于 Sing-box 内核构建。\n\nDesigned by KunK.")
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .padding(24.dp)
+        ) {
+            Text(
+                text = "关于 SingBox",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            ClickableText(
+                text = annotatedString,
+                style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary),
+                onClick = { offset ->
+                    annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                        .firstOrNull()?.let { annotation ->
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
+                            context.startActivity(intent)
+                        }
+                }
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PureWhite,
+                    contentColor = Color.Black
+                ),
+                shape = RoundedCornerShape(25.dp)
+            ) {
+                Text(
+                    text = "确定",
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black
+                )
             }
         }
     }
