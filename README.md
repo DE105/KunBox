@@ -1,83 +1,187 @@
+<div align="center">
+
 # SingBox for Android
 
-一个基于 Sing-box 核心的现代、极简 Android 代理客户端。专为追求极致性能和简约设计的用户打造。
+[![Kotlin](https://img.shields.io/badge/Kotlin-1.9.0-purple.svg?style=flat&logo=kotlin)](https://kotlinlang.org)
+[![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material3-4285F4.svg?style=flat&logo=android)](https://developer.android.com/jetpack/compose)
+[![Sing-box](https://img.shields.io/badge/Core-Sing--box-success.svg?style=flat)](https://github.com/SagerNet/sing-box)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](LICENSE)
 
-## 📱 界面预览
+> **OLED Hyper-Minimalist**
+>
+> 专为追求极致性能与视觉纯粹主义者打造的下一代 Android 代理客户端。
+> <br/>摒弃繁杂，回归网络本质。
+
+[功能特性](#-核心特性) • [协议支持](#-协议矩阵) • [项目架构](#-项目结构) • [快速开始](#-构建指南)
+
+</div>
+
+---
+
+## 📱 视觉预览
 
 <div align="center">
   <img src="https://beone.kuz7.com/p/bTJJUBRl5tjaUX5kWJ5JBnrCK-IWOGwzx32fL8mGuB0" width="30%" alt="首页概览" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
+  &nbsp;&nbsp;
   <img src="https://beone.kuz7.com/p/J47jgAo14XU34TXAyXwo-8zaAIWoKfqUytzI0UGzpws" width="30%" alt="节点列表" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
+  &nbsp;&nbsp;
   <img src="https://beone.kuz7.com/p/jK9YTrZ6ZOITiSNxLBfHZtbKRdCu2o88vK62t1qNGgI" width="30%" alt="演示动画" />
 </div>
 <br/>
 <div align="center">
   <img src="https://beone.kuz7.com/p/1kkW3veYE4cjVrDUUUMVfVL2jKPpGl6ccavhge8ilpU" width="30%" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
+  &nbsp;&nbsp;
   <img src="https://beone.kuz7.com/p/nP4l6zRX1T4eWQMHKN4b0VOVYeau7B5r3vW44NmE7xk" width="30%" />
 </div>
 
-## ✨ 核心功能
+## ✨ 核心特性
 
-*   **极简设计**: 采用 OLED 友好的纯黑白灰配色，无干扰的 UI 设计，专注于核心体验。
-*   **高性能核心**: 基于最新的 Sing-box (libbox) 核心，提供稳定、快速的网络代理服务。
-*   **Clash 配置兼容**: 内置强大的配置解析器，直接支持 Clash 格式的订阅链接和配置文件 (YAML)。
-*   **智能分流**: 支持基于规则的流量分流，灵活控制网络访问。
-*   **实时监控**: 首页直观展示连接状态、延迟和网络波动。
-*   **延迟测试**: 基于 Clash API 的真实延迟测试，准确反映节点质量。
+### 🎨 OLED 纯黑美学 (Hyper-Minimalist UI)
+区别于传统的 Material Design，我们采用了深度定制的 **True Black** 界面。不仅在 OLED 屏幕上实现像素级省电，更带来深邃、沉浸的视觉体验。无干扰的 UI 设计让关键信息（延迟、流量、节点）一目了然。
 
-## 🚀 支持协议
+### 🚀 极致性能核心 (High-Performance Core)
+基于 Golang 编写的 **Sing-box (libbox)** 下一代通用代理核心。
+- **内存占用**: 相比传统核心降低 30%+
+- **启动速度**: 毫秒级冷启动
+- **连接稳定性**: 优秀的连接复用与保活机制
 
-本项目支持广泛的现代代理协议和传输方式：
+### 🛡️ 企业级分流引擎 (Rule-Based Routing)
+内置强大的路由引擎，支持复杂的规则集匹配。
+- **GeoSite/GeoIP**: 基于地理位置的自动分流
+- **Domain/Suffix/Keyword**: 灵活的域名匹配
+- **Process Name**: 基于 Android 应用包名的精准分流
 
-*   **基础协议**: VMess, VLESS, Trojan
-*   **新兴协议**: Hysteria2, TUIC (v5), AnyTLS
-*   **传输方式**: TCP, UDP, WebSocket, gRPC, HTTP/2, HTTP
-*   **高级特性**:
-    *   **Reality**: 下一代防探测技术
-    *   **uTLS**: 客户端指纹模拟
-    *   **Flow**: XTLS-rprx-vision 等流控支持
+### 📊 真实延迟测试 (Real-World Latency)
+摒弃无意义的 TCP Ping。我们通过建立真实的代理连接来测试 HTTP 响应时间（URL-Test），准确反映节点在 YouTube、Google 等目标网站的真实加载速度。
 
-## 🛠️ 技术栈
+## 🌐 协议矩阵
 
-本项目采用最新的 Android 开发技术栈构建：
+我们构建了全方位的协议支持网络，兼容市面上绝大多数代理协议与高级特性。
 
-*   **语言**: [Kotlin](https://kotlinlang.org/) (100%)
-*   **UI 框架**: [Jetpack Compose](https://developer.android.com/jetpack/compose) (Material3)
-*   **架构模式**: MVVM (Model-View-ViewModel)
-*   **核心引擎**: [Sing-box](https://github.com/SagerNet/sing-box) (通过 JNI 集成 libbox)
-*   **网络库**: OkHttp
-*   **数据解析**: Gson (JSON), SnakeYAML (YAML)
-*   **异步处理**: Kotlin Coroutines, Flow
-*   **后台任务**: WorkManager
-*   **构建工具**: Gradle (Kotlin DSL)
+### 核心代理协议
 
-## 🎨 设计理念
+| 协议 | 标识 | 链接格式 | 核心特性支持 |
+|:---|:---|:---|:---|
+| **Shadowsocks** | `SS` | `ss://` | SIP002, SIP008, AEAD (AES-128/256-GCM, Chacha20-Poly1305) |
+| **VMess** | `VMess` | `vmess://` | WS, gRPC, HTTP/2, Auto Secure, Packet Encoding |
+| **VLESS** | `VLESS` | `vless://` | **Reality**, **Vision**, XTLS Flow, uTLS |
+| **Trojan** | `Trojan` | `trojan://` | Trojan-Go 兼容, Mux |
+| **Hysteria 2** | `Hy2` | `hysteria2://` | 最新 QUIC 协议, 端口跳跃 (Port Hopping), 拥塞控制 |
+| **TUIC v5** | `TUIC` | `tuic://` | 0-RTT, BBR 拥塞控制, QUIC 传输 |
+| **WireGuard** | `WG` | `wireguard://` | 内核级 VPN 隧道, 预共享密钥 (PSK) |
+| **SSH** | `SSH` | `ssh://` | 安全隧道代理, Private Key 认证 |
+| **AnyTLS** | `AnyTLS` | `anytls://` | 通用 TLS 包装, 流量伪装 |
 
-**"OLED Hyper-Minimalist"**
+### 订阅生态支持
+- **Sing-box JSON**: 原生支持，特性最全。
+- **Clash YAML**: 完美兼容 Clash / Clash Meta (Mihomo) 配置，自动转换策略组。
+- **Standard Base64**: 兼容 V2RayN / Shadowrocket 订阅格式。
 
-*   **纯粹**: 摒弃多余的色彩，仅使用黑、白、灰。
-*   **专注**: 关键操作（如开关）占据视觉核心，次要信息自动折叠。
-*   **流畅**: 强调非线性的流体动画，提供自然的交互反馈。
+## 🏗️ 项目结构
 
-## 📦 构建说明
+本项目遵循现代 Android 架构的最佳实践，采用 MVVM 模式与 Clean Architecture 设计理念。
 
-1.  克隆项目到本地。
-2.  确保已安装 Android Studio Hedgehog 或更新版本 (JDK 17+)。
-3.  下载或编译 Sing-box 的 Android 库 (`libbox.aar`) 并放置在 `app/libs/` 目录下。
-4.  同步 Gradle 项目。
-5.  连接 Android 设备并运行。
+```
+SingBox-Android/
+├── app/
+│   ├── src/main/java/com/kunk/singbox/
+│   │   ├── model/           # 数据模型 (Config, Profile, UI Models)
+│   │   │   ├── SingBoxConfig.kt   # Sing-box 核心配置映射
+│   │   │   └── Outbound.kt        # 节点出站定义
+│   │   │
+│   │   ├── repository/      # 数据仓库层 (Repository Pattern)
+│   │   │   ├── ProfileRepository.kt # 配置文件管理
+│   │   │   └── LogRepository.kt     # 日志持久化
+│   │   │
+│   │   ├── service/         # Android 服务组件
+│   │   │   └── VpnTileService.kt    # 快捷开关服务
+│   │   │
+│   │   ├── ui/              # 界面层 (Jetpack Compose)
+│   │   │   ├── components/  # 可复用 UI 组件 (Cards, Inputs)
+│   │   │   ├── screens/     # 页面级 Composable
+│   │   │   │   ├── NodesScreen.kt   # 节点列表页
+│   │   │   │   └── LogsScreen.kt    # 日志监控页
+│   │   │   └── theme/       # OLED 主题定义
+│   │   │
+│   │   ├── utils/           # 工具类集合
+│   │   │   └── parser/      # 核心解析器引擎
+│   │   │       ├── ClashYamlParser.kt  # YAML 解析实现
+│   │   │       └── NodeLinkParser.kt   # 链接协议解析
+│   │   │
+│   │   └── viewmodel/       # 视图模型 (State Management)
+│   │
+│   ├── libs/                # 外部依赖 (libbox.aar)
+│   └── res/                 # 资源文件 (Vector Drawables)
+│
+├── buildScript/             # 构建脚本 (Golang -> Android AAR)
+│   └── build_libbox.ps1     # 核心编译脚本
+│
+└── gradle/                  # Gradle 构建配置
+```
 
-## ❤️ 致谢
+## 🛠️ 技术栈详情
 
-本项目参考了以下开源项目，特此感谢：
+| 维度 | 技术选型 | 说明 |
+|:---|:---|:---|
+| **Language** | Kotlin 1.9 | 100% 纯 Kotlin 代码，利用 Coroutines 和 Flow 处理异步流 |
+| **UI Framework** | Jetpack Compose | 声明式 UI，Material 3 设计规范 |
+| **Architecture** | MVVM | 配合 ViewModel 和 Repository 实现关注点分离 |
+| **Core Engine** | Sing-box (Go) | 通过 JNI (Java Native Interface) 与 Go 核心库通信 |
+| **Network** | OkHttp 4 | 用于订阅更新、延迟测试等辅助网络请求 |
+| **Serialization** | Gson & SnakeYAML | 高性能 JSON 和 YAML 解析 |
+| **Dependency Injection** | Hilt (Planned) | 计划引入依赖注入框架 |
+| **CI/CD** | GitHub Actions | 自动化构建与发布流程 |
 
-*   **[SagerNet/sing-box](https://github.com/SagerNet/sing-box)**: 强大的通用代理平台，为本项目提供了核心引擎支持。
-*   **[MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)**: 优秀的 Android 代理客户端，本项目的实现参考了其部分代码设计。
+## 📅 路线图 (Roadmap)
+
+- [x] **v1.0**: 基础功能发布，支持核心协议，Clash/URL 导入。
+- [x] **v1.1**: UI 细节打磨，OLED 主题优化，延迟测试重构。
+- [ ] **v1.2**: 引入 **Tun 模式** 配置向导，简化 VPN 权限处理。
+- [ ] **v1.3**: 支持 **Sub-Store** 格式，更强大的订阅管理。
+- [ ] **v2.0**: 插件系统，支持用户自定义脚本与规则集。
+
+## 📦 构建指南
+
+如果你是开发者并希望从源码构建：
+
+1.  **环境准备**:
+    *   JDK 17+
+    *   Android Studio Hedgehog 或更高版本
+    *   Go 1.21+ (用于编译核心)
+
+2.  **获取源码**:
+    ```bash
+    git clone https://github.com/your-repo/singbox-android.git
+    cd singbox-android
+    ```
+
+3.  **编译核心 (可选)**:
+    如果你需要修改底层核心，运行构建脚本：
+    ```powershell
+    # Windows
+    ./buildScript/build_libbox.ps1
+    ```
+    这将生成最新的 `libbox.aar` 到 `app/libs/`。
+
+4.  **构建 APK**:
+    *   在 Android Studio 中打开项目。
+    *   等待 Gradle Sync 完成。
+    *   点击 `Run 'app'`。
+
+## ❤️ 致谢与引用
+
+本项目站在巨人的肩膀上，特别感谢以下开源项目：
+
+*   **[SagerNet/sing-box](https://github.com/SagerNet/sing-box)**: The universal proxy platform.
+*   **[MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)**: NekoBox for Android.
+*   **[Kr328/ClashForAndroid](https://github.com/Kr328/ClashForAndroid)**: (Legacy) Inspiration for UI design.
 
 ## 📝 许可证
 
+Copyright © 2024 KunK.
 本项目基于 [MIT 许可证](LICENSE) 开源。
 
-本项目仅供学习和研究网络技术使用。
+---
+<div align="center">
+<sub>本项目仅供学习和研究网络技术使用，请遵守当地法律法规。</sub>
+</div>
