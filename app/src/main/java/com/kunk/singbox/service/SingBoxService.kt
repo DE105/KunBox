@@ -49,6 +49,7 @@ import java.net.NetworkInterface
 import java.net.Proxy
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 class SingBoxService : VpnService() {
@@ -192,10 +193,30 @@ class SingBoxService : VpnService() {
         return runCatching {
             val repo = ConfigRepository.getInstance(applicationContext)
             val activeNodeId = repo.activeNodeId.value
-            realTimeNodeName
+            activeConnectionLabel
+                ?: resolveEgressNodeName(repo, activeConnectionNode)
+                ?: realTimeNodeName
                 ?: repo.nodes.value.find { it.id == activeNodeId }?.name
                 ?: ""
         }.getOrDefault("")
+    }
+
+    private fun resolveEgressNodeName(repo: ConfigRepository, tagOrSelector: String?): String? {
+        if (tagOrSelector.isNullOrBlank()) return null
+
+        // 1) Direct outbound tag -> node name
+        repo.resolveNodeNameFromOutboundTag(tagOrSelector)?.let { return it }
+
+        // 2) Selector/group tag -> selected outbound -> resolve again (depth-limited)
+        var current: String? = tagOrSelector
+        repeat(4) {
+            val next = current?.let { groupSelectedOutbounds[it] }
+            if (next.isNullOrBlank() || next == current) return@repeat
+            repo.resolveNodeNameFromOutboundTag(next)?.let { return it }
+            current = next
+        }
+
+        return null
     }
 
     private fun notifyRemoteState() {
@@ -320,11 +341,18 @@ class SingBoxService : VpnService() {
     @Volatile private var realTimeNodeName: String? = null
     // @Volatile private var nodePollingJob: Job? = null // Removed in favor of CommandClient
 
+    private val isConnectingTun = AtomicBoolean(false)
+    @Volatile private var foreignVpnMonitorCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var preExistingVpnNetworks: Set<Network> = emptySet()
+
     private var commandServer: io.nekohasekai.libbox.CommandServer? = null
     private var commandClient: io.nekohasekai.libbox.CommandClient? = null
     private var commandClientConnections: io.nekohasekai.libbox.CommandClient? = null
     @Volatile private var activeConnectionNode: String? = null
+    @Volatile private var activeConnectionLabel: String? = null
     @Volatile private var recentConnectionIds: List<String> = emptyList()
+    private val groupSelectedOutbounds = ConcurrentHashMap<String, String>()
+    @Volatile private var lastConnectionsLabelLogged: String? = null
 
     @Volatile private var lastRuleSetCheckMs: Long = 0L
     private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
@@ -383,255 +411,260 @@ class SingBoxService : VpnService() {
         override fun openTun(options: TunOptions?): Int {
             Log.v(TAG, "openTun called")
             if (options == null) return -1
-            
-            // Close existing interface if any to prevent fd leaks and "zombie" states
-            synchronized(this@SingBoxService) {
-                vpnInterface?.let {
-                    Log.w(TAG, "Closing stale vpnInterface before establishing new one")
-                    try { it.close() } catch (_: Exception) {}
-                    vpnInterface = null
+            isConnectingTun.set(true)
+
+            try {
+                // Close existing interface if any to prevent fd leaks and "zombie" states
+                synchronized(this@SingBoxService) {
+                    vpnInterface?.let {
+                        Log.w(TAG, "Closing stale vpnInterface before establishing new one")
+                        try { it.close() } catch (_: Exception) {}
+                        vpnInterface = null
+                    }
                 }
-            }
 
-            val settings = currentSettings
-            val builder = Builder()
-                .setSession("SingBox VPN")
-                .setMtu(if (options.mtu > 0) options.mtu else (settings?.tunMtu ?: 1500))
-            
-            // 添加地址
-            builder.addAddress("172.19.0.1", 30)
-            builder.addAddress("fd00::1", 126)
-            
-            // 添加路由
-            val routeMode = settings?.vpnRouteMode ?: VpnRouteMode.GLOBAL
-            val cidrText = settings?.vpnRouteIncludeCidrs.orEmpty()
-            val cidrs = cidrText
-                .split("\n", "\r", ",", ";", " ", "\t")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
+                val settings = currentSettings
+                val builder = Builder()
+                    .setSession("SingBox VPN")
+                    .setMtu(if (options.mtu > 0) options.mtu else (settings?.tunMtu ?: 1500))
 
-            fun addCidrRoute(cidr: String): Boolean {
-                val parts = cidr.split("/")
-                if (parts.size != 2) return false
-                val ip = parts[0].trim()
-                val prefix = parts[1].trim().toIntOrNull() ?: return false
-                return try {
-                    val addr = InetAddress.getByName(ip)
-                    builder.addRoute(addr, prefix)
-                    true
-                } catch (_: Exception) {
-                    false
-                }
-            }
+                // 添加地址
+                builder.addAddress("172.19.0.1", 30)
+                builder.addAddress("fd00::1", 126)
 
-            val usedCustomRoutes = if (routeMode == VpnRouteMode.CUSTOM) {
-                var okCount = 0
-                cidrs.forEach { if (addCidrRoute(it)) okCount++ }
-                okCount > 0
-            } else {
-                false
-            }
-
-            if (!usedCustomRoutes) {
-                // fallback: 全局接管
-                builder.addRoute("0.0.0.0", 0)
-                builder.addRoute("::", 0)
-            }
-            
-            // 添加 DNS (优先使用设置中的 DNS)
-            val dnsServers = mutableListOf<String>()
-            if (settings != null) {
-                if (isNumericAddress(settings.remoteDns)) dnsServers.add(settings.remoteDns)
-                if (isNumericAddress(settings.localDns)) dnsServers.add(settings.localDns)
-            }
-            
-            if (dnsServers.isEmpty()) {
-                dnsServers.add("8.8.8.8")
-                dnsServers.add("8.8.4.4")
-                dnsServers.add("223.5.5.5")
-            }
-            
-            dnsServers.distinct().forEach {
-                try {
-                    builder.addDnsServer(it)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to add DNS server: $it", e)
-                }
-            }
-            
-            // 分应用
-            fun parsePackageList(raw: String): List<String> {
-                return raw
+                // 添加路由
+                val routeMode = settings?.vpnRouteMode ?: VpnRouteMode.GLOBAL
+                val cidrText = settings?.vpnRouteIncludeCidrs.orEmpty()
+                val cidrs = cidrText
                     .split("\n", "\r", ",", ";", " ", "\t")
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
-                    .distinct()
-            }
 
-            val appMode = settings?.vpnAppMode ?: VpnAppMode.ALL
-            val allowPkgs = parsePackageList(settings?.vpnAllowlist.orEmpty())
-            val blockPkgs = parsePackageList(settings?.vpnBlocklist.orEmpty())
-
-            try {
-                when (appMode) {
-                    VpnAppMode.ALL -> {
-                        builder.addDisallowedApplication(packageName)
-                    }
-                    VpnAppMode.ALLOWLIST -> {
-                        if (allowPkgs.isEmpty()) {
-                            Log.w(TAG, "Allowlist is empty, falling back to ALL mode (excluding self)")
-                            builder.addDisallowedApplication(packageName)
-                        } else {
-                            var addedCount = 0
-                            allowPkgs.forEach { pkg ->
-                                if (pkg == packageName) return@forEach
-                                try {
-                                    builder.addAllowedApplication(pkg)
-                                    addedCount++
-                                } catch (e: PackageManager.NameNotFoundException) {
-                                    Log.w(TAG, "Allowed app not found: $pkg")
-                                }
-                            }
-                            if (addedCount == 0) {
-                                Log.w(TAG, "No valid apps in allowlist, falling back to ALL mode")
-                                builder.addDisallowedApplication(packageName)
-                            }
-                        }
-                    }
-                    VpnAppMode.BLOCKLIST -> {
-                        blockPkgs.forEach { pkg ->
-                            try {
-                                builder.addDisallowedApplication(pkg)
-                            } catch (e: PackageManager.NameNotFoundException) {
-                                Log.w(TAG, "Disallowed app not found: $pkg")
-                            }
-                        }
-                        builder.addDisallowedApplication(packageName)
+                fun addCidrRoute(cidr: String): Boolean {
+                    val parts = cidr.split("/")
+                    if (parts.size != 2) return false
+                    val ip = parts[0].trim()
+                    val prefix = parts[1].trim().toIntOrNull() ?: return false
+                    return try {
+                        val addr = InetAddress.getByName(ip)
+                        builder.addRoute(addr, prefix)
+                        true
+                    } catch (_: Exception) {
+                        false
                     }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to apply per-app VPN settings")
-            }
-            
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                builder.setMetered(false)
-                
-                // 追加 HTTP 代理至 VPN
-                if (settings?.appendHttpProxy == true && settings.proxyPort > 0) {
-                    try {
-                        builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", settings.proxyPort))
-                        Log.i(TAG, "HTTP Proxy appended to VPN: 127.0.0.1:${settings.proxyPort}")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to set HTTP proxy for VPN", e)
-                    }
-                }
-            }
-            
-            // 设置底层网络 - 关键！让 VPN 流量可以通过物理网络出去
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                val activePhysicalNetwork = findBestPhysicalNetwork()
-                
-                if (activePhysicalNetwork != null) {
-                    val caps = connectivityManager?.getNetworkCapabilities(activePhysicalNetwork)
-                    val capsStr = buildString {
-                        if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) append("INTERNET ")
-                        if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true) append("NOT_VPN ")
-                        if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) append("VALIDATED ")
-                        if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) append("WIFI ")
-                        if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true) append("CELLULAR ")
-                    }
-                    builder.setUnderlyingNetworks(arrayOf(activePhysicalNetwork))
-                    Log.i(TAG, "Set underlying network: $activePhysicalNetwork (caps: $capsStr)")
-                    com.kunk.singbox.repository.LogRepository.getInstance()
-                        .addLog("INFO openTun: underlying network = $activePhysicalNetwork ($capsStr)")
-                } else {
-                    // 无物理网络，记录一次性警告
-                    if (!noPhysicalNetworkWarningLogged) {
-                        noPhysicalNetworkWarningLogged = true
-                        Log.w(TAG, "No physical network found for underlying networks - VPN may not work correctly!")
-                        com.kunk.singbox.repository.LogRepository.getInstance()
-                            .addLog("WARN openTun: No physical network found - traffic may be blackholed!")
-                    }
-                    builder.setUnderlyingNetworks(null) // Let system decide
-                    schedulePostTunRebind("openTun_no_physical")
-                }
-            }
 
-            val alwaysOnPkg = runCatching {
-                Settings.Secure.getString(contentResolver, "always_on_vpn_app")
-            }.getOrNull() ?: runCatching {
-                Settings.Global.getString(contentResolver, "always_on_vpn_app")
-            }.getOrNull()
-
-            val lockdownValueSecure = runCatching {
-                Settings.Secure.getInt(contentResolver, "always_on_vpn_lockdown", 0)
-            }.getOrDefault(0)
-            val lockdownValueGlobal = runCatching {
-                Settings.Global.getInt(contentResolver, "always_on_vpn_lockdown", 0)
-            }.getOrDefault(0)
-            val lockdown = lockdownValueSecure != 0 || lockdownValueGlobal != 0
-
-            if (!alwaysOnPkg.isNullOrBlank() || lockdown) {
-                Log.i(TAG, "Always-on VPN status: pkg=$alwaysOnPkg lockdown=$lockdown")
-            }
-
-            if (lockdown && !alwaysOnPkg.isNullOrBlank() && alwaysOnPkg != packageName) {
-                throw IllegalStateException("VPN lockdown enabled by $alwaysOnPkg")
-            }
-
-            val backoffMs = longArrayOf(0L, 250L, 250L, 500L, 500L, 1000L, 1000L, 2000L, 2000L, 2000L)
-            var lastFd = -1
-            var attempt = 0
-            for (sleepMs in backoffMs) {
-                if (isStopping) {
-                    throw IllegalStateException("VPN stopping")
-                }
-                if (sleepMs > 0) {
-                    SystemClock.sleep(sleepMs)
-                }
-                attempt++
-                vpnInterface = builder.establish()
-                lastFd = vpnInterface?.fd ?: -1
-                if (vpnInterface != null && lastFd >= 0) {
-                    break
-                }
-                try { vpnInterface?.close() } catch (_: Exception) {}
-                vpnInterface = null
-            }
-
-            val fd = lastFd
-            if (vpnInterface == null || fd < 0) {
-                val cm = connectivityManager
-                val otherVpnActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && cm != null) {
-                    runCatching {
-                        cm.allNetworks.any { network ->
-                            val caps = cm.getNetworkCapabilities(network) ?: return@any false
-                            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                        }
-                    }.getOrDefault(false)
+                val usedCustomRoutes = if (routeMode == VpnRouteMode.CUSTOM) {
+                    var okCount = 0
+                    cidrs.forEach { if (addCidrRoute(it)) okCount++ }
+                    okCount > 0
                 } else {
                     false
                 }
-                val reason = "VPN interface establish failed (fd=$fd, alwaysOn=$alwaysOnPkg, lockdown=$lockdown, otherVpn=$otherVpnActive)"
-                Log.e(TAG, reason)
-                throw IllegalStateException(reason)
-            }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                val bestNetwork = findBestPhysicalNetwork()
-                if (bestNetwork != null) {
+                if (!usedCustomRoutes) {
+                    // fallback: 全局接管
+                    builder.addRoute("0.0.0.0", 0)
+                    builder.addRoute("::", 0)
+                }
+
+                // 添加 DNS (优先使用设置中的 DNS)
+                val dnsServers = mutableListOf<String>()
+                if (settings != null) {
+                    if (isNumericAddress(settings.remoteDns)) dnsServers.add(settings.remoteDns)
+                    if (isNumericAddress(settings.localDns)) dnsServers.add(settings.localDns)
+                }
+
+                if (dnsServers.isEmpty()) {
+                    dnsServers.add("8.8.8.8")
+                    dnsServers.add("8.8.4.4")
+                    dnsServers.add("223.5.5.5")
+                }
+
+                dnsServers.distinct().forEach {
                     try {
-                        setUnderlyingNetworks(arrayOf(bestNetwork))
-                        lastKnownNetwork = bestNetwork
-                    } catch (_: Exception) {
+                        builder.addDnsServer(it)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to add DNS server: $it", e)
                     }
                 }
-            }
 
-            Log.i(TAG, "TUN interface established with fd: $fd")
-            return fd
+                // 分应用
+                fun parsePackageList(raw: String): List<String> {
+                    return raw
+                        .split("\n", "\r", ",", ";", " ", "\t")
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .distinct()
+                }
+
+                val appMode = settings?.vpnAppMode ?: VpnAppMode.ALL
+                val allowPkgs = parsePackageList(settings?.vpnAllowlist.orEmpty())
+                val blockPkgs = parsePackageList(settings?.vpnBlocklist.orEmpty())
+
+                try {
+                    when (appMode) {
+                        VpnAppMode.ALL -> {
+                            builder.addDisallowedApplication(packageName)
+                        }
+                        VpnAppMode.ALLOWLIST -> {
+                            if (allowPkgs.isEmpty()) {
+                                Log.w(TAG, "Allowlist is empty, falling back to ALL mode (excluding self)")
+                                builder.addDisallowedApplication(packageName)
+                            } else {
+                                var addedCount = 0
+                                allowPkgs.forEach { pkg ->
+                                    if (pkg == packageName) return@forEach
+                                    try {
+                                        builder.addAllowedApplication(pkg)
+                                        addedCount++
+                                    } catch (e: PackageManager.NameNotFoundException) {
+                                        Log.w(TAG, "Allowed app not found: $pkg")
+                                    }
+                                }
+                                if (addedCount == 0) {
+                                    Log.w(TAG, "No valid apps in allowlist, falling back to ALL mode")
+                                    builder.addDisallowedApplication(packageName)
+                                }
+                            }
+                        }
+                        VpnAppMode.BLOCKLIST -> {
+                            blockPkgs.forEach { pkg ->
+                                try {
+                                    builder.addDisallowedApplication(pkg)
+                                } catch (e: PackageManager.NameNotFoundException) {
+                                    Log.w(TAG, "Disallowed app not found: $pkg")
+                                }
+                            }
+                            builder.addDisallowedApplication(packageName)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to apply per-app VPN settings")
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    builder.setMetered(false)
+
+                    // 追加 HTTP 代理至 VPN
+                    if (settings?.appendHttpProxy == true && settings.proxyPort > 0) {
+                        try {
+                            builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", settings.proxyPort))
+                            Log.i(TAG, "HTTP Proxy appended to VPN: 127.0.0.1:${settings.proxyPort}")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to set HTTP proxy for VPN", e)
+                        }
+                    }
+                }
+
+                // 设置底层网络 - 关键！让 VPN 流量可以通过物理网络出去
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                    val activePhysicalNetwork = findBestPhysicalNetwork()
+
+                    if (activePhysicalNetwork != null) {
+                        val caps = connectivityManager?.getNetworkCapabilities(activePhysicalNetwork)
+                        val capsStr = buildString {
+                            if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) append("INTERNET ")
+                            if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true) append("NOT_VPN ")
+                            if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) append("VALIDATED ")
+                            if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) append("WIFI ")
+                            if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true) append("CELLULAR ")
+                        }
+                        builder.setUnderlyingNetworks(arrayOf(activePhysicalNetwork))
+                        Log.i(TAG, "Set underlying network: $activePhysicalNetwork (caps: $capsStr)")
+                        com.kunk.singbox.repository.LogRepository.getInstance()
+                            .addLog("INFO openTun: underlying network = $activePhysicalNetwork ($capsStr)")
+                    } else {
+                        // 无物理网络，记录一次性警告
+                        if (!noPhysicalNetworkWarningLogged) {
+                            noPhysicalNetworkWarningLogged = true
+                            Log.w(TAG, "No physical network found for underlying networks - VPN may not work correctly!")
+                            com.kunk.singbox.repository.LogRepository.getInstance()
+                                .addLog("WARN openTun: No physical network found - traffic may be blackholed!")
+                        }
+                        builder.setUnderlyingNetworks(null) // Let system decide
+                        schedulePostTunRebind("openTun_no_physical")
+                    }
+                }
+
+                val alwaysOnPkg = runCatching {
+                    Settings.Secure.getString(contentResolver, "always_on_vpn_app")
+                }.getOrNull() ?: runCatching {
+                    Settings.Global.getString(contentResolver, "always_on_vpn_app")
+                }.getOrNull()
+
+                val lockdownValueSecure = runCatching {
+                    Settings.Secure.getInt(contentResolver, "always_on_vpn_lockdown", 0)
+                }.getOrDefault(0)
+                val lockdownValueGlobal = runCatching {
+                    Settings.Global.getInt(contentResolver, "always_on_vpn_lockdown", 0)
+                }.getOrDefault(0)
+                val lockdown = lockdownValueSecure != 0 || lockdownValueGlobal != 0
+
+                if (!alwaysOnPkg.isNullOrBlank() || lockdown) {
+                    Log.i(TAG, "Always-on VPN status: pkg=$alwaysOnPkg lockdown=$lockdown")
+                }
+
+                if (lockdown && !alwaysOnPkg.isNullOrBlank() && alwaysOnPkg != packageName) {
+                    throw IllegalStateException("VPN lockdown enabled by $alwaysOnPkg")
+                }
+
+                val backoffMs = longArrayOf(0L, 250L, 250L, 500L, 500L, 1000L, 1000L, 2000L, 2000L, 2000L)
+                var lastFd = -1
+                var attempt = 0
+                for (sleepMs in backoffMs) {
+                    if (isStopping) {
+                        throw IllegalStateException("VPN stopping")
+                    }
+                    if (sleepMs > 0) {
+                        SystemClock.sleep(sleepMs)
+                    }
+                    attempt++
+                    vpnInterface = builder.establish()
+                    lastFd = vpnInterface?.fd ?: -1
+                    if (vpnInterface != null && lastFd >= 0) {
+                        break
+                    }
+                    try { vpnInterface?.close() } catch (_: Exception) {}
+                    vpnInterface = null
+                }
+
+                val fd = lastFd
+                if (vpnInterface == null || fd < 0) {
+                    val cm = connectivityManager
+                    val otherVpnActive = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && cm != null) {
+                        runCatching {
+                            cm.allNetworks.any { network ->
+                                val caps = cm.getNetworkCapabilities(network) ?: return@any false
+                                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                            }
+                        }.getOrDefault(false)
+                    } else {
+                        false
+                    }
+                    val reason = "VPN interface establish failed (fd=$fd, alwaysOn=$alwaysOnPkg, lockdown=$lockdown, otherVpn=$otherVpnActive)"
+                    Log.e(TAG, reason)
+                    throw IllegalStateException(reason)
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                    val bestNetwork = findBestPhysicalNetwork()
+                    if (bestNetwork != null) {
+                        try {
+                            setUnderlyingNetworks(arrayOf(bestNetwork))
+                            lastKnownNetwork = bestNetwork
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+
+                Log.i(TAG, "TUN interface established with fd: $fd")
+                return fd
+            } finally {
+                isConnectingTun.set(false)
+            }
         }
-        
+
         override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
         override fun usePlatformDefaultInterfaceMonitor(): Boolean = true
@@ -1439,6 +1472,8 @@ class SingBoxService : VpnService() {
                     return@launch
                 }
 
+                startForeignVpnMonitor()
+
                 // 0. 预先注册网络回调，确保 lastKnownNetwork 就绪
                 // 这一步必须在 Libbox 启动前完成，避免 openTun() 时没有有效的底层网络
                 ensureNetworkCallbackReadyWithTimeout()
@@ -1513,6 +1548,7 @@ class SingBoxService : VpnService() {
                 }
                 
                 isRunning = true
+                stopForeignVpnMonitor()
                 setLastError(null)
                 Log.i(TAG, "SingBox VPN started successfully")
                 VpnTileService.persistVpnState(applicationContext, true)
@@ -1671,6 +1707,7 @@ class SingBoxService : VpnService() {
             isStopping = true
         }
         updateServiceState(ServiceState.STOPPING)
+        stopForeignVpnMonitor()
 
         val jobToJoin = startVpnJob
         startVpnJob = null
@@ -1852,7 +1889,11 @@ class SingBoxService : VpnService() {
         val configRepository = ConfigRepository.getInstance(this)
         val activeNodeId = configRepository.activeNodeId.value
         // 优先显示活跃连接的节点，其次显示代理组选中的节点，最后显示配置选中的节点
-        val activeNodeName = activeConnectionNode ?: realTimeNodeName ?: configRepository.nodes.value.find { it.id == activeNodeId }?.name ?: "已连接"
+        val activeNodeName = activeConnectionLabel
+            ?: resolveEgressNodeName(configRepository, activeConnectionNode)
+            ?: realTimeNodeName
+            ?: configRepository.nodes.value.find { it.id == activeNodeId }?.name
+            ?: "已连接"
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
@@ -1945,6 +1986,67 @@ class SingBoxService : VpnService() {
         // Usually, a foreground service continues running.
         // However, if we want to ensure no "zombie" states, we can at least log or check health.
         Log.d(TAG, "onTaskRemoved called")
+    }
+
+    private fun startForeignVpnMonitor() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        if (foreignVpnMonitorCallback != null) return
+        val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java)
+        connectivityManager = cm
+        if (cm == null) return
+
+        preExistingVpnNetworks = runCatching {
+            cm.allNetworks.filter { network ->
+                val caps = cm.getNetworkCapabilities(network)
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+            }.toSet()
+        }.getOrDefault(emptySet())
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                val caps = cm.getNetworkCapabilities(network) ?: return
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+                if (preExistingVpnNetworks.contains(network)) return
+                if (isConnectingTun.get()) return
+                if (isStarting && !isRunning) {
+                    Log.w(TAG, "Foreign VPN detected during startup, aborting")
+                    LogRepository.getInstance()
+                        .addLog("WARN SingBoxService: foreign VPN detected during startup, aborting")
+                    isManuallyStopped = true
+                    isRunning = false
+                    isStarting = false
+                    setLastError("已检测到其他 VPN 正在启动，已停止本次连接")
+                    VpnTileService.persistVpnState(applicationContext, false)
+                    VpnTileService.persistVpnPending(applicationContext, "")
+                    updateServiceState(ServiceState.STOPPED)
+                    updateTileState()
+                    runCatching {
+                        val intent = Intent(VpnTileService.ACTION_REFRESH_TILE).apply {
+                            `package` = packageName
+                        }
+                        sendBroadcast(intent)
+                    }
+                    stopVpn(stopService = true)
+                }
+            }
+        }
+
+        foreignVpnMonitorCallback = callback
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        runCatching { cm.registerNetworkCallback(request, callback) }
+            .onFailure { Log.w(TAG, "Failed to register foreign VPN monitor", it) }
+    }
+
+    private fun stopForeignVpnMonitor() {
+        val cm = connectivityManager ?: return
+        foreignVpnMonitorCallback?.let { callback ->
+            runCatching { cm.unregisterNetworkCallback(callback) }
+        }
+        foreignVpnMonitorCallback = null
+        preExistingVpnNetworks = emptySet()
     }
 
     private fun isNumericAddress(address: String): Boolean {
@@ -2053,24 +2155,33 @@ class SingBoxService : VpnService() {
                 val configRepo = ConfigRepository.getInstance(this@SingBoxService)
                 
                 try {
+                    var changed = false
                     while (groups.hasNext()) {
                         val group = groups.next()
-                        // 关注 "PROXY" 组的选择状态
-                        // 注意：这里区分大小写，通常主 selector 叫 "PROXY" 或 "Proxy"
-                        if (group.tag.equals("PROXY", ignoreCase = true)) {
-                            val selected = group.selected
-                            // Log.v(TAG, "Group PROXY update: selected=$selected, current=$realTimeNodeName")
+
+                        val tag = group.tag
+                        val selected = group.selected
+
+                        if (!tag.isNullOrBlank() && !selected.isNullOrBlank()) {
+                            val prev = groupSelectedOutbounds.put(tag, selected)
+                            if (prev != selected) changed = true
+                        }
+
+                        // 兼容旧逻辑：保留对 PROXY 组的同步（用于 UI 选中状态）
+                        if (tag.equals("PROXY", ignoreCase = true)) {
                             if (!selected.isNullOrBlank() && selected != realTimeNodeName) {
                                 realTimeNodeName = selected
                                 Log.i(TAG, "Real-time node update: $selected")
-                                // Sync back to ConfigRepository to update UI in app
                                 serviceScope.launch {
                                     configRepo.syncActiveNodeFromProxySelection(selected)
                                 }
-                                updateNotification()
+                                changed = true
                             }
-                            break
                         }
+                    }
+
+                    if (changed) {
+                        updateNotification()
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error processing groups update", e)
@@ -2085,6 +2196,7 @@ class SingBoxService : VpnService() {
                     val iterator = message.iterator()
                     var newestConnection: Connection? = null
                     val ids = ArrayList<String>(64)
+                    val egressCounts = LinkedHashMap<String, Int>()
                     
                     while (iterator.hasNext()) {
                         val conn = iterator.next()
@@ -2101,16 +2213,69 @@ class SingBoxService : VpnService() {
                         runCatching {
                             ids.add(conn.id)
                         }
+
+                        // 汇总所有活跃连接的 egress（可能是节点 tag 或 selector tag）
+                        var lastTag: String? = null
+                        runCatching {
+                            val chainIter = conn.chain()
+                            while (chainIter.hasNext()) {
+                                val tag = chainIter.next()
+                                if (!tag.isNullOrBlank() && tag != "dns-out") {
+                                    lastTag = tag
+                                }
+                            }
+                        }
+                        val resolved = resolveEgressNodeName(
+                            ConfigRepository.getInstance(this@SingBoxService),
+                            lastTag
+                        )
+                            ?: ConfigRepository.getInstance(this@SingBoxService)
+                                .resolveNodeNameFromOutboundTag(lastTag)
+                            ?: lastTag
+                        if (!resolved.isNullOrBlank()) {
+                            egressCounts[resolved] = (egressCounts[resolved] ?: 0) + 1
+                        }
                     }
 
                     recentConnectionIds = ids
+
+                    // 生成一个短标签：单节点直接显示；多节点显示“混合: A + B(+N)”
+                    val newLabel: String? = when {
+                        egressCounts.isEmpty() -> null
+                        egressCounts.size == 1 -> egressCounts.keys.first()
+                        else -> {
+                            val sorted = egressCounts.entries
+                                .sortedByDescending { it.value }
+                                .map { it.key }
+                            val top = sorted.take(2)
+                            val more = sorted.size - top.size
+                            if (more > 0) {
+                                "混合: ${top.joinToString(" + ")}(+$more)"
+                            } else {
+                                "混合: ${top.joinToString(" + ")}" 
+                            }
+                        }
+                    }
+                    val prevLabel = activeConnectionLabel
+                    val labelChanged = newLabel != prevLabel
+                    if (labelChanged) {
+                        activeConnectionLabel = newLabel
+
+                        // 低噪音日志：只在标签变化时记录一次
+                        if (newLabel != lastConnectionsLabelLogged) {
+                            lastConnectionsLabelLogged = newLabel
+                            Log.i(TAG, "Connections label updated: ${newLabel ?: "(null)"} (active=${egressCounts.size})")
+                        }
+                    }
                     
                     var newNode: String? = null
                     if (newestConnection != null) {
                         val chainIter = newestConnection.chain()
                         // 遍历 chain 找到最后一个节点
                         while (chainIter.hasNext()) {
-                            newNode = chainIter.next()
+                            val tag = chainIter.next()
+                            // chain 里可能包含 dns-out 等占位，过滤掉；selector tag 保留，后续再通过 groups 解析到真实节点
+                            if (!tag.isNullOrBlank() && tag != "dns-out") newNode = tag
                         }
                         // 如果 chain 为空或者最后一个节点是 selector 名字，可能需要处理
                         // 但通常 chain 的最后一个就是落地节点
@@ -2119,7 +2284,7 @@ class SingBoxService : VpnService() {
                     // 只有当检测到新的活跃连接节点，或者活跃连接消失（变为null）时才更新
                     // 为了避免闪烁，如果 newNode 为 null，我们保留 activeConnectionNode 一段时间？
                     // 不，直接更新，fallback 逻辑由 createNotification 处理 (回退到 realTimeNodeName)
-                    if (newNode != activeConnectionNode) {
+                    if (newNode != activeConnectionNode || labelChanged) {
                         activeConnectionNode = newNode
                         if (newNode != null) {
                             Log.v(TAG, "Active connection node: $newNode")

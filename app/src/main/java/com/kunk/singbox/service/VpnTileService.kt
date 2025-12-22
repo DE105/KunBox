@@ -1,8 +1,10 @@
 package com.kunk.singbox.service
 
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -35,6 +37,14 @@ class VpnTileService : TileService() {
 
     @Volatile private var remoteService: ISingBoxService? = null
 
+    private val tileRefreshReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_REFRESH_TILE) {
+                updateTile()
+            }
+        }
+    }
+
     private val remoteCallback = object : ISingBoxServiceCallback.Stub() {
         override fun onStateChanged(state: Int, activeLabel: String?, lastError: String?, manuallyStopped: Boolean) {
             lastServiceState = SingBoxService.ServiceState.values().getOrNull(state)
@@ -47,6 +57,7 @@ class VpnTileService : TileService() {
         private const val PREFS_NAME = "vpn_state"
         private const val KEY_VPN_ACTIVE = "vpn_active"
         private const val KEY_VPN_PENDING = "vpn_pending"
+        const val ACTION_REFRESH_TILE = "com.kunk.singbox.REFRESH_TILE"
         /**
          * 持久化 VPN 状态到 SharedPreferences
          * 在 SingBoxService 启动/停止时调用
@@ -70,12 +81,27 @@ class VpnTileService : TileService() {
     override fun onStartListening() {
         super.onStartListening()
         updateTile()
+        val filter = IntentFilter(ACTION_REFRESH_TILE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(tileRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(tileRefreshReceiver, filter)
+        }
         bindService()
     }
 
     override fun onStopListening() {
         super.onStopListening()
+        runCatching { unregisterReceiver(tileRefreshReceiver) }
         unbindService()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_REFRESH_TILE) {
+            updateTile()
+        }
+        return START_NOT_STICKY
     }
 
     override fun onClick() {

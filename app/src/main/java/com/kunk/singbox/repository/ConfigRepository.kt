@@ -101,6 +101,22 @@ class ConfigRepository(private val context: Context) {
     private val profileResetJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
     private val inFlightLatencyTests = ConcurrentHashMap<String, Deferred<Long>>()
     
+    @Volatile private var lastTagToNodeName: Map<String, String> = emptyMap()
+
+    fun resolveNodeNameFromOutboundTag(tag: String?): String? {
+        if (tag.isNullOrBlank()) return null
+        if (tag.equals("PROXY", ignoreCase = true)) return null
+        return when (tag) {
+            "direct" -> "直连"
+            "block" -> "拦截"
+            "dns-out" -> "DNS"
+            else -> {
+                lastTagToNodeName[tag]
+                    ?: _allNodes.value.firstOrNull { it.name == tag }?.name
+            }
+        }
+    }
+    
     private val configDir: File
         get() = File(context.filesDir, "configs").also { it.mkdirs() }
     
@@ -2115,6 +2131,11 @@ class ConfigRepository(private val context: Context) {
 
             val outboundsContext = buildRunOutbounds(config, activeNode, settings)
             val route = buildRunRoute(settings, outboundsContext.selectorTag, outboundsContext.outbounds, outboundsContext.nodeTagResolver)
+
+            lastTagToNodeName = outboundsContext.nodeTagMap.mapNotNull { (nodeId, tag) ->
+                val name = _allNodes.value.firstOrNull { it.id == nodeId }?.name
+                if (name.isNullOrBlank() || tag.isBlank()) null else (tag to name)
+            }.toMap()
 
             val runConfig = config.copy(
                 log = log,
