@@ -178,7 +178,7 @@ SingBox-Android/
 
 ## 📝 许可证
 
-Copyright © 2024 KunK.
+Copyright © 2024-2025 KunK.
 本项目基于 [MIT 许可证](LICENSE) 开源。
 
 ---
