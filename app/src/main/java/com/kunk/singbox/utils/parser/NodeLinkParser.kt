@@ -125,13 +125,18 @@ class NodeLinkParser(private val gson: Gson) {
                 else -> null
             }
             
+            // 注意：sing-box 不支持 alter_id，只支持 AEAD 加密的 VMess (alterId=0)
+            // 如果订阅中的 alterId != 0，该节点可能无法正常工作
+            if (aid != 0) {
+                Log.w("NodeLinkParser", "VMess node '$ps' has alterId=$aid, sing-box only supports alterId=0 (AEAD)")
+            }
+            
             return Outbound(
                 type = "vmess",
                 tag = ps,
                 server = add,
                 serverPort = port,
                 uuid = id,
-                alterId = aid,
                 security = "auto",
                 tls = tlsConfig,
                 transport = transport
@@ -264,6 +269,8 @@ class NodeLinkParser(private val gson: Gson) {
                 server = server,
                 serverPort = port,
                 password = password,
+                upMbps = params["up_mbps"]?.toIntOrNull() ?: params["up"]?.toIntOrNull() ?: 50,
+                downMbps = params["down_mbps"]?.toIntOrNull() ?: params["down"]?.toIntOrNull() ?: 50,
                 tls = TlsConfig(
                     enabled = true,
                     serverName = params["sni"] ?: server
@@ -297,6 +304,8 @@ class NodeLinkParser(private val gson: Gson) {
                 server = server,
                 serverPort = port,
                 authStr = params["auth"],
+                upMbps = params["up_mbps"]?.toIntOrNull() ?: params["up"]?.toIntOrNull() ?: 50,
+                downMbps = params["down_mbps"]?.toIntOrNull() ?: params["down"]?.toIntOrNull() ?: 50,
                 tls = TlsConfig(
                     enabled = true,
                     serverName = params["sni"] ?: server

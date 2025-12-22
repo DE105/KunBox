@@ -462,8 +462,7 @@ class ConfigRepository(private val context: Context) {
                         server = server,
                         serverPort = port,
                         uuid = uuid,
-                        alterId = alterId,
-                        security = cipher,
+                        // VLESS 不使用 security 字段，这是 VMess 特有的
                         tls = tlsConfig,
                         transport = transport
                     )
@@ -607,7 +606,7 @@ class ConfigRepository(private val context: Context) {
                         server = server,
                         serverPort = port,
                         uuid = uuid,
-                        alterId = alterId,
+                        // alterId 已从模型中移除，sing-box 不支持
                         security = cipher,
                         tls = tlsConfig,
                         transport = transport
@@ -1159,13 +1158,19 @@ class ConfigRepository(private val context: Context) {
                 else -> null
             }
             
+            // 注意：sing-box 不支持 alter_id，只支持 AEAD 加密的 VMess (alterId=0)
+            val aid = json.aid?.toIntOrNull() ?: 0
+            if (aid != 0) {
+                Log.w(TAG, "VMess node '${json.ps}' has alterId=$aid, sing-box only supports alterId=0 (AEAD)")
+            }
+            
             return Outbound(
                 type = "vmess",
                 tag = json.ps ?: "VMess Node",
                 server = json.add,
                 serverPort = json.port?.toIntOrNull() ?: 443,
                 uuid = json.id,
-                alterId = json.aid?.toIntOrNull() ?: 0,
+                // alterId 已从模型中移除，sing-box 不支持
                 security = json.scy ?: "auto",
                 tls = tlsConfig,
                 transport = transport,
@@ -1846,6 +1851,9 @@ class ConfigRepository(private val context: Context) {
                         -1L
                     } else {
                         Log.e(TAG, "Latency test error for $nodeId", e)
+                        // 2025-debug: 记录详细测速失败原因到日志系统，方便用户排查
+                        val nodeName = _nodes.value.find { it.id == nodeId }?.name
+                        com.kunk.singbox.repository.LogRepository.getInstance().addLog("测速失败 [${nodeName ?: nodeId}]: ${e.message}")
                         -1L
                     }
                 }
@@ -2068,6 +2076,13 @@ class ConfigRepository(private val context: Context) {
 
             // 构建完整的运行配置
             val runConfig = buildRunConfig(config, activeNode, settings)
+
+            val validation = singBoxCore.validateConfig(runConfig)
+            validation.exceptionOrNull()?.let { e ->
+                val msg = e.cause?.message ?: e.message ?: "未知错误"
+                Log.e(TAG, "Config pre-validation failed: $msg", e)
+                throw Exception("配置校验失败: $msg", e)
+            }
             
             // 写入临时配置文件
             val configFile = File(context.filesDir, "running_config.json")
@@ -2083,7 +2098,7 @@ class ConfigRepository(private val context: Context) {
     
     /**
      * 运行时修复 Outbound 配置
-     * 包括：修复 interval 单位、清理 flow、补充 ALPN、补充 User-Agent
+     * 包括：修复 interval 单位、清理 flow、补充 ALPN、补充 User-Agent、补充缺省值
      */
     private fun fixOutboundForRuntime(outbound: Outbound): Outbound {
         var result = outbound
@@ -2185,6 +2200,30 @@ class ConfigRepository(private val context: Context) {
                     path = cleanPath
                 ))
             }
+        }
+
+        // 强制清理 VLESS 协议中的 security 字段 (sing-box 不支持)
+        if (result.type == "vless" && result.security != null) {
+            result = result.copy(security = null)
+        }
+
+        // Hysteria/Hysteria2: some sing-box/libbox builds require up_mbps/down_mbps to be present.
+        // If missing, the core may fail to establish connections and the local proxy test will see Connection reset.
+        if (result.type == "hysteria" || result.type == "hysteria2") {
+            val up = result.upMbps
+            val down = result.downMbps
+            val defaultMbps = 50
+            if (up == null || down == null) {
+                result = result.copy(
+                    upMbps = up ?: defaultMbps,
+                    downMbps = down ?: defaultMbps
+                )
+            }
+        }
+
+        // 补齐 VMess packetEncoding 缺省值
+        if (result.type == "vmess" && result.packetEncoding.isNullOrBlank()) {
+            result = result.copy(packetEncoding = "xudp")
         }
 
         return result
@@ -2792,12 +2831,7 @@ class ConfigRepository(private val context: Context) {
             Log.w(TAG, "No outbounds found in base config, adding defaults")
         }
         val fixedOutbounds = rawOutbounds?.map { outbound ->
-            var fixed = fixOutboundForRuntime(outbound)
-            // 启用 TCP Fast Open
-            if (fixed.type in listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "hysteria", "anytls", "tuic")) {
-                fixed = fixed.copy(tcpFastOpen = true)
-            }
-            fixed
+            fixOutboundForRuntime(outbound)
         }?.toMutableList() ?: mutableListOf()
         
         if (fixedOutbounds.none { it.tag == "direct" }) {
@@ -2906,11 +2940,6 @@ class ConfigRepository(private val context: Context) {
             // 运行时修复
             var fixedSourceOutbound = fixOutboundForRuntime(sourceOutbound)
             
-            // 启用 TCP Fast Open
-            if (fixedSourceOutbound.type in listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "hysteria", "anytls", "tuic")) {
-                fixedSourceOutbound = fixedSourceOutbound.copy(tcpFastOpen = true)
-            }
-            
             // 处理标签冲突
             var finalTag = fixedSourceOutbound.tag
             if (existingTags.contains(finalTag)) {
@@ -2989,8 +3018,13 @@ class ConfigRepository(private val context: Context) {
         }
         
         // 收集所有代理节点名称 (包括新添加的外部节点)
+        // 2025-fix: 扩展支持的协议列表，防止 wireguard/ssh/shadowtls 等被排除在 PROXY 组之外
         val proxyTags = fixedOutbounds.filter {
-            it.type in listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "hysteria", "anytls", "tuic")
+            it.type in listOf(
+                "vless", "vmess", "trojan", "shadowsocks",
+                "hysteria2", "hysteria", "anytls", "tuic",
+                "wireguard", "ssh", "shadowtls"
+            )
         }.map { it.tag }.toMutableList()
 
         // 创建一个主 Selector
@@ -3231,6 +3265,116 @@ class ConfigRepository(private val context: Context) {
     }
 
     /**
+     * 添加单个节点
+     * 如果存在"手动添加"配置，则将节点添加到该配置中
+     * 如果不存在，则创建新的"手动添加"配置
+     *
+     * @param link 节点链接（vmess://, vless://, ss://, etc）
+     * @return 成功返回添加的节点，失败返回错误信息
+     */
+    suspend fun addSingleNode(link: String): Result<NodeUi> = withContext(Dispatchers.IO) {
+        try {
+            // 1. 使用 ConfigRepository 统一的 parseNodeLink 解析链接，确保解析逻辑一致
+            val outbound = parseNodeLink(link.trim())
+                ?: return@withContext Result.failure(Exception("无法解析节点链接"))
+            
+            // 2. 查找或创建"手动添加"配置
+            val manualProfileName = "手动添加"
+            var manualProfile = _profiles.value.find { it.name == manualProfileName && it.type == ProfileType.Imported }
+            val profileId: String
+            val existingConfig: SingBoxConfig?
+            
+            if (manualProfile != null) {
+                // 使用已有的"手动添加"配置
+                profileId = manualProfile.id
+                existingConfig = loadConfig(profileId)
+            } else {
+                // 创建新的"手动添加"配置
+                profileId = UUID.randomUUID().toString()
+                existingConfig = null
+            }
+            
+            // 3. 合并或创建 outbounds
+            val newOutbounds = mutableListOf<Outbound>()
+            existingConfig?.outbounds?.let { existing ->
+                // 添加现有的非系统 outbounds
+                newOutbounds.addAll(existing.filter { it.type !in listOf("direct", "block", "dns") })
+            }
+            
+            // 检查是否有同名节点，如有则添加后缀
+            var finalTag = outbound.tag
+            var counter = 1
+            while (newOutbounds.any { it.tag == finalTag }) {
+                finalTag = "${outbound.tag}_$counter"
+                counter++
+            }
+            val finalOutbound = if (finalTag != outbound.tag) outbound.copy(tag = finalTag) else outbound
+            newOutbounds.add(finalOutbound)
+            
+            // 添加系统 outbounds
+            if (newOutbounds.none { it.tag == "direct" }) {
+                newOutbounds.add(Outbound(type = "direct", tag = "direct"))
+            }
+            if (newOutbounds.none { it.tag == "block" }) {
+                newOutbounds.add(Outbound(type = "block", tag = "block"))
+            }
+            if (newOutbounds.none { it.tag == "dns-out" }) {
+                newOutbounds.add(Outbound(type = "dns", tag = "dns-out"))
+            }
+            
+            val newConfig = SingBoxConfig(outbounds = newOutbounds)
+            
+            // 4. 保存配置文件
+            val configFile = File(configDir, "$profileId.json")
+            configFile.writeText(gson.toJson(newConfig))
+            
+            // 5. 更新内存状态
+            cacheConfig(profileId, newConfig)
+            val nodes = extractNodesFromConfig(newConfig, profileId)
+            profileNodes[profileId] = nodes
+            
+            // 6. 如果是新配置，添加到 profiles 列表
+            if (manualProfile == null) {
+                manualProfile = ProfileUi(
+                    id = profileId,
+                    name = manualProfileName,
+                    type = ProfileType.Imported,
+                    url = null,
+                    lastUpdated = System.currentTimeMillis(),
+                    enabled = true,
+                    updateStatus = UpdateStatus.Idle
+                )
+                _profiles.update { it + manualProfile }
+            } else {
+                // 更新 lastUpdated
+                _profiles.update { list ->
+                    list.map { if (it.id == profileId) it.copy(lastUpdated = System.currentTimeMillis()) else it }
+                }
+            }
+            
+            // 7. 更新全局节点状态
+            updateAllNodesAndGroups()
+            
+            // 8. 激活配置并选中新节点
+            setActiveProfile(profileId)
+            val addedNode = nodes.find { it.name == finalTag }
+            if (addedNode != null) {
+                _activeNodeId.value = addedNode.id
+            }
+            
+            // 9. 保存配置
+            saveProfiles()
+            
+            Log.i(TAG, "Added single node: $finalTag to profile $profileId")
+            
+            Result.success(addedNode ?: nodes.last())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add single node", e)
+            Result.failure(Exception("添加节点失败: ${e.message}"))
+        }
+    }
+
+    /**
      * 重命名节点
      */
     fun renameNode(nodeId: String, newName: String) {
@@ -3464,7 +3608,7 @@ class ConfigRepository(private val context: Context) {
                 add = outbound.server,
                 port = outbound.serverPort?.toString(),
                 id = outbound.uuid,
-                aid = outbound.alterId?.toString(),
+                aid = "0", // sing-box 只支持 alterId=0
                 scy = outbound.security,
                 net = outbound.transport?.type ?: "tcp",
                 type = "none",

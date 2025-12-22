@@ -100,6 +100,7 @@ fun NodesScreen(
     val testingNodeIds by viewModel.testingNodeIds.collectAsState()
     val switchResult by viewModel.switchResult.collectAsState()
     val latencyMessage by viewModel.latencyMessage.collectAsState()
+    val addNodeResult by viewModel.addNodeResult.collectAsState()
 
     val isVpnRunning by SingBoxRemote.isRunning.collectAsState()
     val isVpnStarting by SingBoxRemote.isStarting.collectAsState()
@@ -156,6 +157,14 @@ fun NodesScreen(
         latencyMessage?.let { message ->
             snackbarHostState.showSnackbar(message)
             viewModel.clearLatencyMessage()
+        }
+    }
+    
+    // 显示添加节点结果提示
+    LaunchedEffect(addNodeResult) {
+        addNodeResult?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearAddNodeResult()
         }
     }
     

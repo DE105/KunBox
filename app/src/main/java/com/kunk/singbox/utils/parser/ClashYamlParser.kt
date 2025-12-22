@@ -14,6 +14,17 @@ import org.yaml.snakeyaml.error.YAMLException
 class ClashYamlParser : SubscriptionParser {
     override fun canParse(content: String): Boolean {
         val trimmed = content.trim()
+        
+        // 排除明显是节点链接的情况
+        val nodeLinkPrefixes = listOf(
+            "vmess://", "vless://", "ss://", "trojan://",
+            "hysteria2://", "hy2://", "hysteria://",
+            "tuic://", "anytls://", "wireguard://", "ssh://"
+        )
+        if (nodeLinkPrefixes.any { trimmed.startsWith(it) }) {
+            return false
+        }
+        
         // 简单特征判断：包含 proxies: 或 proxy-groups: 关键字
         return trimmed.contains("proxies:") || trimmed.contains("proxy-groups:")
     }
@@ -176,7 +187,11 @@ class ClashYamlParser : SubscriptionParser {
     private fun parseVMess(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
         if (server == null || port == null) return null
         val uuid = asString(map["uuid"]) ?: return null
+        // 注意：sing-box 不支持 alter_id，只支持 AEAD 加密的 VMess (alterId=0)
         val alterId = asInt(map["alterId"]) ?: 0
+        if (alterId != 0) {
+            android.util.Log.w("ClashYamlParser", "VMess node '$name' has alterId=$alterId, sing-box only supports alterId=0 (AEAD)")
+        }
         val cipher = asString(map["cipher"]) ?: "auto"
         val network = asString(map["network"])?.lowercase()
         val tlsEnabled = asBool(map["tls"]) == true
@@ -243,7 +258,7 @@ class ClashYamlParser : SubscriptionParser {
             server = server,
             serverPort = port,
             uuid = uuid,
-            alterId = alterId,
+            // alterId 字段已从 Outbound 模型中移除，sing-box 不支持
             security = cipher,
             tls = tlsConfig,
             transport = transport,

@@ -234,12 +234,8 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                                 icon = Icons.Rounded.Security,
                                 onValueChange = { editingOutbound = outbound.copy(security = it) }
                             )
-                            EditableTextItem(
-                                title = "AlterID",
-                                value = outbound.alterId?.toString() ?: "0",
-                                icon = Icons.Rounded.Tag,
-                                onValueChange = { editingOutbound = outbound.copy(alterId = it.toIntOrNull() ?: 0) }
-                            )
+                            // 注意：sing-box 不支持 AlterID，只支持 AEAD 加密的 VMess (alterId=0)
+                            // 此字段已从模型中移除
                         }
                         
                         if (type == "vless") {

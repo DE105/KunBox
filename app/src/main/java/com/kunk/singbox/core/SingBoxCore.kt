@@ -28,6 +28,7 @@ import java.net.ServerSocket
 import java.net.URI
 import java.net.InetSocketAddress
 import java.net.Proxy
+import java.net.Socket
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -101,6 +102,11 @@ class SingBoxCore private constructor(private val context: Context) {
         
         if (libboxAvailable) {
             Log.i(TAG, "Libbox initialized successfully")
+            try {
+                Log.i(TAG, "Libbox kernel version: ${Libbox.version()}")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to read Libbox.version(): ${e.message}")
+            }
         } else {
             Log.w(TAG, "Libbox not available, using fallback mode")
         }
@@ -296,7 +302,7 @@ class SingBoxCore private constructor(private val context: Context) {
     private suspend fun testWithLocalHttpProxy(outbound: Outbound, targetUrl: String, fallbackUrl: String? = null, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
         val port = allocateLocalPort()
         val inbound = com.kunk.singbox.model.Inbound(
-            type = "http",
+            type = "mixed",
             tag = "test-in",
             listen = "127.0.0.1",
             listenPort = port
@@ -350,8 +356,20 @@ class SingBoxCore private constructor(private val context: Context) {
             service = Libbox.newService(configJson, platformInterface)
             service.start()
 
-            // Let the core initialize routing/DNS briefly to avoid measuring cold-start overhead.
-            delay(150)
+            val deadline = System.currentTimeMillis() + 1000L
+            while (System.currentTimeMillis() < deadline) {
+                try {
+                    Socket().use { s ->
+                        s.soTimeout = 200
+                        s.connect(InetSocketAddress("127.0.0.1", port), 200)
+                    }
+                    break
+                } catch (_: Exception) {
+                    delay(30)
+                }
+            }
+
+            delay(220)
 
             val client = OkHttpClient.Builder()
                 .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
@@ -373,7 +391,16 @@ class SingBoxCore private constructor(private val context: Context) {
             }
 
             try {
-                runOnce(targetUrl)
+                try {
+                    runOnce(targetUrl)
+                } catch (e: Exception) {
+                    if ((e.message ?: "").contains("Connection reset", ignoreCase = true)) {
+                        delay(120)
+                        runOnce(targetUrl)
+                    } else {
+                        throw e
+                    }
+                }
             } catch (e: Exception) {
                 val fb = fallbackUrl
                 if (!fb.isNullOrBlank() && fb != targetUrl) {
@@ -402,6 +429,7 @@ class SingBoxCore private constructor(private val context: Context) {
         if (!libboxAvailable) return@withContext -1L
         try {
             ensureLibboxSetup(context)
+            val tagArg = outbound.tag
             val selectorJson = "{\"tag\":\"" + outbound.tag + "\"}"
 
             // 动态查找 NekoBox 原生 urlTest 方法
@@ -436,16 +464,24 @@ class SingBoxCore private constructor(private val context: Context) {
 
             return@withContext try {
                 val pi = TestPlatformInterface(context)
-                val args = buildUrlTestArgs(m.parameterTypes, selectorJson, targetUrl, pi)
-                val result = m.invoke(null, *args)
-                val rtt = when {
-                    m.returnType == Long::class.javaPrimitiveType -> result as Long
-                    else -> extractDelayFromUrlTest(result, method)
+                val firstArgs = listOf(tagArg, selectorJson)
+                var lastRtt = -1L
+                for (first in firstArgs) {
+                    val args = buildUrlTestArgs(m.parameterTypes, first, targetUrl, pi)
+                    val result = m.invoke(null, *args)
+                    val rtt = when {
+                        m.returnType == Long::class.javaPrimitiveType -> result as Long
+                        else -> extractDelayFromUrlTest(result, method)
+                    }
+                    if (rtt >= 0) {
+                        return@withContext rtt
+                    }
+                    lastRtt = rtt
                 }
-                if (rtt < 0) {
-                    Log.w(TAG, "Offline URLTest RTT returned negative: $rtt")
+                if (lastRtt < 0) {
+                    Log.w(TAG, "Offline URLTest RTT returned negative: $lastRtt")
                 }
-                rtt
+                lastRtt
             } catch (e: Exception) {
                 Log.w(TAG, "Offline URLTest RTT invoke failed: ${e.javaClass.simpleName}: ${e.message}")
                 -1L

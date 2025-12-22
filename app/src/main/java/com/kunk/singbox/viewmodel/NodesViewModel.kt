@@ -84,6 +84,10 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     private val _latencyMessage = MutableStateFlow<String?>(null)
     val latencyMessage: StateFlow<String?> = _latencyMessage.asStateFlow()
 
+    // 添加节点结果反馈
+    private val _addNodeResult = MutableStateFlow<String?>(null)
+    val addNodeResult: StateFlow<String?> = _addNodeResult.asStateFlow()
+
     fun setActiveNode(nodeId: String) {
         viewModelScope.launch {
             val node = nodes.value.find { it.id == nodeId }
@@ -120,6 +124,10 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearLatencyMessage() {
         _latencyMessage.value = null
+    }
+
+    fun clearAddNodeResult() {
+        _addNodeResult.value = null
     }
 
     fun testAllLatency() {
@@ -169,21 +177,25 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     
     fun addNode(content: String) {
         viewModelScope.launch {
-            // Check if it's a link or content
-            if (content.startsWith("vmess://") || content.startsWith("vless://") ||
-                content.startsWith("ss://") || content.startsWith("trojan://") ||
-                content.startsWith("hysteria") || content.startsWith("tuic")) {
-                
-                // For simple link import, we can reuse importFromContent but we might need a dummy profile or "Manual" profile
-                // Currently ConfigRepository.importFromContent creates a new profile.
-                // User wants to add to "Current Group".
-                // However, ConfigRepository structure ties nodes to Profiles.
-                // If "Current Group" is a Profile (Subscription), adding manually might be overwritten on update.
-                // Best practice: Add to a specific "Manual" profile or allow editing subscription (not recommended).
-                
-                // For now, let's treat "Add Node" as creating a new "Imported" profile or appending to one.
-                // To keep it simple and consistent with ConfigRepository structure:
-                configRepository.importFromContent("手动添加", content)
+            val trimmedContent = content.trim()
+            
+            // 检查是否是支持的节点链接格式
+            val supportedPrefixes = listOf(
+                "vmess://", "vless://", "ss://", "trojan://",
+                "hysteria2://", "hy2://", "hysteria://",
+                "tuic://", "anytls://", "wireguard://", "ssh://"
+            )
+            
+            if (supportedPrefixes.none { trimmedContent.startsWith(it) }) {
+                _addNodeResult.value = "不支持的链接格式"
+                return@launch
+            }
+            
+            val result = configRepository.addSingleNode(trimmedContent)
+            result.onSuccess { node ->
+                _addNodeResult.value = "已添加节点: ${node.displayName}"
+            }.onFailure { e ->
+                _addNodeResult.value = e.message ?: "添加失败"
             }
         }
     }
