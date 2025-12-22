@@ -492,6 +492,7 @@ fun NodesScreen(
                         isSelected = isSelected,
                         isTesting = isTestingNode,
                         regionFlag = node.regionFlag,
+                        trafficUsed = node.trafficUsed,
                         onClick = onNodeClick,
                         onEdit = onEdit,
                         onExport = onExport,

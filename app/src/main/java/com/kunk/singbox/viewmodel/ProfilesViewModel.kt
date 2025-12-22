@@ -49,6 +49,10 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         configRepository.toggleProfileEnabled(profileId)
     }
 
+    fun updateProfileMetadata(profileId: String, newName: String, newUrl: String?) {
+        configRepository.updateProfileMetadata(profileId, newName, newUrl)
+    }
+
     fun updateProfile(profileId: String) {
         viewModelScope.launch {
             _updateStatus.value = "正在更新..."

@@ -231,7 +231,6 @@ fun RoutingSettingsScreen(
                     onClick = { navController.navigate(Screen.DomainRules.route) }
                 )
                 SettingItem(title = "管理规则集", onClick = { navController.navigate(Screen.RuleSets.route) })
-                SettingItem(title = "规则集路由", onClick = { navController.navigate(Screen.RuleSetRouting.route) })
             }
         }
     }

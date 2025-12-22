@@ -376,6 +376,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun reorderRuleSets(newOrder: List<RuleSet>) {
+        viewModelScope.launch {
+            repository.setRuleSets(newOrder)
+        }
+    }
+
     // App 分流规则
     fun addAppRule(rule: AppRule) {
         viewModelScope.launch {

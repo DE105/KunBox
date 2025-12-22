@@ -26,6 +26,7 @@ fun NodeCard(
     isSelected: Boolean,
     isTesting: Boolean = false,
     regionFlag: String? = null,
+    trafficUsed: Long = 0,
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onExport: () -> Unit,
@@ -34,6 +35,18 @@ fun NodeCard(
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    
+    fun formatTraffic(bytes: Long): String {
+        if (bytes <= 0) return ""
+        val units = arrayOf("B", "KB", "MB", "GB", "TB")
+        var value = bytes.toDouble()
+        var unitIndex = 0
+        while (value >= 1024 && unitIndex < units.size - 1) {
+            value /= 1024
+            unitIndex++
+        }
+        return String.format(java.util.Locale.US, "%.1f %s", value, units[unitIndex])
+    }
 
     val borderColor = if (isSelected) PureWhite else Divider
     val borderWidth = if (isSelected) 2.dp else 1.dp
@@ -103,6 +116,15 @@ fun NodeCard(
                         )
                         
                         Spacer(modifier = Modifier.width(8.dp))
+                        
+                        if (trafficUsed > 0) {
+                            Text(
+                                text = formatTraffic(trafficUsed),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
                         
                         if (isTesting) {
                             Text(

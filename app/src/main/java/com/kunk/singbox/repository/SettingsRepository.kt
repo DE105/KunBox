@@ -451,9 +451,11 @@ class SettingsRepository(private val context: Context) {
         notifyRestartRequired()
     }
 
-    suspend fun setRuleSets(value: List<RuleSet>) {
+    suspend fun setRuleSets(value: List<RuleSet>, notify: Boolean = true) {
         context.dataStore.edit { it[PreferencesKeys.RULE_SETS] = gson.toJson(value) }
-        notifyRestartRequired()
+        if (notify) {
+            notifyRestartRequired()
+        }
     }
 
     suspend fun getRuleSets(): List<RuleSet> {

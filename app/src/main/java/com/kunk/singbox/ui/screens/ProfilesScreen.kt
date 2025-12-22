@@ -86,6 +86,7 @@ fun ProfilesScreen(
     var showImportSelection by remember { mutableStateOf(false) }
     var showSubscriptionInput by remember { mutableStateOf(false) }
     var showClipboardInput by remember { mutableStateOf(false) }
+    var editingProfile by remember { mutableStateOf<com.kunk.singbox.model.ProfileUi?>(null) }
     
     val context = LocalContext.current
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -173,6 +174,21 @@ fun ProfilesScreen(
         )
     }
 
+    if (editingProfile != null) {
+        val profile = editingProfile!!
+        SubscriptionInputDialog(
+            initialName = profile.name,
+            initialUrl = profile.url ?: "",
+            title = "编辑配置",
+            onDismiss = { editingProfile = null },
+            onConfirm = { name, url ->
+                viewModel.updateProfileMetadata(profile.id, name, url)
+                editingProfile = null
+                Toast.makeText(context, "配置已更新", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
     Scaffold(
         containerColor = AppBackground,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -243,6 +259,9 @@ fun ProfilesScreen(
                         isSelected = profile.id == activeProfileId,
                         isEnabled = profile.enabled,
                         isUpdating = profile.updateStatus == UpdateStatus.Updating,
+                        expireDate = profile.expireDate,
+                        totalTraffic = profile.totalTraffic,
+                        usedTraffic = profile.usedTraffic,
                         onClick = { viewModel.setActiveProfile(profile.id) },
                         onUpdate = {
                             viewModel.updateProfile(profile.id)
@@ -251,7 +270,12 @@ fun ProfilesScreen(
                             viewModel.toggleProfileEnabled(profile.id)
                         },
                         onEdit = {
-                            navController.navigate(Screen.ProfileEditor.route)
+                            if (profile.type == com.kunk.singbox.model.ProfileType.Subscription ||
+                                profile.type == com.kunk.singbox.model.ProfileType.Imported) {
+                                editingProfile = profile
+                            } else {
+                                navController.navigate(Screen.ProfileEditor.route)
+                            }
                         },
                         onDelete = {
                             viewModel.deleteProfile(profile.id)
@@ -347,11 +371,14 @@ private fun ImportOptionCard(
 
 @Composable
 private fun SubscriptionInputDialog(
+    initialName: String = "",
+    initialUrl: String = "",
+    title: String = "添加订阅",
     onDismiss: () -> Unit,
     onConfirm: (String, String) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(initialName) }
+    var url by remember { mutableStateOf(initialUrl) }
 
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -361,7 +388,7 @@ private fun SubscriptionInputDialog(
                 .padding(24.dp)
         ) {
             Text(
-                text = "添加订阅",
+                text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary

@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DateRange
+import androidx.compose.material.icons.rounded.ImportExport
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -46,6 +48,10 @@ import com.kunk.singbox.ui.theme.SurfaceCard
 import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.ui.theme.TextSecondary
 
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 @Composable
 fun ProfileCard(
     name: String,
@@ -53,6 +59,9 @@ fun ProfileCard(
     isSelected: Boolean,
     isEnabled: Boolean,
     isUpdating: Boolean,
+    expireDate: Long = 0,
+    totalTraffic: Long = 0,
+    usedTraffic: Long = 0,
     onClick: () -> Unit,
     onUpdate: () -> Unit,
     onEdit: () -> Unit,
@@ -61,6 +70,24 @@ fun ProfileCard(
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
+
+    fun formatTraffic(bytes: Long): String {
+        if (bytes <= 0) return "0 B"
+        val units = arrayOf("B", "KB", "MB", "GB", "TB")
+        var value = bytes.toDouble()
+        var unitIndex = 0
+        while (value >= 1024 && unitIndex < units.size - 1) {
+            value /= 1024
+            unitIndex++
+        }
+        return String.format(Locale.US, "%.2f %s", value, units[unitIndex])
+    }
+
+    fun formatDate(timestamp: Long): String {
+        if (timestamp <= 0) return "无限期"
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        return sdf.format(Date(timestamp * 1000)) // Subscription usually returns unix timestamp in seconds
+    }
 
     Row(
         modifier = modifier
@@ -116,9 +143,48 @@ fun ProfileCard(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = type + if (!isEnabled) " (已禁用)" else "",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
+                
+                if (totalTraffic > 0 || expireDate > 0) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (totalTraffic > 0) {
+                            Icon(
+                                imageVector = Icons.Rounded.ImportExport,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "${formatTraffic(usedTraffic)} / ${formatTraffic(totalTraffic)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary
+                            )
+                        }
+                        
+                        if (totalTraffic > 0 && expireDate > 0) {
+                            Spacer(modifier = Modifier.width(12.dp))
+                        }
+                        
+                        if (expireDate > 0) {
+                            Icon(
+                                imageVector = Icons.Rounded.DateRange,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = formatDate(expireDate),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                }
             }
         }
 

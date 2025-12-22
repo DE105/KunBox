@@ -32,6 +32,7 @@ import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
+import com.kunk.singbox.repository.TrafficRepository
 import io.nekohasekai.libbox.*
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.*
@@ -193,9 +194,7 @@ class SingBoxService : VpnService() {
         return runCatching {
             val repo = ConfigRepository.getInstance(applicationContext)
             val activeNodeId = repo.activeNodeId.value
-            activeConnectionLabel
-                ?: resolveEgressNodeName(repo, activeConnectionNode)
-                ?: realTimeNodeName
+            realTimeNodeName
                 ?: repo.nodes.value.find { it.id == activeNodeId }?.name
                 ?: ""
         }.getOrDefault("")
@@ -316,6 +315,7 @@ class SingBoxService : VpnService() {
             runCatching {
                 LogRepository.getInstance().addLog("SUCCESS SingBoxService: Hot switch to $nodeTag completed")
             }
+            updateNotification()
             return true
             
         } catch (e: Exception) {
@@ -353,6 +353,10 @@ class SingBoxService : VpnService() {
     @Volatile private var recentConnectionIds: List<String> = emptyList()
     private val groupSelectedOutbounds = ConcurrentHashMap<String, String>()
     @Volatile private var lastConnectionsLabelLogged: String? = null
+    @Volatile private var lastNotificationTextLogged: String? = null
+    
+    private var lastUplinkTotal: Long = 0
+    private var lastDownlinkTotal: Long = 0
 
     @Volatile private var lastRuleSetCheckMs: Long = 0L
     private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
@@ -814,12 +818,12 @@ class SingBoxService : VpnService() {
             } catch (e: SecurityException) {
                 connectionOwnerSecurityDenied.incrementAndGet()
                 connectionOwnerLastEvent =
-                    "SecurityException getConnectionOwnerUid proto=$protocol $sourceIp:$sourcePort->$destinationIp:$destinationPort"
+                    "SecurityException findConnectionOwner proto=$protocol $sourceIp:$sourcePort->$destinationIp:$destinationPort"
                 if (!connectionOwnerPermissionDeniedLogged) {
                     connectionOwnerPermissionDeniedLogged = true
-                    Log.w(TAG, "getConnectionOwnerUid permission denied; app routing may not work on this ROM", e)
+                    Log.w(TAG, "findConnectionOwner permission denied; app routing may not work on this ROM", e)
                     com.kunk.singbox.repository.LogRepository.getInstance()
-                        .addLog("WARN SingBoxService: getConnectionOwnerUid permission denied; per-app routing (package_name) disabled on this ROM")
+                        .addLog("WARN SingBoxService: findConnectionOwner permission denied; per-app routing (package_name) disabled on this ROM")
                 }
                 0
             } catch (e: Exception) {
@@ -1349,6 +1353,11 @@ class SingBoxService : VpnService() {
             
             if (success) {
                 Log.i(TAG, "Hot switch successful for $nodeTag")
+                // Ensure notification reflects the newly selected node immediately.
+                // writeGroups callback may be delayed or missing on some cores/ROMs.
+                realTimeNodeName = node.name
+                runCatching { configRepository.syncActiveNodeFromProxySelection(node.name) }
+                updateNotification()
             } else {
                 Log.w(TAG, "Hot switch failed for $nodeTag, falling back to restart")
                 // Fallback: restart VPN
@@ -1533,6 +1542,10 @@ class SingBoxService : VpnService() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to start Command Server/Client", e)
                 }
+
+                // 重置流量计数器
+                lastUplinkTotal = 0
+                lastDownlinkTotal = 0
 
                 // 处理排队的热切换请求
                 val pendingHotSwitch = synchronized(this) {
@@ -1859,8 +1872,26 @@ class SingBoxService : VpnService() {
     }
     
     private fun updateNotification() {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, createNotification())
+        val notification = createNotification()
+
+        val text = runCatching {
+            notification.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+        }.getOrNull()
+        if (!text.isNullOrBlank() && text != lastNotificationTextLogged) {
+            lastNotificationTextLogged = text
+            Log.i(TAG, "Notification content: $text")
+        }
+
+        // Some ROMs are not sensitive to notify() updates for a foreground service notification.
+        // Try to refresh via startForeground first; fallback to notify.
+        runCatching {
+            startForeground(NOTIFICATION_ID, notification)
+        }.onFailure {
+            runCatching {
+                val manager = getSystemService(NotificationManager::class.java)
+                manager.notify(NOTIFICATION_ID, notification)
+            }
+        }
     }
 
     private fun createNotification(): Notification {
@@ -1889,9 +1920,7 @@ class SingBoxService : VpnService() {
         val configRepository = ConfigRepository.getInstance(this)
         val activeNodeId = configRepository.activeNodeId.value
         // 优先显示活跃连接的节点，其次显示代理组选中的节点，最后显示配置选中的节点
-        val activeNodeName = activeConnectionLabel
-            ?: resolveEgressNodeName(configRepository, activeConnectionNode)
-            ?: realTimeNodeName
+        val activeNodeName = realTimeNodeName
             ?: configRepository.nodes.value.find { it.id == activeNodeId }?.name
             ?: "已连接"
 
@@ -1929,6 +1958,7 @@ class SingBoxService : VpnService() {
     
     override fun onDestroy() {
         Log.i(TAG, "onDestroy called -> stopVpn(stopService=false)")
+        TrafficRepository.getInstance(this).saveStats()
         val shouldStop = runCatching {
             synchronized(this@SingBoxService) {
                 isRunning || isStopping || boxService != null || vpnInterface != null
@@ -2148,7 +2178,31 @@ class SingBoxService : VpnService() {
 
             override fun clearLogs() {}
             override fun writeLogs(messageList: StringIterator?) {}
-            override fun writeStatus(message: StatusMessage?) {}
+            override fun writeStatus(message: StatusMessage?) {
+                message ?: return
+                // 获取全局流量
+                val currentUp = message.uplinkTotal
+                val currentDown = message.downlinkTotal
+                
+                // 计算增量
+                if (lastUplinkTotal > 0 || lastDownlinkTotal > 0) {
+                    val diffUp = if (currentUp >= lastUplinkTotal) currentUp - lastUplinkTotal else 0
+                    val diffDown = if (currentDown >= lastDownlinkTotal) currentDown - lastDownlinkTotal else 0
+                    
+                    if (diffUp > 0 || diffDown > 0) {
+                        // 归属到当前活跃节点
+                        val repo = ConfigRepository.getInstance(this@SingBoxService)
+                        val activeNodeId = repo.activeNodeId.value
+                        
+                        if (activeNodeId != null) {
+                            TrafficRepository.getInstance(this@SingBoxService).addTraffic(activeNodeId, diffUp, diffDown)
+                        }
+                    }
+                }
+                
+                lastUplinkTotal = currentUp
+                lastDownlinkTotal = currentDown
+            }
 
             override fun writeGroups(groups: OutboundGroupIterator?) {
                 if (groups == null) return
@@ -2214,24 +2268,38 @@ class SingBoxService : VpnService() {
                             ids.add(conn.id)
                         }
 
-                        // 汇总所有活跃连接的 egress（可能是节点 tag 或 selector tag）
-                        var lastTag: String? = null
-                        runCatching {
-                            val chainIter = conn.chain()
-                            while (chainIter.hasNext()) {
-                                val tag = chainIter.next()
-                                if (!tag.isNullOrBlank() && tag != "dns-out") {
-                                    lastTag = tag
+                        // 汇总所有活跃连接的 egress：优先使用 conn.rule (通常就是最终 outbound tag)
+                        // 仅在 rule 无法识别时才回退使用 chain
+                        val repo = ConfigRepository.getInstance(this@SingBoxService)
+
+                        var candidateTag: String? = conn.rule
+                        if (candidateTag.isNullOrBlank() || candidateTag == "dns-out") {
+                            candidateTag = null
+                        }
+
+                        var resolved: String? = null
+                        if (!candidateTag.isNullOrBlank()) {
+                            resolved = resolveEgressNodeName(repo, candidateTag)
+                                ?: repo.resolveNodeNameFromOutboundTag(candidateTag)
+                                ?: candidateTag
+                        }
+
+                        if (resolved.isNullOrBlank()) {
+                            var lastTag: String? = null
+                            runCatching {
+                                val chainIter = conn.chain()
+                                while (chainIter.hasNext()) {
+                                    val tag = chainIter.next()
+                                    if (!tag.isNullOrBlank() && tag != "dns-out") {
+                                        lastTag = tag
+                                    }
                                 }
                             }
+                            resolved = resolveEgressNodeName(repo, lastTag)
+                                ?: repo.resolveNodeNameFromOutboundTag(lastTag)
+                                ?: lastTag
                         }
-                        val resolved = resolveEgressNodeName(
-                            ConfigRepository.getInstance(this@SingBoxService),
-                            lastTag
-                        )
-                            ?: ConfigRepository.getInstance(this@SingBoxService)
-                                .resolveNodeNameFromOutboundTag(lastTag)
-                            ?: lastTag
+
                         if (!resolved.isNullOrBlank()) {
                             egressCounts[resolved] = (egressCounts[resolved] ?: 0) + 1
                         }
@@ -2305,8 +2373,9 @@ class SingBoxService : VpnService() {
 
         // 2. Create and connect CommandClient
         val options = CommandClientOptions()
-        options.command = Libbox.CommandGroup // 5
-        options.statusInterval = 1500 * 1000 * 1000 // 1.5s (unit: ns? wait, let's check unit)
+        // CommandGroup | CommandStatus
+        options.command = Libbox.CommandGroup or Libbox.CommandStatus
+        options.statusInterval = 1500 * 1000 * 1000 // 1.5s (unit: ns)
         // libbox code: ticker := time.NewTicker(time.Duration(interval))
         // Go's time.Duration is nanoseconds.
         // But let's check how it's passed. Java/Kotlin long -> Go int64.
@@ -2327,6 +2396,17 @@ class SingBoxService : VpnService() {
         commandClientConnections = Libbox.newCommandClient(clientHandler, optionsConn)
         commandClientConnections?.connect()
         Log.i(TAG, "CommandClient (Connections) connected")
+
+        serviceScope.launch {
+            delay(3500)
+            val groupsSize = groupSelectedOutbounds.size
+            val label = activeConnectionLabel
+            if (groupsSize == 0 && label.isNullOrBlank()) {
+                Log.w(TAG, "Command callbacks not observed yet (groups=0, label=null). If status bar never changes, check whether CommandConnections is supported by this libbox build.")
+            } else {
+                Log.i(TAG, "Command callbacks OK (groups=$groupsSize, label=${label ?: "(null)"})")
+            }
+        }
     }
 
     /**

@@ -16,6 +16,7 @@ import com.kunk.singbox.utils.parser.Base64Parser
 import com.kunk.singbox.utils.parser.NodeLinkParser
 import com.kunk.singbox.utils.parser.SingBoxParser
 import com.kunk.singbox.utils.parser.SubscriptionManager
+import com.kunk.singbox.repository.TrafficRepository
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -53,7 +54,7 @@ class ConfigRepository(private val context: Context) {
             }
         }
     }
-    
+
     private val gson = Gson()
     private val singBoxCore = SingBoxCore.getInstance(context)
     private val settingsRepository = SettingsRepository.getInstance(context)
@@ -281,18 +282,165 @@ class ConfigRepository(private val context: Context) {
     /**
      * 从订阅 URL 导入配置
      */
+    data class SubscriptionUserInfo(
+        val upload: Long = 0,
+        val download: Long = 0,
+        val total: Long = 0,
+        val expire: Long = 0
+    )
+
+    private data class FetchResult(
+        val config: SingBoxConfig,
+        val userInfo: SubscriptionUserInfo?
+    )
+
+    /**
+     * 解析流量字符串 (支持 B, KB, MB, GB, TB, PB)
+     */
+    private fun parseTrafficString(value: String): Long {
+        val trimmed = value.trim().uppercase()
+        val regex = Regex("([\\d.]+)\\s*([KMGTPE]?)B?")
+        val match = regex.find(trimmed) ?: return 0L
+        
+        val (numStr, unit) = match.destructured
+        val num = numStr.toDoubleOrNull() ?: return 0L
+        
+        val multiplier = when (unit) {
+            "K" -> 1024L
+            "M" -> 1024L * 1024
+            "G" -> 1024L * 1024 * 1024
+            "T" -> 1024L * 1024 * 1024 * 1024
+            "P" -> 1024L * 1024 * 1024 * 1024 * 1024
+            else -> 1L
+        }
+        
+        return (num * multiplier).toLong()
+    }
+
+    /**
+     * 解析日期字符串 (yyyy-MM-dd)
+     */
+    private fun parseDateString(value: String): Long {
+        return try {
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            (sdf.parse(value.trim())?.time ?: 0L) / 1000 // Convert to seconds
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    /**
+     * 解析 Subscription-Userinfo 头或 Body 中的状态信息
+     * 支持标准 Header 格式和常见的 Body 文本格式 (如 STATUS=...)
+     */
+    private fun parseSubscriptionUserInfo(header: String?, bodyDecoded: String? = null): SubscriptionUserInfo? {
+        var upload = 0L
+        var download = 0L
+        var total = 0L
+        var expire = 0L
+        var found = false
+
+        // 1. 尝试解析 Header
+        if (!header.isNullOrBlank()) {
+            try {
+                header.split(";").forEach { part ->
+                    val kv = part.trim().split("=")
+                    if (kv.size == 2) {
+                        val key = kv[0].trim().lowercase()
+                        val value = kv[1].trim().toLongOrNull() ?: 0L
+                        when (key) {
+                            "upload" -> { upload = value; found = true }
+                            "download" -> { download = value; found = true }
+                            "total" -> { total = value; found = true }
+                            "expire" -> { expire = value; found = true }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to parse Subscription-Userinfo header: $header", e)
+            }
+        }
+
+        // 2. 如果 Header 没有完整信息，尝试从 Body 解析
+        // 格式示例: STATUS=🚀:0.12GB,🚀:37.95GB,TOT:100GB🗓Expires:2026-01-02
+        if (bodyDecoded != null && (!found || total == 0L)) {
+            try {
+                val firstLine = bodyDecoded.lines().firstOrNull()?.trim()
+                if (firstLine != null && (firstLine.startsWith("STATUS=") || firstLine.contains("TOT:") || firstLine.contains("Expires:"))) {
+                    // 解析 TOT:
+                    val totalMatch = Regex("TOT:([\\d.]+[KMGTPE]?)B?").find(firstLine)
+                    if (totalMatch != null) {
+                        total = parseTrafficString(totalMatch.groupValues[1])
+                        found = true
+                    }
+
+                    // 解析 Expires:
+                    val expireMatch = Regex("Expires:(\\d{4}-\\d{2}-\\d{2})").find(firstLine)
+                    if (expireMatch != null) {
+                        expire = parseDateString(expireMatch.groupValues[1])
+                        found = true
+                    }
+
+                    // 解析已用流量 (Upload/Download)
+                    // 假设除此之外的流量数据都是已用流量，或者匹配特定图标/格式
+                    // 示例中的已用流量是两个 🚀: value，分别对应 up/down 或已用
+                    // 我们简单地提取所有类似 X:ValueGB 的格式，除了 TOT
+                    val trafficMatches = Regex("[:=]\\s*([\\d.]+[KMGTPE]?)B?").findAll(firstLine)
+                    var usedAccumulator = 0L
+                    trafficMatches.forEach { match ->
+                        val valStr = match.groupValues[1]
+                        // 排除已经匹配到的 Total 值 (简单的字符串比较可能不准确，这里假设 Total 是通过 TOT: 明确标识的)
+                        // 如果当前匹配的值解析后等于 Total，且之前已经设置了 Total，则跳过? 不靠谱。
+                        // 更好的是：只提取未被 TOT: 捕获的部分。
+                        
+                        // 重新策略：
+                        // 如果有 upload/download 关键字更好。如果没有，尝试解析所有数字。
+                        // 针对 specific case: 🚀:0.12GB,🚀:37.95GB
+                        // 匹配所有非 TOT 的流量
+                    }
+                    
+                    // 针对该特定格式的 Hack:
+                    // split by comma
+                    val parts = firstLine.substringAfter("STATUS=").split(",")
+                    parts.forEach { part ->
+                        if (part.contains("TOT:")) return@forEach
+                        if (part.contains("Expires:")) return@forEach
+                        
+                        // 提取流量值
+                        val match = Regex("([\\d.]+[KMGTPE]?)B?").find(part)
+                        if (match != null) {
+                            usedAccumulator += parseTrafficString(match.groupValues[1])
+                            found = true
+                        }
+                    }
+                    
+                    if (usedAccumulator > 0) {
+                        // 我们不知道哪个是 up 哪个是 down，暂且全部算作 download，或者平分
+                        download = usedAccumulator
+                        upload = 0
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to parse info from body: ${bodyDecoded.take(100)}", e)
+            }
+        }
+
+        if (!found) return null
+        return SubscriptionUserInfo(upload, download, total, expire)
+    }
+
     /**
      * 使用多种 User-Agent 尝试获取订阅内容
      * 如果解析失败，依次尝试其他 UA
      *
      * @param url 订阅链接
      * @param onProgress 进度回调
-     * @return 解析成功的配置，如果所有尝试都失败则返回 null
+     * @return 解析成功的配置及用户信息，如果所有尝试都失败则返回 null
      */
     private fun fetchAndParseSubscription(
         url: String,
         onProgress: (String) -> Unit = {}
-    ): SingBoxConfig? {
+    ): FetchResult? {
         var lastError: Exception? = null
         
         for ((index, userAgent) in USER_AGENTS.withIndex()) {
@@ -307,6 +455,8 @@ class ConfigRepository(private val context: Context) {
                     .build()
 
                 var parsedConfig: SingBoxConfig? = null
+                var userInfo: SubscriptionUserInfo? = null
+
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         Log.w(TAG, "Request failed with UA '$userAgent': HTTP ${response.code}")
@@ -318,6 +468,11 @@ class ConfigRepository(private val context: Context) {
                         Log.w(TAG, "Empty response with UA '$userAgent'")
                         return@use
                     }
+
+                    // 尝试从 Header 或 Body 解析 UserInfo
+                    // 先尝试解码 Body 以便检查内容
+                    val decodedBody = tryDecodeBase64(responseBody) ?: responseBody
+                    userInfo = parseSubscriptionUserInfo(response.header("Subscription-Userinfo"), decodedBody)
 
                     val contentType = response.header("Content-Type") ?: ""
                     Log.v(
@@ -337,7 +492,7 @@ class ConfigRepository(private val context: Context) {
 
                 if (parsedConfig != null) {
                     Log.i(TAG, "Successfully parsed subscription with UA '$userAgent', got ${parsedConfig!!.outbounds?.size ?: 0} outbounds")
-                    return parsedConfig
+                    return FetchResult(parsedConfig!!, userInfo)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error with UA '$userAgent': ${e.message}")
@@ -710,9 +865,12 @@ class ConfigRepository(private val context: Context) {
             onProgress("正在获取订阅...")
             
             // 使用智能 User-Agent 切换策略获取订阅
-            val config = fetchAndParseSubscription(url, onProgress)
+            val fetchResult = fetchAndParseSubscription(url, onProgress)
                 ?: return@withContext Result.failure(Exception("无法解析配置格式，已尝试所有 User-Agent"))
             
+            val config = fetchResult.config
+            val userInfo = fetchResult.userInfo
+
             onProgress("正在提取节点...")
             
             val profileId = UUID.randomUUID().toString()
@@ -734,7 +892,10 @@ class ConfigRepository(private val context: Context) {
                 url = url,
                 lastUpdated = System.currentTimeMillis(),
                 enabled = true,
-                updateStatus = UpdateStatus.Idle
+                updateStatus = UpdateStatus.Idle,
+                expireDate = userInfo?.expire ?: 0,
+                totalTraffic = userInfo?.total ?: 0,
+                usedTraffic = (userInfo?.upload ?: 0) + (userInfo?.download ?: 0)
             )
             
             // 保存到内存
@@ -1556,6 +1717,7 @@ class ConfigRepository(private val context: Context) {
     private fun extractNodesFromConfig(config: SingBoxConfig, profileId: String): List<NodeUi> {
         val nodes = mutableListOf<NodeUi>()
         val outbounds = config.outbounds ?: return nodes
+        val trafficRepo = TrafficRepository.getInstance(context)
 
         fun stableNodeId(profileId: String, outboundTag: String): String {
             val key = "$profileId|$outboundTag"
@@ -1600,9 +1762,10 @@ class ConfigRepository(private val context: Context) {
                 // 2025 规范：确保 tag 已经应用了协议后缀（在 SubscriptionManager 中处理过了）
                 // 这里我们只需确保 NodeUi 能够正确显示国旗
                 
+                val id = stableNodeId(profileId, outbound.tag)
                 nodes.add(
                     NodeUi(
-                        id = stableNodeId(profileId, outbound.tag),
+                        id = id,
                         name = outbound.tag,
                         protocol = outbound.type,
                         group = group,
@@ -1610,8 +1773,9 @@ class ConfigRepository(private val context: Context) {
                         latencyMs = null,
                         isFavorite = false,
                         sourceProfileId = profileId,
+                        trafficUsed = trafficRepo.getMonthlyTotal(id),
                         tags = buildList {
-                            outbound.tls?.let { 
+                            outbound.tls?.let {
                                 if (it.enabled == true) add("TLS")
                                 it.reality?.let { r -> if (r.enabled == true) add("Reality") }
                             }
@@ -1830,6 +1994,19 @@ class ConfigRepository(private val context: Context) {
         _profiles.update { list ->
             list.map {
                 if (it.id == profileId) it.copy(enabled = !it.enabled) else it
+            }
+        }
+        saveProfiles()
+    }
+
+    fun updateProfileMetadata(profileId: String, newName: String, newUrl: String?) {
+        _profiles.update { list ->
+            list.map {
+                if (it.id == profileId) {
+                    it.copy(name = newName, url = newUrl)
+                } else {
+                    it
+                }
             }
         }
         saveProfiles()
@@ -2059,9 +2236,12 @@ class ConfigRepository(private val context: Context) {
             val oldNodeNames = oldNodes.map { it.name }.toSet()
             
             // 使用智能 User-Agent 切换策略获取订阅
-            val config = fetchAndParseSubscription(profile.url!!) { /* 静默更新，不显示进度 */ }
+            val fetchResult = fetchAndParseSubscription(profile.url!!) { /* 静默更新，不显示进度 */ }
                 ?: return@withContext SubscriptionUpdateResult.Failed(profile.name, "无法解析配置")
             
+            val config = fetchResult.config
+            val userInfo = fetchResult.userInfo
+
             val newNodes = extractNodesFromConfig(config, profile.id)
             val newNodeNames = newNodes.map { it.name }.toSet()
             
@@ -2083,6 +2263,21 @@ class ConfigRepository(private val context: Context) {
                 updateNodeGroups(newNodes)
             }
             
+            // 更新用户信息
+            _profiles.update { list ->
+                list.map {
+                    if (it.id == profile.id) {
+                        it.copy(
+                            expireDate = userInfo?.expire ?: it.expireDate,
+                            totalTraffic = userInfo?.total ?: it.totalTraffic,
+                            usedTraffic = if (userInfo != null) (userInfo.upload + userInfo.download) else it.usedTraffic
+                        )
+                    } else {
+                        it
+                    }
+                }
+            }
+
             saveProfiles()
             
             // 返回结果

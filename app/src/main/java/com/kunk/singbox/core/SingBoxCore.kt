@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Process
 import android.util.Log
 import com.google.gson.Gson
 import com.kunk.singbox.model.Outbound
@@ -21,6 +22,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.NetworkInterface
@@ -52,6 +55,9 @@ class SingBoxCore private constructor(private val context: Context) {
     // libbox 是否可用
     private var libboxAvailable = false
 
+    // Global lock for libbox operations to prevent native concurrency issues
+    private val libboxMutex = kotlinx.coroutines.sync.Mutex()
+
     companion object {
         private const val TAG = "SingBoxCore"
 
@@ -73,11 +79,13 @@ class SingBoxCore private constructor(private val context: Context) {
             if (libboxSetupDone.get()) return
 
             val appContext = context.applicationContext
-            val workDir = File(appContext.filesDir, "singbox_work").also { it.mkdirs() }
-            val tempDir = File(appContext.cacheDir, "singbox_temp").also { it.mkdirs() }
+            val pid = runCatching { Process.myPid() }.getOrDefault(0)
+            val baseDir = File(appContext.filesDir, "libbox_$pid").also { it.mkdirs() }
+            val workDir = File(baseDir, "singbox_work").also { it.mkdirs() }
+            val tempDir = File(baseDir, "singbox_temp").also { it.mkdirs() }
 
             val setupOptions = SetupOptions().apply {
-                basePath = appContext.filesDir.absolutePath
+                basePath = baseDir.absolutePath
                 workingPath = workDir.absolutePath
                 this.tempPath = tempDir.absolutePath
             }
@@ -167,7 +175,10 @@ class SingBoxCore private constructor(private val context: Context) {
         val url = adjustUrlForMode(finalSettings.latencyTestUrl, finalSettings.latencyTestMethod)
         
         // 尝试使用 NekoBox 原生 urlTest
-        val nativeRtt = testWithLibboxStaticUrlTest(outbound, url, 5000, finalSettings.latencyTestMethod)
+        // Use mutex to protect native calls
+        val nativeRtt = libboxMutex.withLock {
+            testWithLibboxStaticUrlTest(outbound, url, 5000, finalSettings.latencyTestMethod)
+        }
         if (nativeRtt >= 0) {
             return@withContext nativeRtt
         }
@@ -300,6 +311,13 @@ class SingBoxCore private constructor(private val context: Context) {
     }
 
     private suspend fun testWithLocalHttpProxy(outbound: Outbound, targetUrl: String, fallbackUrl: String? = null, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
+        // Mutex required because we're starting a new service instance
+        libboxMutex.withLock {
+            testWithLocalHttpProxyInternal(outbound, targetUrl, fallbackUrl, timeoutMs)
+        }
+    }
+
+    private suspend fun testWithLocalHttpProxyInternal(outbound: Outbound, targetUrl: String, fallbackUrl: String? = null, timeoutMs: Int): Long {
         val port = allocateLocalPort()
         val inbound = com.kunk.singbox.model.Inbound(
             type = "mixed",
@@ -307,116 +325,121 @@ class SingBoxCore private constructor(private val context: Context) {
             listen = "127.0.0.1",
             listenPort = port
         )
-        val direct = com.kunk.singbox.model.Outbound(type = "direct", tag = "direct")
+        return try {
+            val direct = com.kunk.singbox.model.Outbound(type = "direct", tag = "direct")
 
-        val settings = SettingsRepository.getInstance(context).settings.first()
+            val settings = SettingsRepository.getInstance(context).settings.first()
 
-        val config = SingBoxConfig(
-            log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
-            dns = com.kunk.singbox.model.DnsConfig(
-                servers = listOf(
-                    com.kunk.singbox.model.DnsServer(
-                        tag = "dns-bootstrap",
-                        address = "223.5.5.5",
-                        detour = "direct",
-                        strategy = "ipv4_only"
-                    ),
-                    com.kunk.singbox.model.DnsServer(
-                        tag = "local",
-                        address = settings.localDns.ifBlank { "https://dns.alidns.com/dns-query" },
-                        detour = "direct",
-                        addressResolver = "dns-bootstrap"
-                    ),
-                    com.kunk.singbox.model.DnsServer(
-                        tag = "remote",
-                        address = settings.remoteDns.ifBlank { "https://dns.google/dns-query" },
-                        detour = "direct",
-                        addressResolver = "dns-bootstrap"
+            val config = SingBoxConfig(
+                log = com.kunk.singbox.model.LogConfig(level = "warn", timestamp = true),
+                dns = com.kunk.singbox.model.DnsConfig(
+                    servers = listOf(
+                        com.kunk.singbox.model.DnsServer(
+                            tag = "dns-bootstrap",
+                            address = "223.5.5.5",
+                            detour = "direct",
+                            strategy = "ipv4_only"
+                        ),
+                        com.kunk.singbox.model.DnsServer(
+                            tag = "local",
+                            address = settings.localDns.ifBlank { "https://dns.alidns.com/dns-query" },
+                            detour = "direct",
+                            addressResolver = "dns-bootstrap"
+                        ),
+                        com.kunk.singbox.model.DnsServer(
+                            tag = "remote",
+                            address = settings.remoteDns.ifBlank { "https://dns.google/dns-query" },
+                            detour = "direct",
+                            addressResolver = "dns-bootstrap"
+                        )
                     )
-                )
-            ),
-            inbounds = listOf(inbound),
-            outbounds = listOf(outbound, direct),
-            route = com.kunk.singbox.model.RouteConfig(
-                rules = listOf(
-                    com.kunk.singbox.model.RouteRule(protocol = listOf("dns"), outbound = "direct"),
-                    com.kunk.singbox.model.RouteRule(inbound = listOf("test-in"), outbound = outbound.tag)
                 ),
-                finalOutbound = "direct",
-                autoDetectInterface = true
-            ),
-            experimental = null
-        )
+                inbounds = listOf(inbound),
+                outbounds = listOf(outbound, direct),
+                route = com.kunk.singbox.model.RouteConfig(
+                    rules = listOf(
+                        com.kunk.singbox.model.RouteRule(protocol = listOf("dns"), outbound = "direct"),
+                        com.kunk.singbox.model.RouteRule(inbound = listOf("test-in"), outbound = outbound.tag)
+                    ),
+                    finalOutbound = "direct",
+                    autoDetectInterface = true
+                ),
+                experimental = null
+            )
 
-        val configJson = gson.toJson(config)
-        var service: BoxService? = null
-        try {
-            ensureLibboxSetup(context)
-            val platformInterface = TestPlatformInterface(context)
-            service = Libbox.newService(configJson, platformInterface)
-            service.start()
-
-            val deadline = System.currentTimeMillis() + 1000L
-            while (System.currentTimeMillis() < deadline) {
-                try {
-                    Socket().use { s ->
-                        s.soTimeout = 200
-                        s.connect(InetSocketAddress("127.0.0.1", port), 200)
-                    }
-                    break
-                } catch (_: Exception) {
-                    delay(30)
-                }
-            }
-
-            delay(220)
-
-            val client = OkHttpClient.Builder()
-                .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
-                .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .build()
-
-            fun runOnce(url: String): Long {
-                val req = Request.Builder().url(url).get().build()
-                val t0 = System.nanoTime()
-                client.newCall(req).execute().use { resp ->
-                    if (resp.code >= 400) {
-                        throw java.io.IOException("HTTP proxy test failed with code=${resp.code}")
-                    }
-                    resp.body?.close()
-                }
-                return (System.nanoTime() - t0) / 1_000_000
-            }
-
+            val configJson = gson.toJson(config)
+            var service: BoxService? = null
             try {
-                try {
-                    runOnce(targetUrl)
-                } catch (e: Exception) {
-                    if ((e.message ?: "").contains("Connection reset", ignoreCase = true)) {
-                        delay(120)
-                        runOnce(targetUrl)
-                    } else {
-                        throw e
+                ensureLibboxSetup(context)
+                val platformInterface = TestPlatformInterface(context)
+                service = Libbox.newService(configJson, platformInterface)
+                service.start()
+
+                val deadline = System.currentTimeMillis() + 1000L
+                while (System.currentTimeMillis() < deadline) {
+                    try {
+                        Socket().use { s ->
+                            s.soTimeout = 200
+                            s.connect(InetSocketAddress("127.0.0.1", port), 200)
+                        }
+                        break
+                    } catch (_: Exception) {
+                        delay(30)
                     }
                 }
-            } catch (e: Exception) {
-                val fb = fallbackUrl
-                if (!fb.isNullOrBlank() && fb != targetUrl) {
+
+                delay(220)
+
+                val client = OkHttpClient.Builder()
+                    .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
+                    .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                    .build()
+
+                fun runOnce(url: String): Long {
+                    val req = Request.Builder().url(url).get().build()
+                    val t0 = System.nanoTime()
+                    client.newCall(req).execute().use { resp ->
+                        if (resp.code >= 400) {
+                            throw java.io.IOException("HTTP proxy test failed with code=${resp.code}")
+                        }
+                        resp.body?.close()
+                    }
+                    return (System.nanoTime() - t0) / 1_000_000
+                }
+
+                try {
                     try {
-                        runOnce(fb)
-                    } catch (e2: Exception) {
-                        Log.w(TAG, "HTTP proxy native test error: primary=${e.message}, fallback=${e2.message}")
+                        runOnce(targetUrl)
+                    } catch (e: Exception) {
+                        if ((e.message ?: "").contains("Connection reset", ignoreCase = true)) {
+                            delay(120)
+                            runOnce(targetUrl)
+                        } else {
+                            throw e
+                        }
+                    }
+                } catch (e: Exception) {
+                    val fb = fallbackUrl
+                    if (!fb.isNullOrBlank() && fb != targetUrl) {
+                        try {
+                            runOnce(fb)
+                        } catch (e2: Exception) {
+                            Log.w(TAG, "HTTP proxy native test error: primary=${e.message}, fallback=${e2.message}")
+                            -1L
+                        }
+                    } else {
+                        Log.w(TAG, "HTTP proxy native test error: ${e.message}")
                         -1L
                     }
-                } else {
-                    Log.w(TAG, "HTTP proxy native test error: ${e.message}")
-                    -1L
                 }
+            } finally {
+                try { service?.close() } catch (_: Exception) {}
             }
-        } finally {
-            try { service?.close() } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e(TAG, "Local HTTP proxy setup failed", e)
+            -1L
         }
     }
 
@@ -499,14 +522,16 @@ class SingBoxCore private constructor(private val context: Context) {
         timeoutMs: Int,
         method: LatencyTestMethod
     ): Long = withContext(Dispatchers.IO) {
-        // 尝试调用 native 方法 (如果 VPN 正在运行)
-        if (VpnStateStore.getActive(context) && libboxAvailable) {
-            val rtt = testWithLibboxStaticUrlTest(outbound, targetUrl, timeoutMs, method)
-            if (rtt >= 0) return@withContext rtt
+        libboxMutex.withLock {
+            // 尝试调用 native 方法 (如果 VPN 正在运行)
+            if (VpnStateStore.getActive(context) && libboxAvailable) {
+                val rtt = testWithLibboxStaticUrlTest(outbound, targetUrl, timeoutMs, method)
+                if (rtt >= 0) return@withLock rtt
+            }
+            
+            // 内核不支持或未运行，直接走 HTTP 代理测速
+            testWithLocalHttpProxyInternal(outbound, targetUrl, fallbackUrl, timeoutMs)
         }
-        
-        // 内核不支持或未运行，直接走 HTTP 代理测速
-        testWithLocalHttpProxy(outbound, targetUrl, fallbackUrl, timeoutMs)
     }
 
     private suspend fun testOutboundsLatencyOfflineWithTemporaryService(

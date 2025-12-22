@@ -14,7 +14,10 @@ data class ProfileUi(
     @SerializedName("lastUpdated") val lastUpdated: Long,
     @SerializedName("enabled") val enabled: Boolean,
     @SerializedName("autoUpdateInterval") val autoUpdateInterval: Int = 0, // 0 means disabled, minutes
-    @SerializedName("updateStatus") val updateStatus: UpdateStatus = UpdateStatus.Idle
+    @SerializedName("updateStatus") val updateStatus: UpdateStatus = UpdateStatus.Idle,
+    @SerializedName("expireDate") val expireDate: Long = 0,
+    @SerializedName("totalTraffic") val totalTraffic: Long = 0,
+    @SerializedName("usedTraffic") val usedTraffic: Long = 0
 )
 
 @Keep
@@ -106,7 +109,8 @@ data class NodeUi(
     @SerializedName("latencyMs") val latencyMs: Long? = null, // null means not tested
     @SerializedName("isFavorite") val isFavorite: Boolean = false,
     @SerializedName("sourceProfileId") val sourceProfileId: String,
-    @SerializedName("tags") val tags: List<String> = emptyList()
+    @SerializedName("tags") val tags: List<String> = emptyList(),
+    @SerializedName("trafficUsed") val trafficUsed: Long = 0
 ) {
     val displayName: String
         get() = name
