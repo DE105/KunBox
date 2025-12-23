@@ -179,7 +179,6 @@ SingBox-Android/
 
 *   **[SagerNet/sing-box](https://github.com/SagerNet/sing-box)**: The universal proxy platform.
 *   **[MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)**: NekoBox for Android.
-*   **[Kr328/ClashForAndroid](https://github.com/Kr328/ClashForAndroid)**: (Legacy) Inspiration for UI design.
 
 ## 📝 许可证
 
