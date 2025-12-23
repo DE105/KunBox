@@ -2,6 +2,8 @@ package com.kunk.singbox.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -42,8 +44,6 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import android.widget.Toast
@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -78,6 +79,7 @@ import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.ui.theme.Primary
 import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.TextPrimary
+import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -92,46 +94,24 @@ fun NodesScreen(
     val activeNodeId by viewModel.activeNodeId.collectAsState()
     val groups by viewModel.nodeGroups.collectAsState()
     val testingNodeIds by viewModel.testingNodeIds.collectAsState()
-    val switchResult by viewModel.switchResult.collectAsState()
-    val latencyMessage by viewModel.latencyMessage.collectAsState()
-    val addNodeResult by viewModel.addNodeResult.collectAsState()
     val nodeFilter by viewModel.nodeFilter.collectAsState()
-    
-    val snackbarHostState = remember { SnackbarHostState() }
 
     var selectedGroupIndex by remember { mutableStateOf(0) }
     val isTesting by viewModel.isTesting.collectAsState()
-    
-    // 显示节点切换结果
-    LaunchedEffect(switchResult) {
-        switchResult?.let { message ->
+
+    LaunchedEffect(Unit) {
+        viewModel.toastEvents.collectLatest { message ->
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            viewModel.clearSwitchResult()
         }
     }
-    // 显示单节点测速失败/超时提示
-    LaunchedEffect(latencyMessage) {
-        latencyMessage?.let { message ->
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            viewModel.clearLatencyMessage()
-        }
-    }
-    
-    // 显示添加节点结果提示
-    LaunchedEffect(addNodeResult) {
-        addNodeResult?.let { message ->
-            snackbarHostState.showSnackbar(message)
-            viewModel.clearAddNodeResult()
-        }
-    }
-    
+
     // 当groups变化时重置索引，避免越界
     LaunchedEffect(groups) {
         if (selectedGroupIndex >= groups.size) {
             selectedGroupIndex = 0
         }
     }
-    
+
     // Filter nodes based on selected group
     val filteredNodes by remember {
         androidx.compose.runtime.derivedStateOf {
@@ -143,7 +123,7 @@ fun NodesScreen(
             }
         }
     }
-    
+
     var showSortDialog by remember { mutableStateOf(false) }
     var showFilterDialog by remember { mutableStateOf(false) }
     var exportLink by remember { mutableStateOf<String?>(null) }
@@ -157,7 +137,7 @@ fun NodesScreen(
             "名称 (A -> Z)" to NodesViewModel.SortType.NAME,
             "地区" to NodesViewModel.SortType.REGION
         )
-        
+
         SingleSelectDialog(
             title = "排序方式",
             options = sortOptions.map { it.first },
@@ -169,7 +149,7 @@ fun NodesScreen(
             onDismiss = { showSortDialog = false }
         )
     }
-    
+
     if (showAddNodeDialog) {
         InputDialog(
             title = "添加节点",
@@ -182,7 +162,7 @@ fun NodesScreen(
             onDismiss = { showAddNodeDialog = false }
         )
     }
-    
+
     // 节点筛选对话框
     if (showFilterDialog) {
         NodeFilterDialog(
@@ -194,14 +174,15 @@ fun NodesScreen(
             onDismiss = { showFilterDialog = false }
         )
     }
-    
+
     if (exportLink != null) {
         InputDialog(
             title = "导出链接",
             initialValue = exportLink!!,
             confirmText = "复制",
-            onConfirm = { 
+            onConfirm = {
                 clipboardManager.setText(AnnotatedString(it))
+                Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
                 exportLink = null
             },
             onDismiss = { exportLink = null }
@@ -213,7 +194,6 @@ fun NodesScreen(
             .background(AppBackground)
             .statusBarsPadding(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End) {
                 AnimatedVisibility(
@@ -358,6 +338,16 @@ fun NodesScreen(
                     Tab(
                         selected = selectedGroupIndex == index,
                         onClick = { selectedGroupIndex = index },
+                        modifier = Modifier.pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    Toast.makeText(context, "分组由配置自动生成，如需删除请前往'配置管理'删除对应配置", Toast.LENGTH_LONG).show()
+                                },
+                                onTap = {
+                                    selectedGroupIndex = index
+                                }
+                            )
+                        },
                         text = {
                             Text(
                                 text = title,

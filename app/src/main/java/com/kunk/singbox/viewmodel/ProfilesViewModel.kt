@@ -8,9 +8,12 @@ import com.kunk.singbox.model.ProfileType
 import com.kunk.singbox.model.SubscriptionUpdateResult
 import com.kunk.singbox.repository.ConfigRepository
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -41,16 +44,36 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
     private val _updateStatus = MutableStateFlow<String?>(null)
     val updateStatus: StateFlow<String?> = _updateStatus.asStateFlow()
 
+    private val _toastEvents = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val toastEvents: SharedFlow<String> = _toastEvents.asSharedFlow()
+
+    private fun emitToast(message: String) {
+        _toastEvents.tryEmit(message)
+    }
+
     fun setActiveProfile(profileId: String) {
         configRepository.setActiveProfile(profileId)
+
+        val name = profiles.value.find { it.id == profileId }?.name
+        if (!name.isNullOrBlank()) {
+            emitToast("已切换到 $name")
+        }
     }
 
     fun toggleProfileEnabled(profileId: String) {
+        val before = profiles.value.find { it.id == profileId }
         configRepository.toggleProfileEnabled(profileId)
+
+        val name = before?.name
+        if (!name.isNullOrBlank()) {
+            val enabledAfter = !(before?.enabled ?: true)
+            emitToast(if (enabledAfter) "已启用: $name" else "已禁用: $name")
+        }
     }
 
     fun updateProfileMetadata(profileId: String, newName: String, newUrl: String?) {
         configRepository.updateProfileMetadata(profileId, newName, newUrl)
+        emitToast("配置已更新")
     }
 
     fun updateProfile(profileId: String) {
@@ -81,7 +104,13 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun deleteProfile(profileId: String) {
+        val name = profiles.value.find { it.id == profileId }?.name
         configRepository.deleteProfile(profileId)
+        if (!name.isNullOrBlank()) {
+            emitToast("已删除配置: $name")
+        } else {
+            emitToast("已删除配置")
+        }
     }
 
     /**

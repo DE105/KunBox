@@ -22,6 +22,7 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import okhttp3.OkHttpClient
@@ -102,8 +103,15 @@ class ConfigRepository(private val context: Context) {
     private val profileNodes = ConcurrentHashMap<String, List<NodeUi>>()
     private val profileResetJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
     private val inFlightLatencyTests = ConcurrentHashMap<String, Deferred<Long>>()
+
+    private val allNodesUiActiveCount = AtomicInteger(0)
+    @Volatile private var allNodesLoadedForUi: Boolean = false
     
     @Volatile private var lastTagToNodeName: Map<String, String> = emptyMap()
+    // 缓存上一次运行的配置中的 Outbound Tags 集合，用于判断是否需要重启 VPN
+    @Volatile private var lastRunOutboundTags: Set<String>? = null
+    // 缓存上一次运行的配置 ID，用于判断是否跨配置切换
+    @Volatile private var lastRunProfileId: String? = null
 
     fun resolveNodeNameFromOutboundTag(tag: String?): String? {
         if (tag.isNullOrBlank()) return null
@@ -198,11 +206,61 @@ class ConfigRepository(private val context: Context) {
     }
     
     private fun updateAllNodesAndGroups() {
+        if (allNodesUiActiveCount.get() <= 0) {
+            _allNodes.value = emptyList()
+            _allNodeGroups.value = emptyList()
+            return
+        }
+
         val all = profileNodes.values.flatten()
         _allNodes.value = all
-        
+
         val groups = all.map { it.group }.distinct().sorted()
         _allNodeGroups.value = groups
+    }
+
+    private fun loadAllNodesSnapshot(): List<NodeUi> {
+        val result = ArrayList<NodeUi>()
+        val profiles = _profiles.value
+        for (p in profiles) {
+            val cfg = loadConfig(p.id) ?: continue
+            result.addAll(extractNodesFromConfig(cfg, p.id))
+        }
+        return result
+    }
+
+    fun setAllNodesUiActive(active: Boolean) {
+        if (active) {
+            val after = allNodesUiActiveCount.incrementAndGet()
+            if (after == 1 && !allNodesLoadedForUi) {
+                scope.launch {
+                    val profiles = _profiles.value
+                    for (p in profiles) {
+                        val cfg = loadConfig(p.id) ?: continue
+                        profileNodes[p.id] = extractNodesFromConfig(cfg, p.id)
+                    }
+                    updateAllNodesAndGroups()
+                    allNodesLoadedForUi = true
+                }
+            }
+        } else {
+            while (true) {
+                val cur = allNodesUiActiveCount.get()
+                if (cur <= 0) break
+                if (allNodesUiActiveCount.compareAndSet(cur, cur - 1)) break
+            }
+            if (allNodesUiActiveCount.get() <= 0) {
+                allNodesLoadedForUi = false
+                val activeId = _activeProfileId.value
+                val keep = activeId?.let { profileNodes[it] }
+                profileNodes.clear()
+                if (activeId != null && keep != null) {
+                    profileNodes[activeId] = keep
+                }
+                _allNodes.value = emptyList()
+                _allNodeGroups.value = emptyList()
+            }
+        }
     }
 
     private fun updateLatencyInAllNodes(nodeId: String, latency: Long) {
@@ -241,8 +299,9 @@ class ConfigRepository(private val context: Context) {
                 }
                 _activeProfileId.value = savedData.activeProfileId
                 
-                // 加载每个配置的节点
+                // 加载活跃配置的节点
                 savedData.profiles.forEach { profile ->
+                    if (profile.id != savedData.activeProfileId) return@forEach
                     val configFile = File(configDir, "${profile.id}.json")
                     if (configFile.exists()) {
                         try {
@@ -250,17 +309,15 @@ class ConfigRepository(private val context: Context) {
                             val config = gson.fromJson(configJson, SingBoxConfig::class.java)
                             val nodes = extractNodesFromConfig(config, profile.id)
                             profileNodes[profile.id] = nodes
-
-                            if (profile.id == savedData.activeProfileId) {
-                                cacheConfig(profile.id, config)
-                            }
+                            cacheConfig(profile.id, config)
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to load config for profile: ${profile.id}", e)
                         }
                     }
                 }
-                
-                updateAllNodesAndGroups()
+                if (allNodesUiActiveCount.get() > 0) {
+                    updateAllNodesAndGroups()
+                }
                 
                 _activeProfileId.value?.let { activeId ->
                     profileNodes[activeId]?.let { nodes ->
@@ -1496,7 +1553,7 @@ class ConfigRepository(private val context: Context) {
                 }
             }
             
-            val sni = params["sni"] ?: params["host"] ?: server
+            val sni = params["sni"] ?: server
             val insecure = params["allowInsecure"] == "1" || params["insecure"] == "1"
             val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
             val fingerprint = params["fp"]
@@ -1736,7 +1793,13 @@ class ConfigRepository(private val context: Context) {
         
         for (outbound in outbounds) {
             if (outbound.type in proxyTypes) {
-                val group = nodeToGroup[outbound.tag] ?: "未分组"
+                var group = nodeToGroup[outbound.tag] ?: "未分组"
+                
+                // 校验分组名是否为有效名称 (避免链接被当作分组名)
+                if (group.contains("://") || group.length > 50) {
+                    group = "未分组"
+                }
+
                 val regionFlag = detectRegionFlag(outbound.tag)
                 
                 // 如果名称中已经包含该国旗，或者名称中已经包含任意国旗emoji，则不再添加
@@ -1848,11 +1911,28 @@ class ConfigRepository(private val context: Context) {
     
     fun setActiveProfile(profileId: String) {
         _activeProfileId.value = profileId
-        profileNodes[profileId]?.let { nodes ->
-            _nodes.value = nodes
-            updateNodeGroups(nodes)
-            if (nodes.isNotEmpty() && _activeNodeId.value !in nodes.map { it.id }) {
-                _activeNodeId.value = nodes.first().id
+        val cached = profileNodes[profileId]
+        if (cached != null) {
+            _nodes.value = cached
+            updateNodeGroups(cached)
+            if (cached.isNotEmpty() && _activeNodeId.value !in cached.map { it.id }) {
+                _activeNodeId.value = cached.first().id
+            }
+        } else {
+            _nodes.value = emptyList()
+            _nodeGroups.value = listOf("全部")
+            scope.launch {
+                val cfg = loadConfig(profileId) ?: return@launch
+                val nodes = extractNodesFromConfig(cfg, profileId)
+                profileNodes[profileId] = nodes
+                _nodes.value = nodes
+                updateNodeGroups(nodes)
+                if (nodes.isNotEmpty() && _activeNodeId.value !in nodes.map { it.id }) {
+                    _activeNodeId.value = nodes.first().id
+                }
+                if (allNodesUiActiveCount.get() > 0) {
+                    updateAllNodesAndGroups()
+                }
             }
         }
         saveProfiles()
@@ -1870,6 +1950,16 @@ class ConfigRepository(private val context: Context) {
     }
 
     suspend fun setActiveNodeWithResult(nodeId: String): NodeSwitchResult {
+        val allNodesSnapshot = _allNodes.value.takeIf { it.isNotEmpty() } ?: loadAllNodesSnapshot()
+
+        // Check for cross-profile switch
+        val targetNode = allNodesSnapshot.find { it.id == nodeId }
+        if (targetNode != null && targetNode.sourceProfileId != _activeProfileId.value) {
+            Log.i(TAG, "Cross-profile switch detected: ${_activeProfileId.value} -> ${targetNode.sourceProfileId}")
+            setActiveProfile(targetNode.sourceProfileId)
+            
+        }
+
         _activeNodeId.value = nodeId
         saveProfiles()
 
@@ -1884,10 +1974,18 @@ class ConfigRepository(private val context: Context) {
         }
         
         return withContext(Dispatchers.IO) {
-            val node = _nodes.value.find { it.id == nodeId }
+            // 尝试从当前配置查找节点
+            var node = _nodes.value.find { it.id == nodeId }
+            
+            // 如果找不到，尝试从所有节点查找（支持跨配置切换）
             if (node == null) {
-                Log.w(TAG, "Node not found: $nodeId")
-                return@withContext NodeSwitchResult.Success
+                node = allNodesSnapshot.find { it.id == nodeId }
+            }
+
+            if (node == null) {
+                val msg = "找不到目标节点: $nodeId"
+                Log.w(TAG, msg)
+                return@withContext NodeSwitchResult.Failed(msg)
             }
             
             try {
@@ -1901,34 +1999,48 @@ class ConfigRepository(private val context: Context) {
                 // ... [Skipping comments for brevity in replacement]
                 
                 // 修正 cache.db 清理逻辑
+                // 注意：这里删除可能不生效，因为 Service 进程关闭时可能会再次写入 cache.db
+                // 因此我们在 Service 进程启动时增加了一个 EXTRA_CLEAN_CACHE 参数来确保删除
                 runCatching {
-                    val cacheDir = File(context.filesDir, "singbox_data")
-                    val cacheDb = File(cacheDir, "cache.db")
-                    if (cacheDb.exists()) {
-                        cacheDb.delete()
-                        Log.i(TAG, "Deleted sing-box cache.db (singbox_data) to enforce config default on next run")
-                    }
                     // 兼容清理旧位置
                     val oldCacheDb = File(context.filesDir, "cache.db")
                     if (oldCacheDb.exists()) oldCacheDb.delete()
-                }.onFailure { e ->
-                    Log.w(TAG, "Failed to delete cache.db: ${e.message}")
                 }
 
-                // 尝试使用 ACTION_SWITCH_NODE 进行热切换
-                // 注意：这假设 Service 已经在运行。我们在前面检查了 VpnStateStore.getActive。
+                // 检查是否需要重启服务：如果 Outbound 列表发生了变化（例如跨配置切换、增删节点），
+                // 或者当前配置 ID 发生了变化（跨配置切换），则必须重启 VPN 以加载新的配置文件。
+                val currentTags = generationResult.outboundTags
+                val profileChanged = lastRunProfileId != _activeProfileId.value
+                val tagsChanged = lastRunOutboundTags == null || lastRunOutboundTags != currentTags || profileChanged
                 
+                // 更新缓存
+                lastRunOutboundTags = currentTags
+                lastRunProfileId = _activeProfileId.value
+
                 val coreMode = VpnStateStore.getMode(context)
                 val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
                     Intent(context, ProxyOnlyService::class.java).apply {
-                        action = ProxyOnlyService.ACTION_SWITCH_NODE
+                        if (tagsChanged) {
+                            action = ProxyOnlyService.ACTION_START
+                            Log.i(TAG, "Outbound tags changed (or first run), forcing RESTART/RELOAD")
+                        } else {
+                            action = ProxyOnlyService.ACTION_SWITCH_NODE
+                            Log.i(TAG, "Outbound tags match, attempting HOT SWITCH")
+                        }
                         putExtra("node_id", nodeId)
                         putExtra("outbound_tag", generationResult.activeNodeTag)
                         putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, generationResult.path)
                     }
                 } else {
                     Intent(context, SingBoxService::class.java).apply {
-                        action = SingBoxService.ACTION_SWITCH_NODE
+                        if (tagsChanged) {
+                            action = SingBoxService.ACTION_START
+                            putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
+                            Log.i(TAG, "Outbound tags changed (or first run), forcing RESTART/RELOAD with CACHE CLEAN")
+                        } else {
+                            action = SingBoxService.ACTION_SWITCH_NODE
+                            Log.i(TAG, "Outbound tags match, attempting HOT SWITCH")
+                        }
                         putExtra("node_id", nodeId)
                         putExtra("outbound_tag", generationResult.activeNodeTag)
                         putExtra(SingBoxService.EXTRA_CONFIG_PATH, generationResult.path)
@@ -1936,9 +2048,13 @@ class ConfigRepository(private val context: Context) {
                 }
 
                 // Service already running (VPN active). Use startService to avoid foreground-service timing constraints.
-                context.startService(intent)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && tagsChanged) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
 
-                Log.i(TAG, "Requested hot switch for node: ${node.name} (Tag: ${generationResult.activeNodeTag})")
+                Log.i(TAG, "Requested switch for node: ${node.name} (Tag: ${generationResult.activeNodeTag}, Restart: $tagsChanged)")
                 NodeSwitchResult.Success
             } catch (e: Exception) {
 
@@ -2307,7 +2423,8 @@ class ConfigRepository(private val context: Context) {
     
     data class ConfigGenerationResult(
         val path: String,
-        val activeNodeTag: String?
+        val activeNodeTag: String?,
+        val outboundTags: Set<String>
     )
 
     /**
@@ -2319,7 +2436,9 @@ class ConfigRepository(private val context: Context) {
             val activeId = _activeProfileId.value ?: return@withContext null
             val config = loadConfig(activeId) ?: return@withContext null
             val activeNodeId = _activeNodeId.value
+            val allNodesSnapshot = _allNodes.value.takeIf { it.isNotEmpty() } ?: loadAllNodesSnapshot()
             val activeNode = _nodes.value.find { it.id == activeNodeId }
+                ?: allNodesSnapshot.find { it.id == activeNodeId }
             
             // 获取当前设置
             val settings = settingsRepository.settings.first()
@@ -2330,11 +2449,11 @@ class ConfigRepository(private val context: Context) {
             val inbounds = buildRunInbounds(settings)
             val dns = buildRunDns(settings)
 
-            val outboundsContext = buildRunOutbounds(config, activeNode, settings)
+            val outboundsContext = buildRunOutbounds(config, activeNode, settings, allNodesSnapshot)
             val route = buildRunRoute(settings, outboundsContext.selectorTag, outboundsContext.outbounds, outboundsContext.nodeTagResolver)
 
             lastTagToNodeName = outboundsContext.nodeTagMap.mapNotNull { (nodeId, tag) ->
-                val name = _allNodes.value.firstOrNull { it.id == nodeId }?.name
+                val name = allNodesSnapshot.firstOrNull { it.id == nodeId }?.name
                 if (name.isNullOrBlank() || tag.isBlank()) null else (tag to name)
             }.toMap()
 
@@ -2361,10 +2480,13 @@ class ConfigRepository(private val context: Context) {
             Log.d(TAG, "Generated config file: ${configFile.absolutePath}")
             
             // 解析当前选中的节点在运行配置中的实际 Tag
-            val resolvedTag = activeNodeId?.let { outboundsContext.nodeTagMap[it] } 
+            val resolvedTag = activeNodeId?.let { outboundsContext.nodeTagMap[it] }
                 ?: activeNode?.name
                 
-            ConfigGenerationResult(configFile.absolutePath, resolvedTag)
+            // 收集所有 Outbound 的 tag
+            val allTags = runConfig.outbounds?.map { it.tag }?.toSet() ?: emptySet()
+
+            ConfigGenerationResult(configFile.absolutePath, resolvedTag, allTags)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to generate config file", e)
             null
@@ -2979,28 +3101,6 @@ class ConfigRepository(private val context: Context) {
         Log.v(TAG, "Generated ${rules.size} app routing rules")
         return rules
     }
-    
-    /**
-     * 构建运行时配置
-     */
-    private fun buildRunConfig(baseConfig: SingBoxConfig, activeNode: NodeUi?, settings: AppSettings): SingBoxConfig {
-        val log = buildRunLogConfig()
-        val experimental = buildRunExperimentalConfig(settings)
-        val inbounds = buildRunInbounds(settings)
-        val dns = buildRunDns(settings)
-
-        val outboundsContext = buildRunOutbounds(baseConfig, activeNode, settings)
-        val route = buildRunRoute(settings, outboundsContext.selectorTag, outboundsContext.outbounds, outboundsContext.nodeTagResolver)
-
-        return baseConfig.copy(
-            log = log,
-            experimental = experimental,
-            inbounds = inbounds,
-            dns = dns,
-            route = route,
-            outbounds = outboundsContext.outbounds
-        )
-    }
 
     private fun buildRunLogConfig(): LogConfig {
         return LogConfig(
@@ -3283,7 +3383,12 @@ class ConfigRepository(private val context: Context) {
         val nodeTagMap: Map<String, String>
     )
 
-    private fun buildRunOutbounds(baseConfig: SingBoxConfig, activeNode: NodeUi?, settings: AppSettings): RunOutboundsContext {
+    private fun buildRunOutbounds(
+        baseConfig: SingBoxConfig,
+        activeNode: NodeUi?,
+        settings: AppSettings,
+        allNodes: List<NodeUi>
+    ): RunOutboundsContext {
         val rawOutbounds = baseConfig.outbounds
         if (rawOutbounds.isNullOrEmpty()) {
             Log.w(TAG, "No outbounds found in base config, adding defaults")
@@ -3305,7 +3410,6 @@ class ConfigRepository(private val context: Context) {
 
         // --- 处理跨配置节点引用 ---
         val activeProfileId = _activeProfileId.value
-        val allNodes = _allNodes.value
         val requiredNodeIds = mutableSetOf<String>()
         val requiredGroupNames = mutableSetOf<String>()
         val requiredProfileIds = mutableSetOf<String>()

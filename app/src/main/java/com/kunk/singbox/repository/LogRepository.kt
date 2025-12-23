@@ -14,6 +14,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicInteger
 import android.os.Build
 
 class LogRepository private constructor() {
@@ -28,6 +29,20 @@ class LogRepository private constructor() {
     private val buffer = ArrayDeque<String>(maxLogSize)
     private val logVersion = AtomicLong(0)
     private val flushRunning = AtomicBoolean(false)
+    private val logUiActiveCount = AtomicInteger(0)
+
+    fun setLogUiActive(active: Boolean) {
+        if (active) {
+            logUiActiveCount.incrementAndGet()
+            requestFlush()
+        } else {
+            while (true) {
+                val cur = logUiActiveCount.get()
+                if (cur <= 0) return
+                if (logUiActiveCount.compareAndSet(cur, cur - 1)) return
+            }
+        }
+    }
 
     fun addLog(message: String) {
         val timestamp = synchronized(dateFormat) { dateFormat.format(Date()) }
@@ -50,6 +65,7 @@ class LogRepository private constructor() {
     }
 
     private fun requestFlush() {
+        if (logUiActiveCount.get() <= 0) return
         if (!flushRunning.compareAndSet(false, true)) return
 
         scope.launch {

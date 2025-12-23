@@ -62,6 +62,14 @@ class SingBoxService : VpnService() {
     private val gson = Gson()
     private var routeGroupAutoSelectJob: Job? = null
 
+    private val notificationUpdateDebounceMs: Long = 900L
+    private val lastNotificationUpdateAtMs = AtomicLong(0L)
+    @Volatile private var notificationUpdateJob: Job? = null
+
+    private val remoteStateUpdateDebounceMs: Long = 250L
+    private val lastRemoteStateUpdateAtMs = AtomicLong(0L)
+    @Volatile private var remoteStateUpdateJob: Job? = null
+
     data class ConnectionOwnerStatsSnapshot(
         val calls: Long,
         val invalidArgs: Long,
@@ -82,6 +90,7 @@ class SingBoxService : VpnService() {
         const val ACTION_SWITCH_NODE = "com.kunk.singbox.SWITCH_NODE"
         const val ACTION_SERVICE = "com.kunk.singbox.SERVICE"
         const val EXTRA_CONFIG_PATH = "config_path"
+        const val EXTRA_CLEAN_CACHE = "clean_cache"
         
         @Volatile
         var isRunning = false
@@ -338,7 +347,7 @@ class SingBoxService : VpnService() {
         return null
     }
 
-    private fun notifyRemoteState() {
+    private fun notifyRemoteStateNow() {
         SingBoxIpcHub.update(
             state = serviceState,
             activeLabel = getActiveLabelInternal(),
@@ -347,10 +356,39 @@ class SingBoxService : VpnService() {
         )
     }
 
+    private fun requestRemoteStateUpdate(force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        val last = lastRemoteStateUpdateAtMs.get()
+
+        if (force) {
+            lastRemoteStateUpdateAtMs.set(now)
+            remoteStateUpdateJob?.cancel()
+            remoteStateUpdateJob = null
+            notifyRemoteStateNow()
+            return
+        }
+
+        val delayMs = (remoteStateUpdateDebounceMs - (now - last)).coerceAtLeast(0L)
+        if (delayMs <= 0L) {
+            lastRemoteStateUpdateAtMs.set(now)
+            remoteStateUpdateJob?.cancel()
+            remoteStateUpdateJob = null
+            notifyRemoteStateNow()
+            return
+        }
+
+        if (remoteStateUpdateJob?.isActive == true) return
+        remoteStateUpdateJob = serviceScope.launch {
+            delay(delayMs)
+            lastRemoteStateUpdateAtMs.set(SystemClock.elapsedRealtime())
+            notifyRemoteStateNow()
+        }
+    }
+
     private fun updateServiceState(state: ServiceState) {
         if (serviceState == state) return
         serviceState = state
-        notifyRemoteState()
+        requestRemoteStateUpdate(force = true)
     }
 
     /**
@@ -422,8 +460,7 @@ class SingBoxService : VpnService() {
 
             // 4. 重置网络栈 & 清理 DNS
             try {
-                boxService?.resetNetwork()
-                // 如果有 clearDNSCache 方法也调用它
+                requestCoreNetworkReset(reason = "hotSwitch", force = true)
                 runCatching {
                     boxService?.javaClass?.getMethod("clearDNSCache")?.invoke(boxService)
                 }
@@ -435,7 +472,7 @@ class SingBoxService : VpnService() {
             runCatching {
                 LogRepository.getInstance().addLog("SUCCESS SingBoxService: Hot switch to $nodeTag completed")
             }
-            updateNotification()
+            requestNotificationUpdate(force = true)
             return true
             
         } catch (e: Exception) {
@@ -455,6 +492,7 @@ class SingBoxService : VpnService() {
     @Volatile private var isStopping: Boolean = false
     @Volatile private var stopSelfRequested: Boolean = false
     @Volatile private var pendingStartConfigPath: String? = null
+    @Volatile private var pendingCleanCache: Boolean = false
     @Volatile private var pendingHotSwitchNodeId: String? = null
     @Volatile private var connectionOwnerPermissionDeniedLogged = false
     @Volatile private var startVpnJob: Job? = null
@@ -478,26 +516,75 @@ class SingBoxService : VpnService() {
     private var lastUplinkTotal: Long = 0
     private var lastDownlinkTotal: Long = 0
 
+    private val coreResetDebounceMs: Long = 2500L
+    private val lastCoreNetworkResetAtMs = AtomicLong(0L)
+    @Volatile private var coreNetworkResetJob: Job? = null
+
     @Volatile private var lastRuleSetCheckMs: Long = 0L
     private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
 
     private val uidToPackageCache = ConcurrentHashMap<Int, String>()
-    @Volatile private var uidToPackageCacheReady: Boolean = false
-    private fun ensureUidToPackageCache() {
-        if (uidToPackageCacheReady) return
-        synchronized(uidToPackageCache) {
-            if (uidToPackageCacheReady) return
-            try {
-                val apps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-                for (app in apps) {
-                    val uid = app.uid
-                    if (uid > 0 && !uidToPackageCache.containsKey(uid)) {
-                        uidToPackageCache[uid] = app.packageName
-                    }
+    private val maxUidToPackageCacheSize: Int = 512
+
+    private fun cacheUidToPackage(uid: Int, pkg: String) {
+        if (uid <= 0 || pkg.isBlank()) return
+        uidToPackageCache[uid] = pkg
+        if (uidToPackageCache.size > maxUidToPackageCacheSize) {
+            uidToPackageCache.clear()
+        }
+    }
+
+    private fun requestCoreNetworkReset(reason: String, force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        val last = lastCoreNetworkResetAtMs.get()
+
+        if (force) {
+            if (now - last < 300L) return
+            lastCoreNetworkResetAtMs.set(now)
+            coreNetworkResetJob?.cancel()
+            coreNetworkResetJob = null
+            serviceScope.launch {
+                runCatching {
+                    boxService?.resetNetwork()
+                }.onSuccess {
+                    Log.d(TAG, "Core network stack reset triggered (reason=$reason)")
+                }.onFailure { e ->
+                    Log.w(TAG, "Failed to reset core network stack (reason=$reason)", e)
                 }
-                uidToPackageCacheReady = true
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to build uid->package cache", e)
+            }
+            return
+        }
+
+        val delayMs = (coreResetDebounceMs - (now - last)).coerceAtLeast(0L)
+        if (delayMs <= 0L) {
+            lastCoreNetworkResetAtMs.set(now)
+            coreNetworkResetJob?.cancel()
+            coreNetworkResetJob = null
+            serviceScope.launch {
+                runCatching {
+                    boxService?.resetNetwork()
+                }.onSuccess {
+                    Log.d(TAG, "Core network stack reset triggered (reason=$reason)")
+                }.onFailure { e ->
+                    Log.w(TAG, "Failed to reset core network stack (reason=$reason)", e)
+                }
+            }
+            return
+        }
+
+        if (coreNetworkResetJob?.isActive == true) return
+        coreNetworkResetJob = serviceScope.launch {
+            delay(delayMs)
+            val t = SystemClock.elapsedRealtime()
+            val last2 = lastCoreNetworkResetAtMs.get()
+            if (t - last2 < coreResetDebounceMs) return@launch
+            lastCoreNetworkResetAtMs.set(t)
+            runCatching {
+                boxService?.resetNetwork()
+            }.onSuccess {
+                Log.d(TAG, "Core network stack reset triggered (reason=$reason)")
+            }.onFailure { e ->
+                Log.w(TAG, "Failed to reset core network stack (reason=$reason)", e)
             }
         }
     }
@@ -506,7 +593,6 @@ class SingBoxService : VpnService() {
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var vpnNetworkCallback: ConnectivityManager.NetworkCallback? = null
-    private var nativeUrlTestWarmupJob: Job? = null
     private var currentInterfaceListener: InterfaceUpdateListener? = null
     private var defaultInterfaceName: String = ""
     private var lastKnownNetwork: Network? = null
@@ -600,9 +686,9 @@ class SingBoxService : VpnService() {
                 }
 
                 if (dnsServers.isEmpty()) {
-                    dnsServers.add("8.8.8.8")
-                    dnsServers.add("8.8.4.4")
                     dnsServers.add("223.5.5.5")
+                    dnsServers.add("119.29.29.29")
+                    dnsServers.add("1.1.1.1")
                 }
 
                 dnsServers.distinct().forEach {
@@ -960,12 +1046,22 @@ class SingBoxService : VpnService() {
                 if (!pkgs.isNullOrEmpty()) {
                     pkgs[0]
                 } else {
-                    ensureUidToPackageCache()
-                    uidToPackageCache[uid] ?: ""
+                    val name = runCatching { packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
+                    if (name.isNotBlank()) {
+                        cacheUidToPackage(uid, name)
+                        name
+                    } else {
+                        uidToPackageCache[uid] ?: ""
+                    }
                 }
             } catch (_: Exception) {
-                ensureUidToPackageCache()
-                uidToPackageCache[uid] ?: ""
+                val name = runCatching { packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
+                if (name.isNotBlank()) {
+                    cacheUidToPackage(uid, name)
+                    name
+                } else {
+                    uidToPackageCache[uid] ?: ""
+                }
             }
         }
         
@@ -1033,34 +1129,13 @@ class SingBoxService : VpnService() {
                             vpnHealthJob?.cancel()
                         }
                         // One-time warmup for native URLTest to avoid cold-start -1 on Nodes page
-                        if (nativeUrlTestWarmupJob?.isActive != true) {
-                            nativeUrlTestWarmupJob = serviceScope.launch {
-                                try {
-                                    // Slightly delay after validation to avoid cold DNS/route window
-                                    delay(800)
-                                    val repo = com.kunk.singbox.repository.ConfigRepository.getInstance(this@SingBoxService)
-                                    val activeNodeId = repo.activeNodeId.value
-                                    if (activeNodeId.isNullOrBlank()) {
-                                        Log.i(TAG, "Native URLTest warmup skipped: no active node")
-                                        return@launch
-                                    }
-                                    val nodeName = repo.nodes.value.find { it.id == activeNodeId }?.name
-                                    val r1 = withTimeoutOrNull(3000L) { repo.testNodeLatency(activeNodeId) } ?: -1L
-                                    Log.i(TAG, "Native URLTest warmup done(validated): ${nodeName ?: activeNodeId} -> $r1 ms")
-                                    if (r1 < 0) {
-                                        // Second-chance warmup for devices that still need a bit more time
-                                        delay(1000)
-                                        val r2 = withTimeoutOrNull(3000L) { repo.testNodeLatency(activeNodeId) } ?: -1L
-                                        Log.i(TAG, "Native URLTest warmup done(validated-2nd): ${nodeName ?: activeNodeId} -> $r2 ms")
-                                    }
-                                } catch (e: Exception) {
-                                    if (e is kotlinx.coroutines.CancellationException) {
-                                        return@launch
-                                    }
-                                    Log.w(TAG, "Native URLTest warmup failed", e)
-                                }
-                            }
-                        }
+                        // NOTE: Service-side URLTest warmup removed to avoid cross-process bbolt
+                        // database race condition with Dashboard's ping test. The Dashboard already
+                        // triggers a ping test when VPN becomes connected (via SingBoxRemote.isRunning),
+                        // so this warmup was redundant and caused "page already freed" panic when
+                        // both processes accessed the same bbolt db simultaneously.
+                        // See: https://github.com/sagernet/bbolt - concurrent access from multiple
+                        // processes to the same db file without proper locking causes corruption.
                     } else {
                         // Start a delayed recovery if not already running
                         if (vpnHealthJob?.isActive != true) {
@@ -1079,8 +1154,7 @@ class SingBoxService : VpnService() {
                                             com.kunk.singbox.repository.LogRepository.getInstance()
                                                 .addLog("INFO VPN health recovery: rebound to $bestNetwork")
                                         }
-                                        boxService?.resetNetwork()
-                                        Log.d(TAG, "Core network stack reset triggered during health recovery")
+                                        requestCoreNetworkReset(reason = "vpnHealthRecovery", force = false)
                                     } catch (e: Exception) {
                                         Log.e(TAG, "Failed to reset network stack during health recovery", e)
                                     }
@@ -1092,7 +1166,6 @@ class SingBoxService : VpnService() {
 
                 override fun onLost(network: Network) {
                     vpnHealthJob?.cancel()
-                    nativeUrlTestWarmupJob?.cancel()
                 }
             }
 
@@ -1291,15 +1364,7 @@ class SingBoxService : VpnService() {
                 postTunRebindJob = null
                 Log.i(TAG, "Switched underlying network to $network (upstream=$interfaceName)")
 
-                // Notify the core to reset its network stack and re-bind sockets
-                serviceScope.launch {
-                    try {
-                        boxService?.resetNetwork()
-                        Log.d(TAG, "Core network stack reset triggered")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to reset core network stack", e)
-                    }
-                }
+                requestCoreNetworkReset(reason = "underlyingNetworkChanged", force = false)
             }
 
             val now = System.currentTimeMillis()
@@ -1344,7 +1409,7 @@ class SingBoxService : VpnService() {
 
         serviceScope.launch {
             lastErrorFlow.collect {
-                notifyRemoteState()
+                requestRemoteStateUpdate(force = false)
             }
         }
 
@@ -1362,8 +1427,8 @@ class SingBoxService : VpnService() {
         serviceScope.launch {
             ConfigRepository.getInstance(this@SingBoxService).activeNodeId.collect { activeNodeId ->
                 if (isRunning) {
-                    updateNotification()
-                    notifyRemoteState()
+                    requestNotificationUpdate(force = false)
+                    requestRemoteStateUpdate(force = false)
                 }
             }
         }
@@ -1379,17 +1444,21 @@ class SingBoxService : VpnService() {
                 isManuallyStopped = false
                 VpnTileService.persistVpnPending(applicationContext, "starting")
                 val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
+                val cleanCache = intent.getBooleanExtra(EXTRA_CLEAN_CACHE, false)
+                
                 if (configPath != null) {
                     updateServiceState(ServiceState.STARTING)
                     synchronized(this) {
                         if (isStarting) {
                             pendingStartConfigPath = configPath
+                            if (cleanCache) pendingCleanCache = true
                             stopSelfRequested = false
                             lastConfigPath = configPath
                             return START_NOT_STICKY
                         }
                         if (isStopping) {
                             pendingStartConfigPath = configPath
+                            if (cleanCache) pendingCleanCache = true
                             stopSelfRequested = false
                             lastConfigPath = configPath
                             return START_NOT_STICKY
@@ -1397,6 +1466,7 @@ class SingBoxService : VpnService() {
                         // If already running, do a clean restart to avoid half-broken tunnel state
                         if (isRunning) {
                             pendingStartConfigPath = configPath
+                            if (cleanCache) pendingCleanCache = true
                             stopSelfRequested = false
                             lastConfigPath = configPath
                         }
@@ -1462,22 +1532,26 @@ class SingBoxService : VpnService() {
         serviceScope.launch {
             val configRepository = ConfigRepository.getInstance(this@SingBoxService)
             val node = configRepository.getNodeById(nodeId)
-            if (node == null) {
-                Log.w(TAG, "Hot switch failed: node not found $nodeId")
+            
+            // 如果提供了 outboundTag，即使 node 找不到也尝试切换
+            // 因为 Service 进程中的 configRepository 数据可能滞后于 UI 进程
+            val nodeTag = outboundTag ?: node?.name
+            
+            if (nodeTag == null) {
+                Log.w(TAG, "Hot switch failed: node not found $nodeId and no outboundTag provided")
                 return@launch
             }
 
-            // 优先使用传入的确切 tag，否则回退到 node.name
-            val nodeTag = outboundTag ?: node.name
             val success = hotSwitchNode(nodeTag)
             
             if (success) {
                 Log.i(TAG, "Hot switch successful for $nodeTag")
                 // Ensure notification reflects the newly selected node immediately.
                 // writeGroups callback may be delayed or missing on some cores/ROMs.
-                realTimeNodeName = node.name
-                runCatching { configRepository.syncActiveNodeFromProxySelection(node.name) }
-                updateNotification()
+                val displayName = node?.name ?: nodeTag
+                realTimeNodeName = displayName
+                runCatching { configRepository.syncActiveNodeFromProxySelection(displayName) }
+                requestNotificationUpdate(force = false)
             } else {
                 Log.w(TAG, "Hot switch failed for $nodeTag, falling back to restart")
                 // Fallback: restart VPN
@@ -1516,7 +1590,7 @@ class SingBoxService : VpnService() {
             
             val success = configRepository.setActiveNode(nextNode.id)
             if (success) {
-                updateNotification()
+                requestNotificationUpdate(force = false)
             }
         }
     }
@@ -1536,6 +1610,7 @@ class SingBoxService : VpnService() {
                 pendingStartConfigPath = configPath
                 stopSelfRequested = false
                 lastConfigPath = configPath
+                // Keep pendingCleanCache as is
                 return
             }
             isStarting = true
@@ -1626,8 +1701,8 @@ class SingBoxService : VpnService() {
                     }
                     // Always allow network download if rule sets are missing
                     val allReady = ruleSetRepo.ensureRuleSetsReady(
-                        forceUpdate = shouldForceUpdate,
-                        allowNetwork = true
+                        forceUpdate = false,
+                        allowNetwork = false
                     ) { progress ->
                         Log.v(TAG, "Rule set update: $progress")
                     }
@@ -1659,6 +1734,27 @@ class SingBoxService : VpnService() {
                     Log.w(TAG, "Libbox setup warning: ${e.message}")
                 }
                 
+                // 如果有清理缓存请求（跨配置切换），在启动前删除 cache.db
+                // 这确保 sing-box 启动时使用配置文件中的默认选中项，而不是恢复旧的（可能无效的）状态
+                val cleanCache = synchronized(this@SingBoxService) {
+                    val c = pendingCleanCache
+                    pendingCleanCache = false
+                    c
+                }
+                if (cleanCache) {
+                    runCatching {
+                        val cacheDir = File(filesDir, "singbox_data")
+                        val cacheDb = File(cacheDir, "cache.db")
+                        if (cacheDb.exists()) {
+                            if (cacheDb.delete()) {
+                                Log.i(TAG, "Deleted cache.db on start (clean_cache=true)")
+                            } else {
+                                Log.w(TAG, "Failed to delete cache.db on start")
+                            }
+                        }
+                    }
+                }
+
                 // 创建并启动 BoxService
                 boxService = Libbox.newService(configContent, platformInterface)
                 boxService?.start()
@@ -1750,8 +1846,7 @@ class SingBoxService : VpnService() {
                                     }
                                 }
                             }
-                            boxService?.resetNetwork()
-                            Log.d(TAG, "Core network stack reset triggered (post-start)")
+                            requestCoreNetworkReset(reason = "postStartProbe", force = false)
                         } catch (_: Exception) {
                         }
                     }
@@ -1861,10 +1956,17 @@ class SingBoxService : VpnService() {
 
         vpnHealthJob?.cancel()
         vpnHealthJob = null
+
+        coreNetworkResetJob?.cancel()
+        coreNetworkResetJob = null
+
+        notificationUpdateJob?.cancel()
+        notificationUpdateJob = null
+
+        remoteStateUpdateJob?.cancel()
+        remoteStateUpdateJob = null
         // nodePollingJob?.cancel()
         // nodePollingJob = null
-        nativeUrlTestWarmupJob?.cancel()
-        nativeUrlTestWarmupJob = null
 
         routeGroupAutoSelectJob?.cancel()
         routeGroupAutoSelectJob = null
@@ -2033,6 +2135,35 @@ class SingBoxService : VpnService() {
                 val manager = getSystemService(NotificationManager::class.java)
                 manager.notify(NOTIFICATION_ID, notification)
             }
+        }
+    }
+
+    private fun requestNotificationUpdate(force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        val last = lastNotificationUpdateAtMs.get()
+
+        if (force) {
+            lastNotificationUpdateAtMs.set(now)
+            notificationUpdateJob?.cancel()
+            notificationUpdateJob = null
+            updateNotification()
+            return
+        }
+
+        val delayMs = (notificationUpdateDebounceMs - (now - last)).coerceAtLeast(0L)
+        if (delayMs <= 0L) {
+            lastNotificationUpdateAtMs.set(now)
+            notificationUpdateJob?.cancel()
+            notificationUpdateJob = null
+            updateNotification()
+            return
+        }
+
+        if (notificationUpdateJob?.isActive == true) return
+        notificationUpdateJob = serviceScope.launch {
+            delay(delayMs)
+            lastNotificationUpdateAtMs.set(SystemClock.elapsedRealtime())
+            updateNotification()
         }
     }
 
@@ -2401,7 +2532,7 @@ class SingBoxService : VpnService() {
                     }
 
                     if (changed) {
-                        updateNotification()
+                        requestNotificationUpdate(force = false)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error processing groups update", e)
@@ -2417,6 +2548,8 @@ class SingBoxService : VpnService() {
                     var newestConnection: Connection? = null
                     val ids = ArrayList<String>(64)
                     val egressCounts = LinkedHashMap<String, Int>()
+
+                    val repo = ConfigRepository.getInstance(this@SingBoxService)
                     
                     while (iterator.hasNext()) {
                         val conn = iterator.next()
@@ -2430,14 +2563,13 @@ class SingBoxService : VpnService() {
                             newestConnection = conn
                         }
 
-                        runCatching {
-                            ids.add(conn.id)
+                        val id = conn.id
+                        if (!id.isNullOrBlank()) {
+                            ids.add(id)
                         }
 
                         // 汇总所有活跃连接的 egress：优先使用 conn.rule (通常就是最终 outbound tag)
                         // 仅在 rule 无法识别时才回退使用 chain
-                        val repo = ConfigRepository.getInstance(this@SingBoxService)
-
                         var candidateTag: String? = conn.rule
                         if (candidateTag.isNullOrBlank() || candidateTag == "dns-out") {
                             candidateTag = null
@@ -2523,7 +2655,7 @@ class SingBoxService : VpnService() {
                         if (newNode != null) {
                             Log.v(TAG, "Active connection node: $newNode")
                         }
-                        updateNotification()
+                        requestNotificationUpdate(force = false)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error processing connections update", e)
@@ -2537,18 +2669,17 @@ class SingBoxService : VpnService() {
         commandServer?.start()
         Log.i(TAG, "CommandServer started")
 
-        // 2. Create and connect CommandClient
+        // 1. Create and connect CommandClient (Groups + Status)
         val options = CommandClientOptions()
         // CommandGroup | CommandStatus
         options.command = Libbox.CommandGroup or Libbox.CommandStatus
-        options.statusInterval = 1500 * 1000 * 1000 // 1.5s (unit: ns)
+        options.statusInterval = 3000L * 1000L * 1000L // 3s (unit: ns)
         // libbox code: ticker := time.NewTicker(time.Duration(interval))
         // Go's time.Duration is nanoseconds.
         // But let's check how it's passed. Java/Kotlin long -> Go int64.
         // Usually Go bind maps basic types directly.
         // Wait, command_client.go:87 binary.Write(conn, ..., c.options.StatusInterval)
-        // command_server.go:33 binary.Read(conn, ..., &interval); ticker := time.NewTicker(time.Duration(interval))
-        // So yes, it is nanoseconds. 1.5s = 1_500_000_000 ns.
+        // So yes, it is nanoseconds. 3s = 3_000_000_000 ns.
         
         commandClient = Libbox.newCommandClient(clientHandler, options)
         commandClient?.connect()
@@ -2557,7 +2688,7 @@ class SingBoxService : VpnService() {
         // 3. Create and connect CommandClient for Connections (to show real-time routing)
         val optionsConn = CommandClientOptions()
         optionsConn.command = Libbox.CommandConnections // 14
-        optionsConn.statusInterval = 2000 * 1000 * 1000 // 2s
+        optionsConn.statusInterval = 5000L * 1000L * 1000L // 5s
         
         commandClientConnections = Libbox.newCommandClient(clientHandler, optionsConn)
         commandClientConnections?.connect()
@@ -2596,7 +2727,7 @@ class SingBoxService : VpnService() {
                         Log.i(TAG, "Post-TUN rebind success ($reason): $bestNetwork")
                         com.kunk.singbox.repository.LogRepository.getInstance()
                             .addLog("INFO postTunRebind: $bestNetwork (reason=$reason)")
-                        boxService?.resetNetwork()
+                        requestCoreNetworkReset(reason = "postTunRebind:$reason", force = false)
                     } catch (e: Exception) {
                         Log.w(TAG, "Post-TUN rebind failed ($reason): ${e.message}")
                     }

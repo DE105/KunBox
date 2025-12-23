@@ -13,7 +13,7 @@ data class AppSettings(
     
     // TUN/VPN 设置
     @SerializedName("tunEnabled") val tunEnabled: Boolean = true,
-    @SerializedName("tunStack") val tunStack: TunStack = TunStack.GVISOR,
+    @SerializedName("tunStack") val tunStack: TunStack = TunStack.SYSTEM,
     @SerializedName("tunMtu") val tunMtu: Int = 1280,
     @SerializedName("tunInterfaceName") val tunInterfaceName: String = "tun0",
     @SerializedName("autoRoute") val autoRoute: Boolean = true,
@@ -80,7 +80,7 @@ enum class TunStack(val displayName: String) {
     
     companion object {
         fun fromDisplayName(name: String): TunStack {
-            return entries.find { it.displayName == name } ?: GVISOR
+            return entries.find { it.displayName == name } ?: SYSTEM
         }
     }
 }

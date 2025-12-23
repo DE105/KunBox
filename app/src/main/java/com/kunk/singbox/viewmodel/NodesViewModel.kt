@@ -8,9 +8,12 @@ import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -110,6 +113,51 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
+    val filteredAllNodes: StateFlow<List<NodeUi>> = combine(
+        configRepository.allNodes,
+        _sortType,
+        _nodeFilter
+    ) { nodes, sortType, filter ->
+        val filtered = when (filter.filterMode) {
+            FilterMode.NONE -> nodes
+            FilterMode.INCLUDE -> {
+                if (filter.keywords.isEmpty()) {
+                    nodes
+                } else {
+                    nodes.filter { node ->
+                        filter.keywords.any { keyword ->
+                            node.displayName.contains(keyword, ignoreCase = true)
+                        }
+                    }
+                }
+            }
+            FilterMode.EXCLUDE -> {
+                if (filter.keywords.isEmpty()) {
+                    nodes
+                } else {
+                    nodes.filter { node ->
+                        filter.keywords.none { keyword ->
+                            node.displayName.contains(keyword, ignoreCase = true)
+                        }
+                    }
+                }
+            }
+        }
+        when (sortType) {
+            SortType.DEFAULT -> filtered
+            SortType.LATENCY -> filtered.sortedWith(compareBy<NodeUi> {
+                val l = it.latencyMs
+                if (l == null || l <= 0) Long.MAX_VALUE else l
+            })
+            SortType.NAME -> filtered.sortedBy { it.name }
+            SortType.REGION -> filtered.sortedBy { it.regionFlag ?: "\uFFFF" }
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
     val nodeGroups: StateFlow<List<String>> = configRepository.nodeGroups
         .stateIn(
             scope = viewModelScope,
@@ -149,17 +197,27 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     private val _addNodeResult = MutableStateFlow<String?>(null)
     val addNodeResult: StateFlow<String?> = _addNodeResult.asStateFlow()
 
+    private val _toastEvents = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val toastEvents: SharedFlow<String> = _toastEvents.asSharedFlow()
+
+    private fun emitToast(message: String) {
+        _toastEvents.tryEmit(message)
+    }
+
     fun setActiveNode(nodeId: String) {
         viewModelScope.launch {
-            val node = nodes.value.find { it.id == nodeId }
+            // 使用 configRepository 获取节点，避免因过滤导致找不到节点名称
+            val node = configRepository.getNodeById(nodeId)
             val success = configRepository.setActiveNode(nodeId)
-            if (SingBoxRemote.isRunning.value && node != null) {
-                _switchResult.value = if (success) {
-                    "已切换到 ${node.name}"
-                } else {
-                    "切换到 ${node.name} 失败"
-                }
+
+            val nodeName = node?.displayName ?: "未知节点"
+            val msg = if (success) {
+                "已切换到 $nodeName"
+            } else {
+                "切换到 $nodeName 失败"
             }
+            _switchResult.value = msg
+            emitToast(msg)
         }
     }
 
@@ -175,7 +233,9 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
                 val node = nodes.value.find { it.id == nodeId }
                 val latency = configRepository.testNodeLatency(nodeId)
                 if (latency <= 0) {
-                    _latencyMessage.value = "${node?.displayName ?: "该节点"} 测速失败/超时"
+                    val msg = "${node?.displayName ?: "该节点"} 测速失败/超时"
+                    _latencyMessage.value = msg
+                    emitToast(msg)
                 }
             } finally {
                 _testingNodeIds.value = _testingNodeIds.value - nodeId
@@ -231,7 +291,9 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteNode(nodeId: String) {
         viewModelScope.launch {
+            val nodeName = configRepository.getNodeById(nodeId)?.displayName ?: "该节点"
             configRepository.deleteNode(nodeId)
+            emitToast("已删除节点: $nodeName")
         }
     }
 
@@ -249,6 +311,7 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             settingsRepository.setNodeFilter(filter)
         }
+        emitToast("筛选已应用")
     }
     
     // 清除节点过滤条件
@@ -258,12 +321,18 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             settingsRepository.setNodeFilter(emptyFilter)
         }
+        emitToast("已清除筛选")
     }
     
     fun clearLatency() {
         viewModelScope.launch {
             configRepository.clearAllNodesLatency()
+            emitToast("已清空延迟")
         }
+    }
+
+    fun setAllNodesUiActive(active: Boolean) {
+        configRepository.setAllNodesUiActive(active)
     }
     
     fun addNode(content: String) {
@@ -279,14 +348,19 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
             
             if (supportedPrefixes.none { trimmedContent.startsWith(it) }) {
                 _addNodeResult.value = "不支持的链接格式"
+                emitToast("不支持的链接格式")
                 return@launch
             }
             
             val result = configRepository.addSingleNode(trimmedContent)
             result.onSuccess { node ->
-                _addNodeResult.value = "已添加节点: ${node.displayName}"
+                val msg = "已添加节点: ${node.displayName}"
+                _addNodeResult.value = msg
+                emitToast(msg)
             }.onFailure { e ->
-                _addNodeResult.value = e.message ?: "添加失败"
+                val msg = e.message ?: "添加失败"
+                _addNodeResult.value = msg
+                emitToast(msg)
             }
         }
     }

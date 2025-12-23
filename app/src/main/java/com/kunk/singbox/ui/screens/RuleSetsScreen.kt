@@ -45,6 +45,7 @@ import com.kunk.singbox.model.RuleSet
 import com.kunk.singbox.model.RuleSetType
 import com.kunk.singbox.ui.components.ClickableDropdownField
 import com.kunk.singbox.ui.components.ConfirmDialog
+import com.kunk.singbox.ui.components.ProfileNodeSelectDialog
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.components.StyledTextField
@@ -156,9 +157,17 @@ fun RuleSetsScreen(
 ) {
     val settings by settingsViewModel.settings.collectAsState()
     val downloadingRuleSets by settingsViewModel.downloadingRuleSets.collectAsState()
-    val nodes by nodesViewModel.allNodes.collectAsState()
+    val allNodes by nodesViewModel.allNodes.collectAsState()
+    val nodesForSelection by nodesViewModel.filteredAllNodes.collectAsState()
     val groups by nodesViewModel.allNodeGroups.collectAsState()
     val profiles by profilesViewModel.profiles.collectAsState()
+
+    DisposableEffect(Unit) {
+        nodesViewModel.setAllNodesUiActive(true)
+        onDispose {
+            nodesViewModel.setAllNodesUiActive(false)
+        }
+    }
     
     var showAddDialog by remember { mutableStateOf(false) }
     var editingRuleSet by remember { mutableStateOf<RuleSet?>(null) }
@@ -175,10 +184,13 @@ fun RuleSetsScreen(
     var outboundEditingRuleSet by remember { mutableStateOf<RuleSet?>(null) }
     var showOutboundModeDialog by remember { mutableStateOf(false) }
     var showTargetSelectionDialog by remember { mutableStateOf(false) }
+    var showNodeSelectionDialog by remember { mutableStateOf(false) }
     var showInboundDialog by remember { mutableStateOf(false) }
     var targetSelectionTitle by remember { mutableStateOf("") }
     var targetOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     val availableInbounds = listOf("tun", "mixed")
+
+    val selectionNodes = nodesForSelection
     
     // Helper functions for node resolution
     fun resolveNodeByStoredValue(value: String?): NodeUi? {
@@ -187,9 +199,9 @@ fun RuleSetsScreen(
         if (parts.size == 2) {
             val profileId = parts[0]
             val name = parts[1]
-            return nodes.find { it.sourceProfileId == profileId && it.name == name }
+            return allNodes.find { it.sourceProfileId == profileId && it.name == name }
         }
-        return nodes.find { it.id == value } ?: nodes.find { it.name == value }
+        return allNodes.find { it.id == value } ?: allNodes.find { it.name == value }
     }
     
     fun toNodeRef(node: NodeUi): String = "${node.sourceProfileId}::${node.name}"
@@ -340,11 +352,7 @@ fun RuleSetsScreen(
 
                     when (selectedMode) {
                         RuleSetOutboundMode.NODE -> {
-                            targetSelectionTitle = "选择节点"
-                            targetOptions = nodes.map { node ->
-                                val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
-                                "${node.name} ($profileName)" to toNodeRef(node)
-                            }
+                            showNodeSelectionDialog = true
                         }
                         RuleSetOutboundMode.PROFILE -> {
                             targetSelectionTitle = "选择配置"
@@ -356,7 +364,9 @@ fun RuleSetsScreen(
                         }
                         else -> {}
                     }
-                    showTargetSelectionDialog = true
+                    if (selectedMode != RuleSetOutboundMode.NODE) {
+                        showTargetSelectionDialog = true
+                    }
                 } else {
                     settingsViewModel.updateRuleSet(updatedRuleSet)
                     outboundEditingRuleSet = null
@@ -387,6 +397,25 @@ fun RuleSetsScreen(
             },
             onDismiss = {
                 showTargetSelectionDialog = false
+                outboundEditingRuleSet = null
+            }
+        )
+    }
+
+    if (showNodeSelectionDialog && outboundEditingRuleSet != null) {
+        val currentValue = outboundEditingRuleSet!!.outboundValue
+        val currentRef = resolveNodeByStoredValue(currentValue)?.let { toNodeRef(it) } ?: currentValue
+        ProfileNodeSelectDialog(
+            title = "选择节点",
+            profiles = profiles,
+            nodesForSelection = selectionNodes,
+            selectedNodeRef = currentRef,
+            onSelect = { ref ->
+                val updatedRuleSet = outboundEditingRuleSet!!.copy(outboundValue = ref)
+                settingsViewModel.updateRuleSet(updatedRuleSet)
+            },
+            onDismiss = {
+                showNodeSelectionDialog = false
                 outboundEditingRuleSet = null
             }
         )

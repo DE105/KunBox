@@ -232,7 +232,7 @@ class SettingsRepository(private val context: Context) {
             
             // TUN/VPN 设置
             tunEnabled = preferences[PreferencesKeys.TUN_ENABLED] ?: true,
-            tunStack = TunStack.fromDisplayName(preferences[PreferencesKeys.TUN_STACK] ?: "gVisor"),
+            tunStack = TunStack.fromDisplayName(preferences[PreferencesKeys.TUN_STACK] ?: TunStack.SYSTEM.displayName),
             tunMtu = preferences[PreferencesKeys.TUN_MTU] ?: 1280,
             tunInterfaceName = preferences[PreferencesKeys.TUN_INTERFACE_NAME] ?: "tun0",
             autoRoute = preferences[PreferencesKeys.AUTO_ROUTE] ?: true,

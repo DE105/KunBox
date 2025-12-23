@@ -71,6 +71,7 @@ import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.SurfaceCard
 import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.ui.theme.TextSecondary
+import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 fun ProfilesScreen(
@@ -90,6 +91,12 @@ fun ProfilesScreen(
     
     val context = LocalContext.current
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.toastEvents.collectLatest { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // Handle update state feedback
     androidx.compose.runtime.LaunchedEffect(updateStatus) {
@@ -152,13 +159,18 @@ fun ProfilesScreen(
             initialValue = "",
             confirmText = "导入",
             onConfirm = { name ->
+                if (name.contains("://")) {
+                    Toast.makeText(context, "配置名称不能包含链接", Toast.LENGTH_SHORT).show()
+                    return@InputDialog
+                }
+
                 val content = clipboardManager.getText()?.text ?: ""
                 if (content.isNotBlank()) {
                     viewModel.importFromContent(if (name.isBlank()) "剪贴板导入" else name, content)
+                    showClipboardInput = false
                 } else {
                     Toast.makeText(context, "剪贴板为空", Toast.LENGTH_SHORT).show()
                 }
-                showClipboardInput = false
             },
             onDismiss = { showClipboardInput = false }
         )
@@ -184,7 +196,6 @@ fun ProfilesScreen(
             onConfirm = { name, url ->
                 viewModel.updateProfileMetadata(profile.id, name, url)
                 editingProfile = null
-                Toast.makeText(context, "配置已更新", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -431,8 +442,35 @@ private fun SubscriptionInputDialog(
             
             Spacer(modifier = Modifier.height(24.dp))
             
+            val context = LocalContext.current
+            
             Button(
-                onClick = { onConfirm(name, url) },
+                onClick = {
+                    // 校验订阅链接是否为单节点链接
+                    val isNodeLink = url.trim().let {
+                        it.startsWith("vmess://") || it.startsWith("vless://") ||
+                        it.startsWith("ss://") || it.startsWith("ssr://") ||
+                        it.startsWith("trojan://") || it.startsWith("hysteria://") ||
+                        it.startsWith("hysteria2://") || it.startsWith("hy2://") ||
+                        it.startsWith("tuic://") || it.startsWith("bean://") ||
+                        it.startsWith("wireguard://") || it.startsWith("ssh://")
+                    }
+                    
+                    if (isNodeLink) {
+                        Toast.makeText(context,
+                            "禁止在订阅链接中填入单节点，请使用'剪贴板'导入或'添加节点'功能",
+                            Toast.LENGTH_LONG).show()
+                        return@Button
+                    }
+                    
+                    // 校验名称是否非法（看起来像链接）
+                    if (name.contains("://")) {
+                        Toast.makeText(context, "配置名称不能包含链接", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
+                    onConfirm(name, url)
+                },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = Color.Black),
                 shape = RoundedCornerShape(25.dp)

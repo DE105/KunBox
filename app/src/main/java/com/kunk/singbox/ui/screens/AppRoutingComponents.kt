@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import com.kunk.singbox.model.*
 import com.kunk.singbox.ui.components.ClickableDropdownField
+import com.kunk.singbox.ui.components.ProfileNodeSelectDialog
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.components.StyledTextField
@@ -96,6 +97,7 @@ fun AppRuleEditorDialog(
     installedApps: List<InstalledApp>,
     existingPackages: Set<String>,
     nodes: List<NodeUi>,
+    nodesForSelection: List<NodeUi>? = null,
     profiles: List<ProfileUi>,
     groups: List<String>,
     onDismiss: () -> Unit,
@@ -107,8 +109,11 @@ fun AppRuleEditorDialog(
     var showAppPicker by remember { mutableStateOf(false) }
     var showOutboundModeDialog by remember { mutableStateOf(false) }
     var showTargetSelectionDialog by remember { mutableStateOf(false) }
+    var showNodeSelectionDialog by remember { mutableStateOf(false) }
     var targetSelectionTitle by remember { mutableStateOf("") }
     var targetOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+
+    val selectionNodes = nodesForSelection ?: nodes
 
     fun resolveNodeByStoredValue(value: String?): NodeUi? {
         if (value.isNullOrBlank()) return null
@@ -137,19 +142,29 @@ fun AppRuleEditorDialog(
             if (selectedMode == RuleSetOutboundMode.NODE || selectedMode == RuleSetOutboundMode.PROFILE || selectedMode == RuleSetOutboundMode.GROUP) {
                 when (selectedMode) {
                     RuleSetOutboundMode.NODE -> {
-                        targetSelectionTitle = "选择节点"
-                        targetOptions = nodes.map { node ->
-                            val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
-                            "${node.name} ($profileName)" to toNodeRef(node)
-                        }
+                        showNodeSelectionDialog = true
                     }
                     RuleSetOutboundMode.PROFILE -> { targetSelectionTitle = "选择配置"; targetOptions = profiles.map { it.name to it.id } }
                     RuleSetOutboundMode.GROUP -> { targetSelectionTitle = "选择节点组"; targetOptions = groups.map { it to it } }
                     else -> {}
                 }
-                showTargetSelectionDialog = true
+                if (selectedMode != RuleSetOutboundMode.NODE) {
+                    showTargetSelectionDialog = true
+                }
             }
         }, onDismiss = { showOutboundModeDialog = false })
+    }
+
+    if (showNodeSelectionDialog) {
+        val currentRef = resolveNodeByStoredValue(outboundValue)?.let { toNodeRef(it) } ?: outboundValue
+        ProfileNodeSelectDialog(
+            title = "选择节点",
+            profiles = profiles,
+            nodesForSelection = selectionNodes,
+            selectedNodeRef = currentRef,
+            onSelect = { ref -> outboundValue = ref },
+            onDismiss = { showNodeSelectionDialog = false }
+        )
     }
 
     if (showTargetSelectionDialog) {
@@ -180,17 +195,15 @@ fun AppRuleEditorDialog(
                     ClickableDropdownField(label = "选择目标", value = targetName, onClick = {
                         when (outboundMode) {
                             RuleSetOutboundMode.NODE -> {
-                                targetSelectionTitle = "选择节点"
-                                targetOptions = nodes.map { node ->
-                                    val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
-                                    "${node.name} ($profileName)" to toNodeRef(node)
-                                }
+                                showNodeSelectionDialog = true
                             }
                             RuleSetOutboundMode.PROFILE -> { targetSelectionTitle = "选择配置"; targetOptions = profiles.map { it.name to it.id } }
                             RuleSetOutboundMode.GROUP -> { targetSelectionTitle = "选择节点组"; targetOptions = groups.map { it to it } }
                             else -> {}
                         }
-                        showTargetSelectionDialog = true
+                        if (outboundMode != RuleSetOutboundMode.NODE) {
+                            showTargetSelectionDialog = true
+                        }
                     })
                 }
             }
@@ -532,6 +545,7 @@ fun AppGroupEditorDialog(
     initialGroup: AppGroup? = null,
     installedApps: List<InstalledApp>,
     nodes: List<NodeUi>,
+    nodesForSelection: List<NodeUi>? = null,
     profiles: List<ProfileUi>,
     groups: List<String>,
     onDismiss: () -> Unit,
@@ -545,9 +559,12 @@ fun AppGroupEditorDialog(
     var showAppSelector by remember { mutableStateOf(false) }
     var showOutboundModeDialog by remember { mutableStateOf(false) }
     var showTargetSelectionDialog by remember { mutableStateOf(false) }
+    var showNodeSelectionDialog by remember { mutableStateOf(false) }
     
     var targetSelectionTitle by remember { mutableStateOf("") }
     var targetOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+
+    val selectionNodes = nodesForSelection ?: nodes
 
     fun resolveNodeByStoredValue(value: String?): NodeUi? {
         if (value.isNullOrBlank()) return null
@@ -594,11 +611,7 @@ fun AppGroupEditorDialog(
                     selectedMode == RuleSetOutboundMode.GROUP) {
                     when (selectedMode) {
                         RuleSetOutboundMode.NODE -> {
-                            targetSelectionTitle = "选择节点"
-                            targetOptions = nodes.map { node ->
-                                val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
-                                "${node.name} ($profileName)" to toNodeRef(node)
-                            }
+                            showNodeSelectionDialog = true
                         }
                         RuleSetOutboundMode.PROFILE -> {
                             targetSelectionTitle = "选择配置"
@@ -610,10 +623,24 @@ fun AppGroupEditorDialog(
                         }
                         else -> {}
                     }
-                    showTargetSelectionDialog = true
+                    if (selectedMode != RuleSetOutboundMode.NODE) {
+                        showTargetSelectionDialog = true
+                    }
                 }
             },
             onDismiss = { showOutboundModeDialog = false }
+        )
+    }
+
+    if (showNodeSelectionDialog) {
+        val currentRef = resolveNodeByStoredValue(outboundValue)?.let { toNodeRef(it) } ?: outboundValue
+        ProfileNodeSelectDialog(
+            title = "选择节点",
+            profiles = profiles,
+            nodesForSelection = selectionNodes,
+            selectedNodeRef = currentRef,
+            onSelect = { ref -> outboundValue = ref },
+            onDismiss = { showNodeSelectionDialog = false }
         )
     }
 
@@ -681,11 +708,7 @@ fun AppGroupEditorDialog(
                         onClick = {
                             when (outboundMode) {
                                 RuleSetOutboundMode.NODE -> {
-                                    targetSelectionTitle = "选择节点"
-                                    targetOptions = nodes.map { node ->
-                                        val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
-                                        "${node.name} ($profileName)" to toNodeRef(node)
-                                    }
+                                    showNodeSelectionDialog = true
                                 }
                                 RuleSetOutboundMode.PROFILE -> {
                                     targetSelectionTitle = "选择配置"
@@ -697,7 +720,9 @@ fun AppGroupEditorDialog(
                                 }
                                 else -> {}
                             }
-                            showTargetSelectionDialog = true
+                            if (outboundMode != RuleSetOutboundMode.NODE) {
+                                showTargetSelectionDialog = true
+                            }
                         }
                     )
                 }

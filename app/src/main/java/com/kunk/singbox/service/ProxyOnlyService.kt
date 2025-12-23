@@ -97,24 +97,13 @@ class ProxyOnlyService : Service() {
     private var currentInterfaceListener: InterfaceUpdateListener? = null
 
     private val uidToPackageCache = ConcurrentHashMap<Int, String>()
-    @Volatile private var uidToPackageCacheReady: Boolean = false
+    private val maxUidToPackageCacheSize: Int = 512
 
-    private fun ensureUidToPackageCache() {
-        if (uidToPackageCacheReady) return
-        synchronized(uidToPackageCache) {
-            if (uidToPackageCacheReady) return
-            try {
-                val apps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-                for (app in apps) {
-                    val uid = app.uid
-                    if (uid > 0 && !uidToPackageCache.containsKey(uid)) {
-                        uidToPackageCache[uid] = app.packageName
-                    }
-                }
-                uidToPackageCacheReady = true
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to build uid->package cache", e)
-            }
+    private fun cacheUidToPackage(uid: Int, pkg: String) {
+        if (uid <= 0 || pkg.isBlank()) return
+        uidToPackageCache[uid] = pkg
+        if (uidToPackageCache.size > maxUidToPackageCacheSize) {
+            uidToPackageCache.clear()
         }
     }
 
@@ -199,12 +188,22 @@ class ProxyOnlyService : Service() {
                 if (!pkgs.isNullOrEmpty()) {
                     pkgs[0]
                 } else {
-                    ensureUidToPackageCache()
-                    uidToPackageCache[uid] ?: ""
+                    val name = runCatching { packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
+                    if (name.isNotBlank()) {
+                        cacheUidToPackage(uid, name)
+                        name
+                    } else {
+                        uidToPackageCache[uid] ?: ""
+                    }
                 }
             } catch (_: Exception) {
-                ensureUidToPackageCache()
-                uidToPackageCache[uid] ?: ""
+                val name = runCatching { packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
+                if (name.isNotBlank()) {
+                    cacheUidToPackage(uid, name)
+                    name
+                } else {
+                    uidToPackageCache[uid] ?: ""
+                }
             }
         }
 
@@ -420,7 +419,7 @@ class ProxyOnlyService : Service() {
                 runCatching {
                     ruleSetRepo.ensureRuleSetsReady(
                         forceUpdate = false,
-                        allowNetwork = true
+                        allowNetwork = false
                     ) {}
                 }
 

@@ -1,7 +1,5 @@
 package com.kunk.singbox.ui.screens
 
-import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -12,20 +10,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.model.*
+import com.kunk.singbox.repository.InstalledAppsRepository
+import com.kunk.singbox.ui.components.AppListLoadingDialog
 import com.kunk.singbox.ui.components.ConfirmDialog
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.theme.*
+import com.kunk.singbox.viewmodel.InstalledAppsViewModel
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.viewmodel.ProfilesViewModel
 import com.kunk.singbox.viewmodel.SettingsViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,43 +31,44 @@ fun AppGroupsScreen(
     navController: NavController,
     settingsViewModel: SettingsViewModel = viewModel(),
     nodesViewModel: NodesViewModel = viewModel(),
-    profilesViewModel: ProfilesViewModel = viewModel()
+    profilesViewModel: ProfilesViewModel = viewModel(),
+    installedAppsViewModel: InstalledAppsViewModel = viewModel()
 ) {
-    val context = LocalContext.current
     val settings by settingsViewModel.settings.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingGroup by remember { mutableStateOf<AppGroup?>(null) }
     var showDeleteConfirm by remember { mutableStateOf<AppGroup?>(null) }
 
-    val nodes by nodesViewModel.allNodes.collectAsState()
+    val allNodes by nodesViewModel.allNodes.collectAsState()
+    val nodesForSelection by nodesViewModel.filteredAllNodes.collectAsState()
     val availableGroups by nodesViewModel.allNodeGroups.collectAsState()
     val profiles by profilesViewModel.profiles.collectAsState()
 
-    var installedApps by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            val pm = context.packageManager
-            val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                .filter { app -> app.packageName != context.packageName }
-                .map { app ->
-                    InstalledApp(
-                        packageName = app.packageName,
-                        appName = app.loadLabel(pm).toString(),
-                        isSystemApp = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                    )
-                }
-                .sortedBy { it.appName.lowercase() }
-            installedApps = apps
-            isLoading = false
+    DisposableEffect(Unit) {
+        nodesViewModel.setAllNodesUiActive(true)
+        onDispose {
+            nodesViewModel.setAllNodesUiActive(false)
         }
     }
+
+    // 使用 InstalledAppsViewModel 获取应用列表
+    val installedApps by installedAppsViewModel.installedApps.collectAsState()
+    val loadingState by installedAppsViewModel.loadingState.collectAsState()
+    val isLoading = loadingState !is InstalledAppsRepository.LoadingState.Loaded
+
+    // 触发加载
+    LaunchedEffect(Unit) {
+        installedAppsViewModel.loadAppsIfNeeded()
+    }
+
+    // 显示加载对话框
+    AppListLoadingDialog(loadingState = loadingState)
 
     if (showAddDialog) {
         AppGroupEditorDialog(
             installedApps = installedApps,
-            nodes = nodes,
+            nodes = allNodes,
+            nodesForSelection = nodesForSelection,
             profiles = profiles,
             groups = availableGroups,
             onDismiss = { showAddDialog = false },
@@ -84,7 +83,8 @@ fun AppGroupsScreen(
         AppGroupEditorDialog(
             initialGroup = editingGroup,
             installedApps = installedApps,
-            nodes = nodes,
+            nodes = allNodes,
+            nodesForSelection = nodesForSelection,
             profiles = profiles,
             groups = availableGroups,
             onDismiss = { editingGroup = null },
@@ -187,9 +187,9 @@ fun AppGroupsScreen(
                                 val node = if (!value.isNullOrBlank() && parts != null && parts.size == 2) {
                                     val profileId = parts[0]
                                     val name = parts[1]
-                                    nodes.find { it.sourceProfileId == profileId && it.name == name }
+                                    allNodes.find { it.sourceProfileId == profileId && it.name == name }
                                 } else {
-                                    nodes.find { it.id == value } ?: nodes.find { it.name == value }
+                                    allNodes.find { it.id == value } ?: allNodes.find { it.name == value }
                                 }
                                 val profileName = profiles.find { p -> p.id == node?.sourceProfileId }?.name
                                 if (node != null && profileName != null) {

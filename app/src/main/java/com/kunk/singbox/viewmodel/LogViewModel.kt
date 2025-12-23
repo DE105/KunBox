@@ -10,6 +10,10 @@ import kotlinx.coroutines.flow.stateIn
 class LogViewModel : ViewModel() {
     private val repository = LogRepository.getInstance()
 
+    init {
+        repository.setLogUiActive(true)
+    }
+
     val logs: StateFlow<List<String>> = repository.logs
         .stateIn(
             scope = viewModelScope,
@@ -23,5 +27,10 @@ class LogViewModel : ViewModel() {
 
     fun getLogsForExport(): String {
         return repository.getLogsAsText()
+    }
+
+    override fun onCleared() {
+        repository.setLogUiActive(false)
+        super.onCleared()
     }
 }

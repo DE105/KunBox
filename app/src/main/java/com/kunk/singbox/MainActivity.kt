@@ -74,6 +74,7 @@ import android.service.quicksettings.TileService
 import androidx.work.WorkManager
 import com.kunk.singbox.worker.RuleSetUpdateWorker
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -158,12 +159,12 @@ fun SingBoxApp() {
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
-        SettingsRepository.restartRequiredEvents.collect {
+        SettingsRepository.restartRequiredEvents.collectLatest {
             // 如果 VPN 没有在运行，也没有正在启动，就不弹窗（因为下次启动自然生效）
-            if (!isRunning && !isStarting) return@collect
+            if (!SingBoxRemote.isRunning.value && !SingBoxRemote.isStarting.value) return@collectLatest
 
-            // 如果已经有重启提示，就不再显示新的
-            if (snackbarHostState.currentSnackbarData?.visuals?.message?.contains("重启") == true) return@collect
+            // 新提示出现时，立即关闭旧的，只保留最新的那一个
+            snackbarHostState.currentSnackbarData?.dismiss()
 
             snackbarHostState.showSnackbar(
                 message = "设置已修改，重启后生效",
@@ -172,15 +173,15 @@ fun SingBoxApp() {
         }
     }
 
-        SingBoxTheme {
-            val navController = rememberNavController()
-            var isNavigating by remember { mutableStateOf(false) }
-            var navigationStartTime by remember { mutableStateOf(0L) }
-            
-            // Get current destination
-            val navBackStackEntry = navController.currentBackStackEntryAsState()
-            val currentRoute = navBackStackEntry.value?.destination?.route
-            val showBottomBar = currentRoute != null
+    SingBoxTheme {
+        val navController = rememberNavController()
+        var isNavigating by remember { mutableStateOf(false) }
+        var navigationStartTime by remember { mutableStateOf(0L) }
+        
+        // Get current destination
+        val navBackStackEntry = navController.currentBackStackEntryAsState()
+        val currentRoute = navBackStackEntry.value?.destination?.route
+        val showBottomBar = currentRoute != null
 
             // Reset isNavigating after animation completes
         LaunchedEffect(navigationStartTime) {

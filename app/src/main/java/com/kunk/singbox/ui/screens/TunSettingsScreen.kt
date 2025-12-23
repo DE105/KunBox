@@ -151,6 +151,7 @@ fun TunSettingsScreen(
         AppMultiSelectDialog(
             title = "选择仅允许走 VPN 的应用",
             selectedPackages = selected,
+            enableQuickSelectCommonApps = true,
             onConfirm = { packages ->
                 settingsViewModel.setVpnAllowlist(packages.joinToString("\n"))
                 showAllowlistDialog = false

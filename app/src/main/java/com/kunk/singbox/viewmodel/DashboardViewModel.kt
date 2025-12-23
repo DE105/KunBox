@@ -170,9 +170,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     val nodes: StateFlow<List<NodeUi>> = combine(
         configRepository.nodes,
-        _nodeFilter
-    ) { nodes, filter ->
-        when (filter.filterMode) {
+        _nodeFilter,
+        configRepository.activeNodeId
+    ) { nodes, filter, currentActiveNodeId ->
+        val filtered = when (filter.filterMode) {
             FilterMode.NONE -> nodes
             FilterMode.INCLUDE -> {
                 if (filter.keywords.isEmpty()) nodes
@@ -183,6 +184,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 else nodes.filter { node -> filter.keywords.none { node.displayName.contains(it, ignoreCase = true) } }
             }
         }
+        
+        // 如果当前活跃节点不在过滤后的列表中，自动选择第一个过滤后的节点
+        if (filtered.isNotEmpty() && (currentActiveNodeId == null || filtered.none { it.id == currentActiveNodeId })) {
+            // 直接通过 configRepository 设置活跃节点，避免显示 Toast
+            viewModelScope.launch {
+                configRepository.setActiveNode(filtered.first().id)
+            }
+        }
+        
+        filtered
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),

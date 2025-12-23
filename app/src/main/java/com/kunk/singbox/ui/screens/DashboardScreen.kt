@@ -99,6 +99,7 @@ fun DashboardScreen(
     var showTestDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
     var showNodeDialog by remember { mutableStateOf(false) }
+    var lastConnectionState by remember { mutableStateOf<ConnectionState?>(null) }
     
     val updateStatus by viewModel.updateStatus.collectAsState()
     val testStatus by viewModel.testStatus.collectAsState()
@@ -132,6 +133,18 @@ fun DashboardScreen(
         }
     }
     
+    LaunchedEffect(connectionState) {
+        val prev = lastConnectionState
+        if (prev != null && prev != connectionState) {
+            if (connectionState == ConnectionState.Connected) {
+                Toast.makeText(context, "已连接", Toast.LENGTH_SHORT).show()
+            } else if (connectionState == ConnectionState.Idle && (prev == ConnectionState.Connected || prev == ConnectionState.Disconnecting)) {
+                Toast.makeText(context, "已断开", Toast.LENGTH_SHORT).show()
+            }
+        }
+        lastConnectionState = connectionState
+    }
+
     // Monitor update status
     LaunchedEffect(updateStatus) {
         updateStatus?.let {

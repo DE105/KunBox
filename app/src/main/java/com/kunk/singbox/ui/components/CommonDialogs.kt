@@ -1,15 +1,20 @@
 package com.kunk.singbox.ui.components
 
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,21 +28,23 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.RadioButtonChecked
-import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,12 +60,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.RadioButtonChecked
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.core.graphics.drawable.toBitmap
-import com.kunk.singbox.ui.theme.AppBackground
+import com.kunk.singbox.model.InstalledApp
+import com.kunk.singbox.repository.InstalledAppsRepository
 import com.kunk.singbox.ui.theme.Destructive
 import com.kunk.singbox.ui.theme.Divider
 import com.kunk.singbox.ui.theme.Neutral500
@@ -68,6 +81,8 @@ import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.ui.theme.TextSecondary
 import com.kunk.singbox.viewmodel.FilterMode
 import com.kunk.singbox.viewmodel.NodeFilter
+import com.kunk.singbox.model.NodeUi
+import com.kunk.singbox.model.ProfileUi
 
 @Composable
 fun ConfirmDialog(
@@ -209,40 +224,92 @@ fun AppMultiSelectDialog(
     title: String,
     selectedPackages: Set<String>,
     confirmText: String = "确定",
+    enableQuickSelectCommonApps: Boolean = false,
     onConfirm: (List<String>) -> Unit,
     onDismiss: () -> Unit
 ) {
-    data class InstalledApp(
+    // 内部数据类，用于增强应用信息（添加 hasLauncher 属性）
+    data class EnhancedApp(
         val label: String,
-        val packageName: String
+        val packageName: String,
+        val isSystemApp: Boolean,
+        val hasLauncher: Boolean
     )
 
     val context = LocalContext.current
     val pm = context.packageManager
-
-    val allApps = remember {
-        pm.getInstalledApplications(PackageManager.GET_META_DATA)
-            .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
-            .map { info: ApplicationInfo ->
-                val label = runCatching { pm.getApplicationLabel(info).toString() }
-                    .getOrDefault(info.packageName)
-                InstalledApp(label = label, packageName = info.packageName)
-            }
-            .sortedWith(compareBy({ it.label.lowercase() }, { it.packageName }))
+    
+    // 使用 Repository 获取缓存的应用列表
+    val repository = remember { InstalledAppsRepository.getInstance(context) }
+    val installedApps by repository.installedApps.collectAsState()
+    val loadingState by repository.loadingState.collectAsState()
+    
+    // 触发加载
+    LaunchedEffect(Unit) {
+        repository.loadApps()
+    }
+    
+    // 增强应用信息（添加 hasLauncher 属性）
+    val allApps = remember(installedApps) {
+        installedApps.map { app: InstalledApp ->
+            val hasLauncher = pm.getLaunchIntentForPackage(app.packageName) != null
+            EnhancedApp(
+                label = app.appName,
+                packageName = app.packageName,
+                isSystemApp = app.isSystemApp,
+                hasLauncher = hasLauncher
+            )
+        }
     }
 
     var query by remember { mutableStateOf("") }
+    var showSystemApps by remember { mutableStateOf(false) }
+    var showNoLauncherApps by remember { mutableStateOf(false) }
     var tempSelected by remember(selectedPackages) { mutableStateOf(selectedPackages.toMutableSet()) }
 
-    val filteredApps = remember(query, allApps) {
+    val commonExactPackages = remember {
+        setOf(
+            "com.google.android.gms",
+            "com.google.android.gsf",
+            "com.google.android.gsf.login",
+            "com.android.vending",
+            "com.google.android.youtube",
+            "org.telegram.messenger",
+            "org.thunderdog.challegram",
+            "com.twitter.android",
+            "com.instagram.android",
+            "com.discord",
+            "com.reddit.frontpage",
+            "com.whatsapp",
+            "com.facebook.katana",
+            "com.facebook.orca",
+            "com.google.android.apps.googleassistant"
+        )
+    }
+
+    val commonPrefixPackages = remember {
+        listOf(
+            "com.google.",
+            "com.android.vending",
+            "org.telegram.",
+            "com.twitter.",
+            "com.instagram.",
+            "com.discord",
+            "com.reddit.",
+            "com.whatsapp"
+        )
+    }
+
+    val filteredApps = remember(query, showSystemApps, showNoLauncherApps, allApps) {
         val q = query.trim().lowercase()
-        if (q.isEmpty()) {
-            allApps
-        } else {
-            allApps.filter {
-                it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
+        allApps
+            .asSequence()
+            .filter { showSystemApps || !it.isSystemApp }
+            .filter { showNoLauncherApps || it.hasLauncher }
+            .filter {
+                q.isEmpty() || it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
             }
-        }
+            .toList()
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -260,6 +327,43 @@ fun AppMultiSelectDialog(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
+            
+            // 如果正在加载，显示加载进度
+            if (loadingState is InstalledAppsRepository.LoadingState.Loading) {
+                val loading = loadingState as InstalledAppsRepository.LoadingState.Loading
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        progress = { loading.progress },
+                        modifier = Modifier.size(48.dp),
+                        color = PureWhite,
+                        strokeWidth = 4.dp,
+                        trackColor = Divider
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "正在加载应用列表...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "已加载 ${loading.current} / ${loading.total} 个应用",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Neutral500
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LinearProgressIndicator(
+                        progress = { loading.progress },
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        color = PureWhite,
+                        trackColor = Divider
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
 
             OutlinedTextField(
                 value = query,
@@ -279,6 +383,69 @@ fun AppMultiSelectDialog(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("显示系统应用", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                Switch(
+                    checked = showSystemApps,
+                    onCheckedChange = { showSystemApps = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = PureWhite,
+                        checkedTrackColor = Color(0xFF4CAF50),
+                        uncheckedThumbColor = Neutral500,
+                        uncheckedTrackColor = Divider
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("显示无启动入口应用", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                Switch(
+                    checked = showNoLauncherApps,
+                    onCheckedChange = { showNoLauncherApps = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = PureWhite,
+                        checkedTrackColor = Color(0xFF4CAF50),
+                        uncheckedThumbColor = Neutral500,
+                        uncheckedTrackColor = Divider
+                    )
+                )
+            }
+
+            if (enableQuickSelectCommonApps) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        val matches = allApps
+                            .asSequence()
+                            .map { it.packageName }
+                            .filter { pkg ->
+                                pkg in commonExactPackages || commonPrefixPackages.any { prefix -> pkg.startsWith(prefix) }
+                            }
+                            .toSet()
+
+                        tempSelected = tempSelected.toMutableSet().apply {
+                            addAll(matches)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = Color.Black),
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Text("一键勾选常用翻墙应用", fontWeight = FontWeight.Bold, color = Color.Black)
+                }
+            }
 
             LazyColumn(
                 modifier = Modifier
@@ -344,6 +511,16 @@ fun AppMultiSelectDialog(
                             )
                             Text(
                                 text = app.packageName,
+                                color = Neutral500,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        if (app.isSystemApp || !app.hasLauncher) {
+                            Text(
+                                text = when {
+                                    app.isSystemApp -> "系统"
+                                    else -> "后台"
+                                },
                                 color = Neutral500,
                                 style = MaterialTheme.typography.bodySmall
                             )
@@ -462,6 +639,252 @@ fun SingleSelectDialog(
             
             Spacer(modifier = Modifier.height(8.dp))
             
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
+            ) {
+                Text("取消")
+            }
+        }
+    }
+}
+
+@Composable
+fun ProfileNodeSelectDialog(
+    title: String,
+    profiles: List<ProfileUi>,
+    nodesForSelection: List<NodeUi>,
+    selectedNodeRef: String?,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    fun toNodeRef(node: NodeUi): String = "${node.sourceProfileId}::${node.name}"
+
+    val nodesByProfile = remember(nodesForSelection) {
+        nodesForSelection.groupBy { it.sourceProfileId }
+    }
+    val profileOrder = remember(profiles) { profiles.sortedBy { it.name } }
+    val knownProfileIds = remember(profiles) { profiles.map { it.id }.toSet() }
+
+    var expandedProfileId by remember { mutableStateOf<String?>(null) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .padding(24.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.72f)
+            ) {
+                profileOrder.forEach { profile ->
+                    val itemsForProfile = nodesByProfile[profile.id].orEmpty()
+                    val isExpanded = expandedProfileId == profile.id
+                    val enabled = itemsForProfile.isNotEmpty()
+
+                    item(key = "profile_${profile.id}") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = 0.03f))
+                                .animateContentSize(animationSpec = tween(durationMillis = 220))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = enabled) {
+                                        expandedProfileId = if (isExpanded) null else profile.id
+                                    }
+                                    .padding(vertical = 12.dp, horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = profile.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = if (enabled) TextPrimary else TextSecondary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "${itemsForProfile.size} 个节点",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Neutral500
+                                    )
+                                }
+                                Icon(
+                                    imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                    contentDescription = null,
+                                    tint = if (enabled) TextSecondary else Neutral500
+                                )
+                            }
+
+                            AnimatedVisibility(
+                                visible = isExpanded,
+                                enter = fadeIn(animationSpec = tween(180)),
+                                exit = fadeOut(animationSpec = tween(120))
+                            ) {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 260.dp)
+                                ) {
+                                    items(itemsForProfile, key = { it.id }) { node ->
+                                        val ref = toNodeRef(node)
+                                        val selected = ref == selectedNodeRef
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(if (selected) Color.White.copy(alpha = 0.06f) else Color.Transparent)
+                                                .clickable {
+                                                    onSelect(ref)
+                                                    onDismiss()
+                                                }
+                                                .padding(vertical = 10.dp, horizontal = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = if (selected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                                                contentDescription = null,
+                                                tint = if (selected) PureWhite else Neutral500,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = node.name,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = TextPrimary
+                                                )
+                                                Text(
+                                                    text = node.group,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Neutral500,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val unknownProfiles = nodesByProfile.keys
+                    .filter { it !in knownProfileIds }
+                    .sorted()
+
+                unknownProfiles.forEach { profileId ->
+                    val itemsForProfile = nodesByProfile[profileId].orEmpty()
+                    val isExpanded = expandedProfileId == profileId
+                    val enabled = itemsForProfile.isNotEmpty()
+
+                    item(key = "unknown_$profileId") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = 0.03f))
+                                .animateContentSize(animationSpec = tween(durationMillis = 220))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = enabled) {
+                                        expandedProfileId = if (isExpanded) null else profileId
+                                    }
+                                    .padding(vertical = 12.dp, horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "未知配置($profileId)",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = if (enabled) TextPrimary else TextSecondary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "${itemsForProfile.size} 个节点",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Neutral500
+                                    )
+                                }
+                                Icon(
+                                    imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                    contentDescription = null,
+                                    tint = if (enabled) TextSecondary else Neutral500
+                                )
+                            }
+
+                            AnimatedVisibility(
+                                visible = isExpanded,
+                                enter = fadeIn(animationSpec = tween(180)),
+                                exit = fadeOut(animationSpec = tween(120))
+                            ) {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 260.dp)
+                                ) {
+                                    items(itemsForProfile, key = { it.id }) { node ->
+                                        val ref = toNodeRef(node)
+                                        val selected = ref == selectedNodeRef
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(if (selected) Color.White.copy(alpha = 0.06f) else Color.Transparent)
+                                                .clickable {
+                                                    onSelect(ref)
+                                                    onDismiss()
+                                                }
+                                                .padding(vertical = 10.dp, horizontal = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = if (selected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                                                contentDescription = null,
+                                                tint = if (selected) PureWhite else Neutral500,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = node.name,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = TextPrimary
+                                                )
+                                                Text(
+                                                    text = node.group,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Neutral500,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(50.dp),

@@ -30,6 +30,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -44,6 +45,7 @@ import com.kunk.singbox.model.OutboundTag
 import com.kunk.singbox.model.RuleType
 import com.kunk.singbox.model.RuleSetOutboundMode
 import com.kunk.singbox.ui.components.ConfirmDialog
+import com.kunk.singbox.ui.components.ProfileNodeSelectDialog
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.components.StyledTextField
@@ -134,9 +136,17 @@ fun DomainRulesScreen(
     profilesViewModel: ProfilesViewModel = viewModel()
 ) {
     val settings by settingsViewModel.settings.collectAsState()
-    val nodes by nodesViewModel.allNodes.collectAsState()
+    val allNodes by nodesViewModel.allNodes.collectAsState()
+    val nodesForSelection by nodesViewModel.filteredAllNodes.collectAsState()
     val groups by nodesViewModel.allNodeGroups.collectAsState()
     val profiles by profilesViewModel.profiles.collectAsState()
+
+    DisposableEffect(Unit) {
+        nodesViewModel.setAllNodesUiActive(true)
+        onDispose {
+            nodesViewModel.setAllNodesUiActive(false)
+        }
+    }
 
     val domainRules = remember(settings.customRules) {
         settings.customRules.filter {
@@ -149,7 +159,8 @@ fun DomainRulesScreen(
 
     if (showAddDialog) {
         DomainRuleEditorDialog(
-            nodes = nodes,
+            nodes = allNodes,
+            nodesForSelection = nodesForSelection,
             profiles = profiles,
             groups = groups,
             onDismiss = { showAddDialog = false },
@@ -163,7 +174,8 @@ fun DomainRulesScreen(
     if (editingRule != null) {
         DomainRuleEditorDialog(
             initialRule = editingRule,
-            nodes = nodes,
+            nodes = allNodes,
+            nodesForSelection = nodesForSelection,
             profiles = profiles,
             groups = groups,
             onDismiss = { editingRule = null },
@@ -226,7 +238,7 @@ fun DomainRulesScreen(
                         OutboundTag.BLOCK -> RuleSetOutboundMode.BLOCK
                         OutboundTag.PROXY -> RuleSetOutboundMode.PROXY
                     }
-                    val outboundText = resolveOutboundText(mode, rule.outboundValue, nodes, profiles)
+                    val outboundText = resolveOutboundText(mode, rule.outboundValue, allNodes, profiles)
                     DomainRuleItem(rule = rule, outboundText = "${mode.displayName} → $outboundText", onClick = { editingRule = rule })
                 }
             }
@@ -238,6 +250,7 @@ fun DomainRulesScreen(
 private fun DomainRuleEditorDialog(
     initialRule: CustomRule? = null,
     nodes: List<com.kunk.singbox.model.NodeUi>,
+    nodesForSelection: List<com.kunk.singbox.model.NodeUi>? = null,
     profiles: List<com.kunk.singbox.model.ProfileUi>,
     groups: List<String>,
     onDismiss: () -> Unit,
@@ -268,10 +281,13 @@ private fun DomainRuleEditorDialog(
     var showTypeDialog by remember { mutableStateOf(false) }
     var showOutboundDialog by remember { mutableStateOf(false) }
     var showTargetSelectionDialog by remember { mutableStateOf(false) }
+    var showNodeSelectionDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     var targetSelectionTitle by remember { mutableStateOf("") }
     var targetOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+
+    val selectionNodes = nodesForSelection ?: nodes
 
     fun resolveNodeByStoredValue(value: String?): com.kunk.singbox.model.NodeUi? {
         if (value.isNullOrBlank()) return null
@@ -321,11 +337,7 @@ private fun DomainRuleEditorDialog(
                     selectedMode == RuleSetOutboundMode.GROUP) {
                     when (selectedMode) {
                         RuleSetOutboundMode.NODE -> {
-                            targetSelectionTitle = "选择节点"
-                            targetOptions = nodes.map { node ->
-                                val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
-                                "${node.name} ($profileName)" to toNodeRef(node)
-                            }
+                            showNodeSelectionDialog = true
                         }
                         RuleSetOutboundMode.PROFILE -> {
                             targetSelectionTitle = "选择配置"
@@ -337,10 +349,24 @@ private fun DomainRuleEditorDialog(
                         }
                         else -> {}
                     }
-                    showTargetSelectionDialog = true
+                    if (selectedMode != RuleSetOutboundMode.NODE) {
+                        showTargetSelectionDialog = true
+                    }
                 }
             },
             onDismiss = { showOutboundDialog = false }
+        )
+    }
+
+    if (showNodeSelectionDialog) {
+        val currentRef = resolveNodeByStoredValue(outboundValue)?.let { toNodeRef(it) } ?: outboundValue
+        ProfileNodeSelectDialog(
+            title = "选择节点",
+            profiles = profiles,
+            nodesForSelection = selectionNodes,
+            selectedNodeRef = currentRef,
+            onSelect = { ref -> outboundValue = ref },
+            onDismiss = { showNodeSelectionDialog = false }
         )
     }
 
@@ -434,11 +460,7 @@ private fun DomainRuleEditorDialog(
                             .clickable {
                                 when (outboundMode) {
                                     RuleSetOutboundMode.NODE -> {
-                                        targetSelectionTitle = "选择节点"
-                                        targetOptions = nodes.map { node ->
-                                            val profileName = profiles.find { it.id == node.sourceProfileId }?.name ?: "未知"
-                                            "${node.name} ($profileName)" to toNodeRef(node)
-                                        }
+                                        showNodeSelectionDialog = true
                                     }
                                     RuleSetOutboundMode.PROFILE -> {
                                         targetSelectionTitle = "选择配置"
@@ -450,7 +472,9 @@ private fun DomainRuleEditorDialog(
                                     }
                                     else -> {}
                                 }
-                                showTargetSelectionDialog = true
+                                if (outboundMode != RuleSetOutboundMode.NODE) {
+                                    showTargetSelectionDialog = true
+                                }
                             }
                             .padding(vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
