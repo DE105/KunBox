@@ -166,22 +166,37 @@ class NodeLinkParser(private val gson: Gson) {
             val security = params["security"] ?: "none"
             val sni = params["sni"] ?: params["host"] ?: server
             val transportType = params["type"] ?: "tcp"
+            val insecure = params["allowInsecure"] == "1" || params["insecure"] == "1"
+            val fingerprint = params["fp"]?.takeIf { it.isNotBlank() }
+            val alpnList = params["alpn"]?.split(",")?.filter { it.isNotBlank() }
+            val flow = params["flow"]?.takeIf { it.isNotBlank() }
+            val packetEncoding = params["packetEncoding"]?.takeIf { it.isNotBlank() } ?: "xudp"
+
+            val finalAlpnList = if ((security == "tls" || security == "reality") && (alpnList == null || alpnList.isEmpty())) {
+                if (transportType == "ws") listOf("http/1.1") else listOf("h2", "http/1.1")
+            } else {
+                alpnList
+            }
             
             val tlsConfig = when (security) {
                 "tls" -> TlsConfig(
                     enabled = true,
                     serverName = sni,
-                    utls = params["fp"]?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                    insecure = insecure,
+                    alpn = finalAlpnList,
+                    utls = (fingerprint ?: "chrome").let { UtlsConfig(enabled = true, fingerprint = it) }
                 )
                 "reality" -> TlsConfig(
                     enabled = true,
                     serverName = sni,
+                    insecure = insecure,
+                    alpn = finalAlpnList,
                     reality = RealityConfig(
                         enabled = true,
                         publicKey = params["pbk"],
                         shortId = params["sid"]
                     ),
-                    utls = params["fp"]?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                    utls = (fingerprint ?: "chrome").let { UtlsConfig(enabled = true, fingerprint = it) }
                 )
                 else -> null
             }
@@ -205,8 +220,10 @@ class NodeLinkParser(private val gson: Gson) {
                 server = server,
                 serverPort = port,
                 uuid = uuid,
+                flow = flow,
                 tls = tlsConfig,
-                transport = transport
+                transport = transport,
+                packetEncoding = packetEncoding
             )
         } catch (e: Exception) {
             Log.e("NodeLinkParser", "Failed to parse VLESS link", e)

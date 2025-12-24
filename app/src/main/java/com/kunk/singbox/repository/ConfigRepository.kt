@@ -633,6 +633,14 @@ class ConfigRepository(private val context: Context) {
                     val sni = asString(proxyMap["servername"]) ?: asString(proxyMap["sni"]) ?: server
                     val insecure = asBool(proxyMap["skip-cert-verify"]) == true
                     val alpn = asStringList(proxyMap["alpn"])
+                    val fingerprint = asString(proxyMap["client-fingerprint"])
+                    val flow = asString(proxyMap["flow"])?.takeIf { it.isNotBlank() }
+                    val packetEncoding = asString(proxyMap["packet-encoding"])?.takeIf { it.isNotBlank() } ?: "xudp"
+
+                    val realityOpts = proxyMap["reality-opts"] as? Map<*, *>
+                    val realityPublicKey = asString(realityOpts?.get("public-key"))
+                    val realityShortId = asString(realityOpts?.get("short-id"))
+
                     val finalAlpn = if (tlsEnabled && network == "ws" && (alpn == null || alpn.isEmpty())) listOf("http/1.1") else alpn
                     
                     val tlsConfig = if (tlsEnabled) {
@@ -640,7 +648,15 @@ class ConfigRepository(private val context: Context) {
                             enabled = true,
                             serverName = sni,
                             insecure = insecure,
-                            alpn = finalAlpn
+                            alpn = finalAlpn,
+                            utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) },
+                            reality = if (!realityPublicKey.isNullOrBlank()) {
+                                RealityConfig(
+                                    enabled = true,
+                                    publicKey = realityPublicKey,
+                                    shortId = realityShortId
+                                )
+                            } else null
                         )
                     } else null
 
@@ -686,8 +702,10 @@ class ConfigRepository(private val context: Context) {
                         serverPort = port,
                         uuid = uuid,
                         // VLESS 不使用 security 字段，这是 VMess 特有的
+                        flow = flow,
                         tls = tlsConfig,
-                        transport = transport
+                        transport = transport,
+                        packetEncoding = packetEncoding
                     )
                 }
                 "hysteria2", "hy2" -> {
@@ -2546,14 +2564,39 @@ class ConfigRepository(private val context: Context) {
             result = result.copy(outbounds = listOf("direct"))
         }
 
-        // Fix ALPN for WS
+        fun isIpLiteral(value: String): Boolean {
+            val v = value.trim()
+            if (v.isEmpty()) return false
+            val ipv4 = Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$")
+            if (ipv4.matches(v)) {
+                return v.split(".").all { it.toIntOrNull()?.let { n -> n in 0..255 } == true }
+            }
+            val ipv6 = Regex("^[0-9a-fA-F:]+$")
+            return v.contains(":") && ipv6.matches(v)
+        }
+
         val tls = result.tls
-        if (result.transport?.type == "ws" && tls?.enabled == true && (tls.alpn == null || tls.alpn.isEmpty())) {
-            result = result.copy(tls = tls.copy(alpn = listOf("http/1.1")))
+        val transport = result.transport
+        if (transport?.type == "ws" && tls?.enabled == true) {
+            val wsHost = transport.headers?.get("Host")
+                ?: transport.headers?.get("host")
+                ?: transport.host?.firstOrNull()
+            val sni = tls.serverName?.trim().orEmpty()
+            val server = result.server?.trim().orEmpty()
+            if (!wsHost.isNullOrBlank() && !isIpLiteral(wsHost)) {
+                val needFix = sni.isBlank() || isIpLiteral(sni) || (server.isNotBlank() && sni.equals(server, ignoreCase = true))
+                if (needFix && !wsHost.equals(sni, ignoreCase = true)) {
+                    result = result.copy(tls = tls.copy(serverName = wsHost))
+                }
+            }
+        }
+
+        val tlsAfterSni = result.tls
+        if (result.transport?.type == "ws" && tlsAfterSni?.enabled == true && (tlsAfterSni.alpn == null || tlsAfterSni.alpn.isEmpty())) {
+            result = result.copy(tls = tlsAfterSni.copy(alpn = listOf("http/1.1")))
         }
 
         // Fix User-Agent and path for WS
-        val transport = result.transport
         if (transport != null && transport.type == "ws") {
             val headers = transport.headers?.toMutableMap() ?: mutableMapOf()
             var needUpdate = false
