@@ -20,11 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.kunk.singbox.ui.theme.Divider
 import com.kunk.singbox.ui.theme.Neutral500
-import com.kunk.singbox.ui.theme.Neutral900
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextSecondary
 
 @Composable
 fun StatusChip(
@@ -33,10 +29,14 @@ fun StatusChip(
     isActive: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
+    val backgroundColor = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+    val borderColor = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+    val textColor = if (isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+
     val modifier = Modifier
         .clip(CircleShape)
-        .background(if (isActive) PureWhite else Neutral900)
-        .border(1.dp, if (isActive) PureWhite else Divider, CircleShape)
+        .background(backgroundColor)
+        .border(1.dp, borderColor, CircleShape)
         .let {
             if (onClick != null) it.clickable(onClick = onClick) else it
         }
@@ -56,7 +56,7 @@ fun StatusChip(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Medium,
-            color = if (isActive) Color.Black else TextSecondary
+            color = textColor
         )
     }
 }

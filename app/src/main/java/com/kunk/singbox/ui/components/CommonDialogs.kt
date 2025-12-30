@@ -73,12 +73,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.kunk.singbox.model.InstalledApp
 import com.kunk.singbox.repository.InstalledAppsRepository
 import com.kunk.singbox.ui.theme.Destructive
-import com.kunk.singbox.ui.theme.Divider
 import com.kunk.singbox.ui.theme.Neutral500
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.SurfaceCard
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 import com.kunk.singbox.viewmodel.FilterMode
 import com.kunk.singbox.viewmodel.NodeFilter
 import com.kunk.singbox.model.NodeUi
@@ -97,20 +92,20 @@ fun ConfirmDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
                 .padding(24.dp)
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(24.dp))
             
@@ -118,15 +113,15 @@ fun ConfirmDialog(
                 onClick = onConfirm,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isDestructive) Destructive else PureWhite,
-                    contentColor = if (isDestructive) PureWhite else Color.Black
+                    containerColor = if (isDestructive) Destructive else MaterialTheme.colorScheme.primary,
+                    contentColor = if (isDestructive) Color.White else MaterialTheme.colorScheme.onPrimary
                 ),
                 shape = RoundedCornerShape(25.dp)
             ) {
                 Text(
                     text = confirmText,
                     fontWeight = FontWeight.Bold,
-                    color = if (isDestructive) PureWhite else Color.Black
+                    color = if (isDestructive) Color.White else MaterialTheme.colorScheme.onPrimary
                 )
             }
             
@@ -161,32 +156,32 @@ fun InputDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
                 .padding(24.dp)
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(16.dp))
             
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text(placeholder, color = Neutral500) },
+                placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = singleLine,
                 minLines = minLines,
                 maxLines = maxLines,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    focusedBorderColor = PureWhite,
-                    unfocusedBorderColor = Divider,
-                    focusedLabelColor = PureWhite,
-                    unfocusedLabelColor = Neutral500
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
                 ),
                 shape = RoundedCornerShape(16.dp)
             )
@@ -196,13 +191,13 @@ fun InputDialog(
             Button(
                 onClick = { onConfirm(text) },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = Color.Black),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                 shape = RoundedCornerShape(25.dp)
             ) {
                 Text(
                     text = confirmText,
                     fontWeight = FontWeight.Bold,
-                    color = Color.Black
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
             
@@ -316,14 +311,14 @@ fun AppMultiSelectDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
                 .padding(24.dp)
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -338,28 +333,28 @@ fun AppMultiSelectDialog(
                     CircularProgressIndicator(
                         progress = { loading.progress },
                         modifier = Modifier.size(48.dp),
-                        color = PureWhite,
+                        color = MaterialTheme.colorScheme.primary,
                         strokeWidth = 4.dp,
-                        trackColor = Divider
+                        trackColor = MaterialTheme.colorScheme.outline
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = "正在加载应用列表...",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "已加载 ${loading.current} / ${loading.total} 个应用",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Neutral500
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     LinearProgressIndicator(
                         progress = { loading.progress },
                         modifier = Modifier.fillMaxWidth().height(4.dp),
-                        color = PureWhite,
-                        trackColor = Divider
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.outline
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                 }
@@ -368,16 +363,16 @@ fun AppMultiSelectDialog(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text("搜索应用或包名", color = Neutral500) },
+                placeholder = { Text("搜索应用或包名", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    focusedBorderColor = PureWhite,
-                    unfocusedBorderColor = Divider,
-                    focusedLabelColor = PureWhite,
-                    unfocusedLabelColor = Neutral500
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
                 ),
                 shape = RoundedCornerShape(16.dp)
             )
@@ -389,15 +384,15 @@ fun AppMultiSelectDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("显示系统应用", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                Text("显示系统应用", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 Switch(
                     checked = showSystemApps,
                     onCheckedChange = { showSystemApps = it },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = PureWhite,
-                        checkedTrackColor = Color(0xFF4CAF50),
-                        uncheckedThumbColor = Neutral500,
-                        uncheckedTrackColor = Divider
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        uncheckedTrackColor = MaterialTheme.colorScheme.outline
                     )
                 )
             }
@@ -409,15 +404,15 @@ fun AppMultiSelectDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("显示无启动入口应用", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                Text("显示无启动入口应用", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 Switch(
                     checked = showNoLauncherApps,
                     onCheckedChange = { showNoLauncherApps = it },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = PureWhite,
-                        checkedTrackColor = Color(0xFF4CAF50),
-                        uncheckedThumbColor = Neutral500,
-                        uncheckedTrackColor = Divider
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        uncheckedTrackColor = MaterialTheme.colorScheme.outline
                     )
                 )
             }
@@ -440,10 +435,10 @@ fun AppMultiSelectDialog(
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(44.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = Color.Black),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                     shape = RoundedCornerShape(22.dp)
                 ) {
-                    Text("一键勾选常用翻墙应用", fontWeight = FontWeight.Bold, color = Color.Black)
+                    Text("一键勾选常用翻墙应用", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 }
             }
 
@@ -499,19 +494,19 @@ fun AppMultiSelectDialog(
                                 modifier = Modifier
                                     .size(iconSize)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(Color.White.copy(alpha = 0.08f))
+                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = app.label,
-                                color = TextPrimary,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 style = MaterialTheme.typography.bodyLarge
                             )
                             Text(
                                 text = app.packageName,
-                                color = Neutral500,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -521,7 +516,7 @@ fun AppMultiSelectDialog(
                                     app.isSystemApp -> "系统"
                                     else -> "后台"
                                 },
-                                color = Neutral500,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -538,7 +533,7 @@ fun AppMultiSelectDialog(
                 TextButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
                 ) {
                     Text("取消")
                 }
@@ -546,10 +541,10 @@ fun AppMultiSelectDialog(
                 Button(
                     onClick = { onConfirm(tempSelected.toList().sorted()) },
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = Color.Black),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                     shape = RoundedCornerShape(25.dp)
                 ) {
-                    Text(text = confirmText, fontWeight = FontWeight.Bold, color = Color.Black)
+                    Text(text = confirmText, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 }
             }
         }
@@ -571,14 +566,14 @@ fun SingleSelectDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
                 .padding(24.dp)
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(16.dp))
             
@@ -599,7 +594,7 @@ fun SingleSelectDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) Color.White.copy(alpha = 0.05f) else Color.Transparent)
+                            .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
                             .clickable(
                                 onClick = { tempSelectedIndex = index }
                             )
@@ -609,14 +604,14 @@ fun SingleSelectDialog(
                         Icon(
                             imageVector = if (isSelected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
                             contentDescription = null,
-                            tint = if (isSelected) PureWhite else Neutral500,
+                            tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(16.dp))
                         Text(
                             text = option,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = if (isSelected) TextPrimary else TextSecondary
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
@@ -627,13 +622,13 @@ fun SingleSelectDialog(
             Button(
                 onClick = { onSelect(tempSelectedIndex) },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = Color.Black),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                 shape = RoundedCornerShape(25.dp)
             ) {
                 Text(
                     text = "确定",
                     fontWeight = FontWeight.Bold,
-                    color = Color.Black
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
             
@@ -642,7 +637,7 @@ fun SingleSelectDialog(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
             ) {
                 Text("取消")
             }
@@ -673,14 +668,14 @@ fun ProfileNodeSelectDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
                 .padding(24.dp)
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -700,7 +695,7 @@ fun ProfileNodeSelectDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.03f))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                                 .animateContentSize(animationSpec = tween(durationMillis = 220))
                         ) {
                             Row(
@@ -716,19 +711,19 @@ fun ProfileNodeSelectDialog(
                                     Text(
                                         text = profile.name,
                                         style = MaterialTheme.typography.bodyLarge,
-                                        color = if (enabled) TextPrimary else TextSecondary,
+                                        color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
                                         text = "${itemsForProfile.size} 个节点",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Neutral500
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 Icon(
                                     imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                                     contentDescription = null,
-                                    tint = if (enabled) TextSecondary else Neutral500
+                                    tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                                 )
                             }
 
@@ -748,7 +743,7 @@ fun ProfileNodeSelectDialog(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .background(if (selected) Color.White.copy(alpha = 0.06f) else Color.Transparent)
+                                                .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
                                                 .clickable {
                                                     onSelect(ref)
                                                     onDismiss()
@@ -759,7 +754,7 @@ fun ProfileNodeSelectDialog(
                                             Icon(
                                                 imageVector = if (selected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
                                                 contentDescription = null,
-                                                tint = if (selected) PureWhite else Neutral500,
+                                                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(20.dp)
                                             )
                                             Spacer(modifier = Modifier.width(10.dp))
@@ -767,12 +762,12 @@ fun ProfileNodeSelectDialog(
                                                 Text(
                                                     text = node.name,
                                                     style = MaterialTheme.typography.bodyLarge,
-                                                    color = TextPrimary
+                                                    color = MaterialTheme.colorScheme.onSurface
                                                 )
                                                 Text(
                                                     text = node.group,
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = Neutral500,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     maxLines = 1
                                                 )
                                             }
@@ -798,7 +793,7 @@ fun ProfileNodeSelectDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.03f))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                                 .animateContentSize(animationSpec = tween(durationMillis = 220))
                         ) {
                             Row(
@@ -814,19 +809,19 @@ fun ProfileNodeSelectDialog(
                                     Text(
                                         text = "未知配置($profileId)",
                                         style = MaterialTheme.typography.bodyLarge,
-                                        color = if (enabled) TextPrimary else TextSecondary,
+                                        color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
                                         text = "${itemsForProfile.size} 个节点",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Neutral500
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 Icon(
                                     imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                                     contentDescription = null,
-                                    tint = if (enabled) TextSecondary else Neutral500
+                                    tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                                 )
                             }
 
@@ -846,7 +841,7 @@ fun ProfileNodeSelectDialog(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .background(if (selected) Color.White.copy(alpha = 0.06f) else Color.Transparent)
+                                                .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
                                                 .clickable {
                                                     onSelect(ref)
                                                     onDismiss()
@@ -857,7 +852,7 @@ fun ProfileNodeSelectDialog(
                                             Icon(
                                                 imageVector = if (selected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
                                                 contentDescription = null,
-                                                tint = if (selected) PureWhite else Neutral500,
+                                                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(20.dp)
                                             )
                                             Spacer(modifier = Modifier.width(10.dp))
@@ -865,12 +860,12 @@ fun ProfileNodeSelectDialog(
                                                 Text(
                                                     text = node.name,
                                                     style = MaterialTheme.typography.bodyLarge,
-                                                    color = TextPrimary
+                                                    color = MaterialTheme.colorScheme.onSurface
                                                 )
                                                 Text(
                                                     text = node.group,
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = Neutral500,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     maxLines = 1
                                                 )
                                             }
@@ -888,7 +883,7 @@ fun ProfileNodeSelectDialog(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
             ) {
                 Text("取消")
             }
@@ -900,13 +895,14 @@ fun ProfileNodeSelectDialog(
 fun AboutDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val githubUrl = "https://github.com/roseforljh/singboxforandriod.git"
+    val linkColor = MaterialTheme.colorScheme.primary
 
     val annotatedString = buildAnnotatedString {
         append("SingBox for Android\n\n地址: ")
         pushStringAnnotation(tag = "URL", annotation = githubUrl)
         withStyle(
             style = SpanStyle(
-                color = PureWhite,
+                color = linkColor,
                 textDecoration = TextDecoration.Underline
             )
         ) {
@@ -920,19 +916,19 @@ fun AboutDialog(onDismiss: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
                 .padding(24.dp)
         ) {
             Text(
                 text = "关于 SingBox",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(16.dp))
             ClickableText(
                 text = annotatedString,
-                style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary),
+                style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
                 onClick = { offset ->
                     annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
                         .firstOrNull()?.let { annotation ->
@@ -949,15 +945,15 @@ fun AboutDialog(onDismiss: () -> Unit) {
                     .fillMaxWidth()
                     .height(50.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = PureWhite,
-                    contentColor = Color.Black
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
                 ),
                 shape = RoundedCornerShape(25.dp)
             ) {
                 Text(
                     text = "确定",
                     fontWeight = FontWeight.Bold,
-                    color = Color.Black
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
         }
@@ -979,14 +975,14 @@ fun NodeFilterDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
                 .padding(24.dp)
         ) {
             Text(
                 text = "节点筛选",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             
             Spacer(modifier = Modifier.height(20.dp))
@@ -995,7 +991,7 @@ fun NodeFilterDialog(
             Text(
                 text = "过滤模式",
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
             Spacer(modifier = Modifier.height(12.dp))
@@ -1005,7 +1001,7 @@ fun NodeFilterDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (filterMode == FilterMode.NONE) Color.White.copy(alpha = 0.05f) else Color.Transparent)
+                    .background(if (filterMode == FilterMode.NONE) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
                     .clickable { filterMode = FilterMode.NONE }
                     .padding(vertical = 12.dp, horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1013,14 +1009,14 @@ fun NodeFilterDialog(
                 Icon(
                     imageVector = if (filterMode == FilterMode.NONE) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
                     contentDescription = null,
-                    tint = if (filterMode == FilterMode.NONE) PureWhite else Neutral500,
+                    tint = if (filterMode == FilterMode.NONE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
                     text = "不过滤",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (filterMode == FilterMode.NONE) TextPrimary else TextSecondary
+                    color = if (filterMode == FilterMode.NONE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
             }
             
@@ -1029,7 +1025,7 @@ fun NodeFilterDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (filterMode == FilterMode.INCLUDE) Color.White.copy(alpha = 0.05f) else Color.Transparent)
+                    .background(if (filterMode == FilterMode.INCLUDE) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
                     .clickable { filterMode = FilterMode.INCLUDE }
                     .padding(vertical = 12.dp, horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1037,14 +1033,14 @@ fun NodeFilterDialog(
                 Icon(
                     imageVector = if (filterMode == FilterMode.INCLUDE) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
                     contentDescription = null,
-                    tint = if (filterMode == FilterMode.INCLUDE) PureWhite else Neutral500,
+                    tint = if (filterMode == FilterMode.INCLUDE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
                     text = "只显示包含",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (filterMode == FilterMode.INCLUDE) TextPrimary else TextSecondary
+                    color = if (filterMode == FilterMode.INCLUDE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
             }
             
@@ -1053,7 +1049,7 @@ fun NodeFilterDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (filterMode == FilterMode.EXCLUDE) Color.White.copy(alpha = 0.05f) else Color.Transparent)
+                    .background(if (filterMode == FilterMode.EXCLUDE) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
                     .clickable { filterMode = FilterMode.EXCLUDE }
                     .padding(vertical = 12.dp, horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1061,14 +1057,14 @@ fun NodeFilterDialog(
                 Icon(
                     imageVector = if (filterMode == FilterMode.EXCLUDE) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
                     contentDescription = null,
-                    tint = if (filterMode == FilterMode.EXCLUDE) PureWhite else Neutral500,
+                    tint = if (filterMode == FilterMode.EXCLUDE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
                     text = "排除包含",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (filterMode == FilterMode.EXCLUDE) TextPrimary else TextSecondary
+                    color = if (filterMode == FilterMode.EXCLUDE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
             }
             
@@ -1079,7 +1075,7 @@ fun NodeFilterDialog(
                 Text(
                     text = "关键字",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1087,18 +1083,18 @@ fun NodeFilterDialog(
                 OutlinedTextField(
                     value = keywordsText,
                     onValueChange = { keywordsText = it },
-                    placeholder = { Text("多个关键字用逗号分隔，如：香港, HK, 港", color = Neutral500) },
+                    placeholder = { Text("多个关键字用逗号分隔，如：香港, HK, 港", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = false,
                     minLines = 2,
                     maxLines = 3,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = PureWhite,
-                        unfocusedBorderColor = Divider,
-                        focusedLabelColor = PureWhite,
-                        unfocusedLabelColor = Neutral500
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
                     ),
                     shape = RoundedCornerShape(16.dp)
                 )
@@ -1108,7 +1104,7 @@ fun NodeFilterDialog(
                 Text(
                     text = "提示：关键字匹配节点名称，不区分大小写",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Neutral500
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             
@@ -1135,7 +1131,7 @@ fun NodeFilterDialog(
                 TextButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
                 ) {
                     Text("取消")
                 }
@@ -1154,13 +1150,13 @@ fun NodeFilterDialog(
                         onConfirm(NodeFilter(keywords, filterMode))
                     },
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = Color.Black),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                     shape = RoundedCornerShape(25.dp)
                 ) {
                     Text(
                         text = "确定",
                         fontWeight = FontWeight.Bold,
-                        color = Color.Black
+                        color = MaterialTheme.colorScheme.onPrimary
                     )
                 }
             }

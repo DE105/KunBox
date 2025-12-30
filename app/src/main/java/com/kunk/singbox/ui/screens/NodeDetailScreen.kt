@@ -71,10 +71,6 @@ import com.kunk.singbox.ui.components.EditableTextItem
 import com.kunk.singbox.ui.components.SettingItem
 import com.kunk.singbox.ui.components.SettingSwitchItem
 import com.kunk.singbox.ui.components.StandardCard
-import com.kunk.singbox.ui.theme.AppBackground
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,13 +95,13 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
     }
 
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("服务器配置", color = TextPrimary) },
+                title = { Text("服务器配置", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
@@ -116,10 +112,10 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                             navController.popBackStack()
                         }
                     }) {
-                        Icon(Icons.Rounded.Save, contentDescription = "保存", tint = PureWhite)
+                        Icon(Icons.Rounded.Save, contentDescription = "保存", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
@@ -916,7 +912,7 @@ fun SectionHeader(title: String) {
     Text(
         text = title,
         style = MaterialTheme.typography.labelLarge,
-        color = TextSecondary,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(bottom = 8.dp, start = 8.dp)
     )
 }

@@ -29,11 +29,7 @@ import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.components.StyledTextField
 import androidx.compose.foundation.shape.RoundedCornerShape
-import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Neutral800
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 import com.kunk.singbox.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,21 +68,21 @@ fun CustomRulesScreen(
     }
 
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("自定义规则", color = TextPrimary) },
+                title = { Text("自定义规则", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "添加", tint = PureWhite)
+                        Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
@@ -107,7 +103,7 @@ fun CustomRulesScreen(
                     ) {
                         Text(
                             text = "暂无自定义规则",
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyLarge
                         )
                     }
@@ -141,14 +137,14 @@ fun CustomRuleItem(
                 Text(
                     text = rule.name,
                     style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "${rule.type.displayName}: ${rule.value}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
                 Text(
@@ -161,7 +157,7 @@ fun CustomRuleItem(
             Icon(
                 imageVector = Icons.Rounded.Edit,
                 contentDescription = "编辑",
-                tint = TextSecondary
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -227,13 +223,13 @@ fun CustomRuleEditorDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(24.dp),
-        containerColor = Neutral800,
-        title = { 
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = {
             Text(
                 text = if (initialRule == null) "添加规则" else "编辑规则",
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            ) 
+                color = MaterialTheme.colorScheme.onSurface
+            )
         },
         text = {
             Column(
@@ -303,7 +299,7 @@ fun CustomRuleEditorDialog(
                     }
                 }
                 TextButton(onClick = onDismiss) {
-                    Text("取消")
+                    Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

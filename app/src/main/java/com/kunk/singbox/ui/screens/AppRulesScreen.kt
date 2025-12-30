@@ -24,7 +24,7 @@ import com.kunk.singbox.repository.InstalledAppsRepository
 import com.kunk.singbox.ui.components.AppListLoadingDialog
 import com.kunk.singbox.ui.components.ConfirmDialog
 import com.kunk.singbox.ui.components.StandardCard
-import com.kunk.singbox.ui.theme.*
+import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.viewmodel.InstalledAppsViewModel
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.viewmodel.ProfilesViewModel
@@ -116,27 +116,27 @@ fun AppRulesScreen(
     }
 
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("应用分流", color = TextPrimary) },
+                title = { Text("应用分流", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "添加", tint = PureWhite)
+                        Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = PureWhite)
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         } else {
             LazyColumn(
@@ -149,7 +149,7 @@ fun AppRulesScreen(
                 item {
                     StandardCard {
                         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                            Text("为不同应用设置不同的代理规则", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                            Text("为不同应用设置不同的代理规则", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                 OutboundChip(RuleSetOutboundMode.PROXY, "代理")
@@ -166,7 +166,7 @@ fun AppRulesScreen(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(48.dp))
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Text("暂无应用分流规则", color = TextSecondary)
+                                Text("暂无应用分流规则", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text("点击右上角 + 添加规则", color = Neutral500, fontSize = 12.sp)
                             }

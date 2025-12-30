@@ -74,11 +74,7 @@ import com.kunk.singbox.ui.components.NodeFilterDialog
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.NodeCard
 import com.kunk.singbox.ui.navigation.Screen
-import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Neutral500
-import com.kunk.singbox.ui.theme.Primary
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
 import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -191,7 +187,7 @@ fun NodesScreen(
 
     Scaffold(
         modifier = Modifier
-            .background(AppBackground)
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
@@ -210,7 +206,7 @@ fun NodesScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "清空延迟",
-                                color = PureWhite,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(end = 8.dp),
                                 style = MaterialTheme.typography.labelMedium
                             )
@@ -219,8 +215,8 @@ fun NodesScreen(
                                     viewModel.clearLatency()
                                     isFabExpanded = false
                                 },
-                                containerColor = PureWhite,
-                                contentColor = Color.Black
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
                             ) {
                                 Icon(Icons.Rounded.Delete, contentDescription = "清空延迟")
                             }
@@ -230,7 +226,7 @@ fun NodesScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "添加节点",
-                                color = PureWhite,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(end = 8.dp),
                                 style = MaterialTheme.typography.labelMedium
                             )
@@ -239,8 +235,8 @@ fun NodesScreen(
                                     showAddNodeDialog = true
                                     isFabExpanded = false
                                 },
-                                containerColor = PureWhite,
-                                contentColor = Color.Black
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
                             ) {
                                 Icon(Icons.Rounded.Add, contentDescription = "添加节点")
                             }
@@ -250,7 +246,7 @@ fun NodesScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = if (isTesting) "停止测试" else "测试延迟",
-                                color = PureWhite,
+                                color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(end = 8.dp),
                                 style = MaterialTheme.typography.labelMedium
                             )
@@ -259,13 +255,13 @@ fun NodesScreen(
                                     viewModel.testAllLatency()
                                     isFabExpanded = false
                                 },
-                                containerColor = PureWhite,
-                                contentColor = Color.Black
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
                             ) {
                                 if (isTesting) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(20.dp),
-                                        color = Color.Black,
+                                        color = MaterialTheme.colorScheme.onPrimary,
                                         strokeWidth = 2.dp
                                     )
                                 } else {
@@ -278,8 +274,8 @@ fun NodesScreen(
                 
                 FloatingActionButton(
                     onClick = { isFabExpanded = !isFabExpanded },
-                    containerColor = PureWhite,
-                    contentColor = Color.Black
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
                 ) {
                     Icon(
                         imageVector = if (isFabExpanded) Icons.Rounded.Close else Icons.Rounded.Add,
@@ -306,7 +302,7 @@ fun NodesScreen(
                     text = "节点列表",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onBackground
                 )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -316,11 +312,11 @@ fun NodesScreen(
                         Icon(
                             imageVector = Icons.Rounded.FilterAlt,
                             contentDescription = "筛选",
-                            tint = if (hasFilter) Primary else PureWhite
+                            tint = if (hasFilter) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
                         )
                     }
                     IconButton(onClick = { showSortDialog = true }) {
-                        Icon(Icons.Rounded.Sort, contentDescription = "排序", tint = PureWhite)
+                        Icon(Icons.Rounded.Sort, contentDescription = "排序", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 }
             }
@@ -328,8 +324,8 @@ fun NodesScreen(
             // 2. Group Tabs
             ScrollableTabRow(
                 selectedTabIndex = selectedGroupIndex,
-                contentColor = PureWhite,
-                modifier = Modifier.background(AppBackground),
+                contentColor = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.background(MaterialTheme.colorScheme.background),
                 edgePadding = 16.dp,
                 divider = {},
                 indicator = {}
@@ -351,7 +347,7 @@ fun NodesScreen(
                         text = {
                             Text(
                                 text = title,
-                                color = if (selectedGroupIndex == index) PureWhite else Neutral500,
+                                color = if (selectedGroupIndex == index) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = if (selectedGroupIndex == index) FontWeight.Bold else FontWeight.Normal
                             )
                         }

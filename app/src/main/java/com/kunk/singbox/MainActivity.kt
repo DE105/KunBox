@@ -173,7 +173,9 @@ fun SingBoxApp() {
         }
     }
 
-    SingBoxTheme {
+    val appTheme = settings?.appTheme ?: com.kunk.singbox.model.AppThemeMode.SYSTEM
+
+    SingBoxTheme(appTheme = appTheme) {
         val navController = rememberNavController()
         var isNavigating by remember { mutableStateOf(false) }
         var navigationStartTime by remember { mutableStateOf(0L) }

@@ -28,9 +28,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import com.kunk.singbox.ui.navigation.NAV_ANIMATION_DURATION
 import com.kunk.singbox.ui.navigation.Screen
 import com.kunk.singbox.ui.navigation.getTabForRoute
-import com.kunk.singbox.ui.theme.AppBackground
-import com.kunk.singbox.ui.theme.Neutral500
-import com.kunk.singbox.ui.theme.PureWhite
+import androidx.compose.material3.MaterialTheme
 
 @Composable
 fun AppNavBar(
@@ -45,8 +43,8 @@ fun AppNavBar(
     )
     
     NavigationBar(
-        containerColor = AppBackground,
-        contentColor = PureWhite,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.height(64.dp) // Reduced height
     ) {
         val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -114,9 +112,9 @@ fun AppNavBar(
                     }
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = PureWhite,
+                    selectedIconColor = MaterialTheme.colorScheme.onBackground,
                     indicatorColor = Color.Transparent, // No pill indicator
-                    unselectedIconColor = Neutral500
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
         }

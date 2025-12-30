@@ -27,13 +27,7 @@ import com.kunk.singbox.model.RuleSetType
 import com.kunk.singbox.model.HubRuleSet
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.components.StyledTextField
-import com.kunk.singbox.ui.theme.AppBackground
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 import com.kunk.singbox.ui.theme.Neutral700
-import com.kunk.singbox.ui.theme.Neutral900
-import com.kunk.singbox.ui.theme.SurfaceCard
 import com.kunk.singbox.viewmodel.RuleSetViewModel
 import com.kunk.singbox.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
@@ -74,31 +68,31 @@ fun RuleSetHubScreen(
     }
 
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     Column {
-                        Text("规则集中心", color = TextPrimary)
+                        Text("规则集中心", color = MaterialTheme.colorScheme.onBackground)
                         Text(
-                            text = "数量: ${filteredRuleSets.size}", 
-                            style = MaterialTheme.typography.bodySmall, 
-                            color = TextSecondary
+                            text = "数量: ${filteredRuleSets.size}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
                      IconButton(onClick = { activityRuleSetViewModel.fetchRuleSets() }) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = PureWhite)
+                        Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
@@ -112,13 +106,13 @@ fun RuleSetHubScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("搜索规则集...", color = TextSecondary) },
-                    leadingIcon = { 
+                    placeholder = { Text("搜索规则集...", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    leadingIcon = {
                         Icon(
-                            Icons.Rounded.Search, 
+                            Icons.Rounded.Search,
                             contentDescription = "搜索",
-                            tint = TextSecondary
-                        ) 
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -130,16 +124,16 @@ fun RuleSetHubScreen(
                         unfocusedContainerColor = Color.Transparent,
                         focusedBorderColor = Color.Transparent,
                         unfocusedBorderColor = Color.Transparent,
-                        cursorColor = TextPrimary,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
+                        cursorColor = MaterialTheme.colorScheme.onSurface,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
             }
             
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = TextPrimary)
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
             } else if (error != null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -204,7 +198,7 @@ fun HubRuleSetItem(
     isDownloaded: Boolean
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -223,7 +217,7 @@ fun HubRuleSetItem(
                     Text(
                         text = ruleSet.name,
                         style = MaterialTheme.typography.titleMedium,
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f, fill = false)
                     )
@@ -232,7 +226,7 @@ fun HubRuleSetItem(
                         CircularProgressIndicator(
                             modifier = Modifier.size(14.dp),
                             strokeWidth = 2.dp,
-                            color = TextPrimary
+                            color = MaterialTheme.colorScheme.primary
                         )
                     } else if (isDownloaded) {
                         Spacer(modifier = Modifier.width(8.dp))
@@ -253,13 +247,13 @@ fun HubRuleSetItem(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ruleSet.tags.forEach { tag ->
                         Surface(
-                            color = Neutral700,
+                            color = MaterialTheme.colorScheme.secondary,
                             shape = RoundedCornerShape(4.dp),
                             modifier = Modifier.padding(start = 4.dp)
                         ) {
                             Text(
                                 text = tag,
-                                color = PureWhite,
+                                color = MaterialTheme.colorScheme.onSecondary,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
@@ -278,13 +272,13 @@ fun HubRuleSetItem(
                 Text(
                     text = "规则数量：${ruleSet.ruleCount}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 
                 Icon(
                     imageVector = Icons.Rounded.Visibility,
                     contentDescription = "查看",
-                    tint = TextSecondary,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
                 )
             }
@@ -300,14 +294,14 @@ fun HubRuleSetItem(
                     onClick = onAddSource,
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Text("添加 源文件", fontSize = 12.sp, color = PureWhite)
+                    Text("添加 源文件", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                 }
                 
                 TextButton(
                     onClick = onAddBinary,
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Text("添加 二进制", fontSize = 12.sp, color = PureWhite)
+                    Text("添加 二进制", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

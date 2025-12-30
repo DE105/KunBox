@@ -24,6 +24,7 @@ import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
+import com.kunk.singbox.model.AppThemeMode
 import com.kunk.singbox.viewmodel.NodeFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -58,6 +59,7 @@ class SettingsRepository(private val context: Context) {
         val AUTO_CONNECT = booleanPreferencesKey("auto_connect")
         val AUTO_RECONNECT = booleanPreferencesKey("auto_reconnect")
         val EXCLUDE_FROM_RECENT = booleanPreferencesKey("exclude_from_recent")
+        val APP_THEME = stringPreferencesKey("app_theme")
         
         // TUN/VPN 设置
         val TUN_ENABLED = booleanPreferencesKey("tun_enabled")
@@ -229,6 +231,7 @@ class SettingsRepository(private val context: Context) {
             autoConnect = preferences[PreferencesKeys.AUTO_CONNECT] ?: false,
             autoReconnect = preferences[PreferencesKeys.AUTO_RECONNECT] ?: true,
             excludeFromRecent = preferences[PreferencesKeys.EXCLUDE_FROM_RECENT] ?: false,
+            appTheme = com.kunk.singbox.model.AppThemeMode.valueOf(preferences[PreferencesKeys.APP_THEME] ?: com.kunk.singbox.model.AppThemeMode.SYSTEM.name),
             
             // TUN/VPN 设置
             tunEnabled = preferences[PreferencesKeys.TUN_ENABLED] ?: true,
@@ -290,6 +293,10 @@ class SettingsRepository(private val context: Context) {
     
     suspend fun setExcludeFromRecent(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.EXCLUDE_FROM_RECENT] = value }
+    }
+
+    suspend fun setAppTheme(value: com.kunk.singbox.model.AppThemeMode) {
+        context.dataStore.edit { it[PreferencesKeys.APP_THEME] = value.name }
     }
     
     // TUN/VPN 设置

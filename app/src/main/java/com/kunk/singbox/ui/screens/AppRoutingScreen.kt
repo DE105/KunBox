@@ -21,7 +21,7 @@ import com.kunk.singbox.model.*
 import com.kunk.singbox.repository.InstalledAppsRepository
 import com.kunk.singbox.ui.components.AppListLoadingDialog
 import com.kunk.singbox.ui.components.ConfirmDialog
-import com.kunk.singbox.ui.theme.*
+import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.viewmodel.InstalledAppsViewModel
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.viewmodel.ProfilesViewModel
@@ -164,34 +164,34 @@ fun AppRoutingScreen(
     }
 
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("应用分流", color = TextPrimary) },
+                    title = { Text("应用分流", color = MaterialTheme.colorScheme.onBackground) },
                     navigationIcon = {
                         IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                            Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
                         }
                     },
                     actions = {
-                        IconButton(onClick = { 
-                            if (selectedTab == 0) showAddGroupDialog = true 
-                            else showAddRuleDialog = true 
+                        IconButton(onClick = {
+                            if (selectedTab == 0) showAddGroupDialog = true
+                            else showAddRuleDialog = true
                         }) {
-                            Icon(Icons.Rounded.Add, contentDescription = "添加", tint = PureWhite)
+                            Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
                 )
                 TabRow(
                     selectedTabIndex = selectedTab,
-                    containerColor = AppBackground,
-                    contentColor = PureWhite,
+                    containerColor = MaterialTheme.colorScheme.background,
+                    contentColor = MaterialTheme.colorScheme.onBackground,
                     indicator = { tabPositions ->
                         TabRowDefaults.Indicator(
                             Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                            color = PureWhite
+                            color = MaterialTheme.colorScheme.primary
                         )
                     },
                     divider = {}
@@ -200,12 +200,12 @@ fun AppRoutingScreen(
                         Tab(
                             selected = selectedTab == index,
                             onClick = { selectedTab = index },
-                            text = { 
+                            text = {
                                 Text(
-                                    title, 
-                                    color = if (selectedTab == index) PureWhite else Neutral500,
+                                    title,
+                                    color = if (selectedTab == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
-                                ) 
+                                )
                             }
                         )
                     }
@@ -215,7 +215,7 @@ fun AppRoutingScreen(
     ) { padding ->
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = PureWhite)
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         } else {
             LazyColumn(
@@ -276,9 +276,9 @@ fun EmptyState(icon: ImageVector, title: String, subtitle: String) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, contentDescription = null, tint = Neutral500, modifier = Modifier.size(48.dp))
             Spacer(modifier = Modifier.height(16.dp))
-            Text(title, color = TextSecondary)
+            Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(8.dp))
-            Text(subtitle, color = Neutral500, fontSize = 12.sp)
+            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
         }
     }
 }

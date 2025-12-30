@@ -10,6 +10,7 @@ data class AppSettings(
     @SerializedName("autoConnect") val autoConnect: Boolean = false,
     @SerializedName("autoReconnect") val autoReconnect: Boolean = true,
     @SerializedName("excludeFromRecent") val excludeFromRecent: Boolean = false,
+    @SerializedName("appTheme") val appTheme: AppThemeMode = AppThemeMode.SYSTEM,
     
     // TUN/VPN 设置
     @SerializedName("tunEnabled") val tunEnabled: Boolean = true,
@@ -142,6 +143,18 @@ enum class DefaultRule(val displayName: String) {
     companion object {
         fun fromDisplayName(name: String): DefaultRule {
             return entries.find { it.displayName == name } ?: PROXY
+        }
+    }
+}
+
+enum class AppThemeMode(val displayName: String) {
+    @SerializedName("SYSTEM") SYSTEM("跟随系统"),
+    @SerializedName("LIGHT") LIGHT("亮色模式"),
+    @SerializedName("DARK") DARK("暗色模式");
+
+    companion object {
+        fun fromDisplayName(name: String): AppThemeMode {
+            return entries.find { it.displayName == name } ?: SYSTEM
         }
     }
 }

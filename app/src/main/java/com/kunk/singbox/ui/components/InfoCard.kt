@@ -27,10 +27,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.kunk.singbox.ui.theme.SurfaceCard
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
-
 @Composable
 fun InfoCard(
     modifier: Modifier = Modifier,
@@ -43,7 +39,7 @@ fun InfoCard(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(SurfaceCard, RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
             .padding(20.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -87,7 +83,7 @@ private fun InfoItem(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = TextSecondary,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp)
         )
         Spacer(modifier = Modifier.height(4.dp))
@@ -98,7 +94,7 @@ private fun InfoItem(
             if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     strokeWidth = 2.dp
                 )
             } else {
@@ -106,14 +102,14 @@ private fun InfoItem(
                     text = value,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

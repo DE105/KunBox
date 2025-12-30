@@ -19,7 +19,7 @@ import com.kunk.singbox.repository.InstalledAppsRepository
 import com.kunk.singbox.ui.components.AppListLoadingDialog
 import com.kunk.singbox.ui.components.ConfirmDialog
 import com.kunk.singbox.ui.components.StandardCard
-import com.kunk.singbox.ui.theme.*
+import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.viewmodel.InstalledAppsViewModel
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.viewmodel.ProfilesViewModel
@@ -109,21 +109,21 @@ fun AppGroupsScreen(
     }
 
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("应用分流", color = TextPrimary) },
+                title = { Text("应用分流", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "添加分组", tint = PureWhite)
+                        Icon(Icons.Rounded.Add, contentDescription = "添加分组", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
@@ -132,7 +132,7 @@ fun AppGroupsScreen(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(color = PureWhite)
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         } else {
             LazyColumn(
@@ -148,7 +148,7 @@ fun AppGroupsScreen(
                             Text(
                                 text = "创建分组，将多个应用归类，统一设置代理规则",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -168,7 +168,7 @@ fun AppGroupsScreen(
                                     modifier = Modifier.size(48.dp)
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Text("暂无分组", color = TextSecondary)
+                                Text("暂无分组", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text("点击右上角 + 创建分组", color = Neutral500, fontSize = 12.sp)
                             }

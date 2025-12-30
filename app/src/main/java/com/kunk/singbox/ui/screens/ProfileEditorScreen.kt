@@ -28,9 +28,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.kunk.singbox.ui.theme.AppBackground
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
+import androidx.compose.material3.MaterialTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,13 +63,13 @@ fun ProfileEditorScreen(navController: NavController) {
     ) }
 
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("编辑配置", color = TextPrimary) },
+                title = { Text("编辑配置", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
@@ -79,10 +77,10 @@ fun ProfileEditorScreen(navController: NavController) {
                         // TODO: Save logic
                         navController.popBackStack()
                     }) {
-                        Icon(Icons.Rounded.Save, contentDescription = "保存", tint = PureWhite)
+                        Icon(Icons.Rounded.Save, contentDescription = "保存", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
@@ -96,14 +94,14 @@ fun ProfileEditorScreen(navController: NavController) {
                 value = content,
                 onValueChange = { content = it },
                 textStyle = TextStyle(
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onBackground,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 14.sp
                 ),
-                cursorBrush = SolidColor(PureWhite),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(AppBackground)
+                    .background(MaterialTheme.colorScheme.background)
             )
         }
     }

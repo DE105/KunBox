@@ -23,10 +23,12 @@ import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.VpnKey
+import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -36,22 +38,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.ui.components.AboutDialog
 import com.kunk.singbox.ui.components.SettingItem
+import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.navigation.Screen
-import com.kunk.singbox.ui.theme.AppBackground
-import com.kunk.singbox.ui.theme.TextPrimary
+import com.kunk.singbox.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
+import com.kunk.singbox.model.AppThemeMode
 
 @Composable
-fun SettingsScreen(navController: NavController) {
+fun SettingsScreen(
+    navController: NavController,
+    viewModel: SettingsViewModel = viewModel()
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+    val settings by viewModel.settings.collectAsState()
+    
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     var isUpdatingRuleSets by remember { mutableStateOf(false) }
     var updateMessage by remember { mutableStateOf("") }
 
@@ -61,12 +71,25 @@ fun SettingsScreen(navController: NavController) {
         )
     }
 
+    if (showThemeDialog) {
+        SingleSelectDialog(
+            title = "应用主题",
+            options = AppThemeMode.entries.map { it.displayName },
+            selectedIndex = AppThemeMode.entries.indexOf(settings.appTheme),
+            onSelect = { index ->
+                viewModel.setAppTheme(AppThemeMode.entries[index])
+                showThemeDialog = false
+            },
+            onDismiss = { showThemeDialog = false }
+        )
+    }
+
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
     
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppBackground)
+            .background(MaterialTheme.colorScheme.background)
             .padding(top = statusBarPadding.calculateTopPadding())
             .verticalScroll(scrollState)
             .padding(16.dp)
@@ -75,13 +98,19 @@ fun SettingsScreen(navController: NavController) {
             text = "设置",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
         // 1. Connection & Startup
         SettingsGroupTitle("通用")
         StandardCard {
+            SettingItem(
+                title = "应用主题",
+                value = settings.appTheme.displayName,
+                icon = Icons.Rounded.Brightness6,
+                onClick = { showThemeDialog = true }
+            )
             SettingItem(
                 title = "连接与启动",
                 subtitle = "自动连接、断线重连",
@@ -128,6 +157,7 @@ fun SettingsScreen(navController: NavController) {
                     if (isUpdatingRuleSets) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp).padding(end = 8.dp),
+                            color = MaterialTheme.colorScheme.primary,
                             strokeWidth = 2.dp
                         )
                     }
@@ -198,7 +228,7 @@ fun SettingsGroupTitle(title: String) {
     Text(
         text = title,
         style = MaterialTheme.typography.titleMedium,
-        color = TextPrimary,
+        color = MaterialTheme.colorScheme.onBackground,
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(bottom = 8.dp, start = 4.dp)
     )

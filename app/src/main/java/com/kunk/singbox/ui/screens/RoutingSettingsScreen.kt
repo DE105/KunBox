@@ -45,10 +45,6 @@ import com.kunk.singbox.ui.components.SettingSwitchItem
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.navigation.Screen
-import com.kunk.singbox.ui.theme.AppBackground
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.viewmodel.SettingsViewModel
 
@@ -138,16 +134,16 @@ fun RoutingSettingsScreen(
     }
     
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("路由设置", color = TextPrimary) },
+                title = { Text("路由设置", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
@@ -170,7 +166,7 @@ fun RoutingSettingsScreen(
                             Text(
                                 text = settings.latencyTestUrl,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.widthIn(max = 140.dp)

@@ -12,6 +12,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -26,10 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Neutral500
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
 import com.kunk.singbox.viewmodel.LogViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -39,13 +37,13 @@ fun LogsScreen(navController: NavController, viewModel: LogViewModel = viewModel
     val context = LocalContext.current
 
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("运行日志", color = TextPrimary) },
+                title = { Text("运行日志", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
@@ -58,13 +56,13 @@ fun LogsScreen(navController: NavController, viewModel: LogViewModel = viewModel
                         }
                         context.startActivity(Intent.createChooser(shareIntent, "导出日志"))
                     }) {
-                        Icon(Icons.Rounded.Share, contentDescription = "导出", tint = PureWhite)
+                        Icon(Icons.Rounded.Share, contentDescription = "导出", tint = MaterialTheme.colorScheme.onBackground)
                     }
                     IconButton(onClick = { viewModel.clearLogs() }) {
-                        Icon(Icons.Rounded.Delete, contentDescription = "清空", tint = PureWhite)
+                        Icon(Icons.Rounded.Delete, contentDescription = "清空", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
@@ -79,8 +77,8 @@ fun LogsScreen(navController: NavController, viewModel: LogViewModel = viewModel
                 Text(
                     text = log,
                     color = when {
-                        log.contains("WARN", ignoreCase = true) -> PureWhite
-                        log.contains("ERROR", ignoreCase = true) -> PureWhite
+                        log.contains("WARN", ignoreCase = true) -> MaterialTheme.colorScheme.onSurface
+                        log.contains("ERROR", ignoreCase = true) -> MaterialTheme.colorScheme.onSurface
                         else -> Neutral500
                     },
                     fontFamily = FontFamily.Monospace,

@@ -64,13 +64,7 @@ import com.kunk.singbox.model.UpdateStatus
 import com.kunk.singbox.ui.components.ProfileCard
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.navigation.Screen
-import com.kunk.singbox.ui.theme.AppBackground
-import com.kunk.singbox.ui.theme.Divider
 import com.kunk.singbox.ui.theme.Neutral500
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.SurfaceCard
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
@@ -205,13 +199,13 @@ fun ProfilesScreen(
     }
 
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showImportSelection = true },
-                containerColor = PureWhite,
-                contentColor = Color.Black
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
                 Icon(Icons.Rounded.Add, contentDescription = "Add Profile")
             }
@@ -236,10 +230,10 @@ fun ProfilesScreen(
                     text = "配置管理",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onBackground
                 )
                 IconButton(onClick = { showSearchDialog = true }) {
-                    Icon(Icons.Rounded.Search, contentDescription = "Search", tint = PureWhite)
+                    Icon(Icons.Rounded.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onBackground)
                 }
             }
 
@@ -364,7 +358,7 @@ private fun ImportLoadingDialog(message: String) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(24.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(24.dp))
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -373,20 +367,20 @@ private fun ImportLoadingDialog(message: String) {
                 androidx.compose.material3.LinearProgressIndicator(
                     progress = progress,
                     modifier = Modifier.fillMaxWidth().height(8.dp),
-                    color = PureWhite,
-                    trackColor = Neutral500.copy(alpha = 0.3f),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.outline,
                     strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
                 )
             } else {
                 androidx.compose.material3.CircularProgressIndicator(
-                    color = PureWhite
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }
@@ -409,7 +403,7 @@ private fun ImportOptionCard(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = PureWhite,
+                tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(32.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
@@ -418,12 +412,12 @@ private fun ImportOptionCard(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -445,14 +439,14 @@ private fun SubscriptionInputDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
                 .padding(24.dp)
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(16.dp))
             
@@ -463,12 +457,12 @@ private fun SubscriptionInputDialog(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    focusedBorderColor = PureWhite,
-                    unfocusedBorderColor = Divider,
-                    focusedLabelColor = PureWhite,
-                    unfocusedLabelColor = Neutral500
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
             
@@ -481,12 +475,12 @@ private fun SubscriptionInputDialog(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    focusedBorderColor = PureWhite,
-                    unfocusedBorderColor = Divider,
-                    focusedLabelColor = PureWhite,
-                    unfocusedLabelColor = Neutral500
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
             
@@ -522,10 +516,10 @@ private fun SubscriptionInputDialog(
                     onConfirm(name, url)
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PureWhite, contentColor = Color.Black),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                 shape = RoundedCornerShape(25.dp)
             ) {
-                Text("确定", fontWeight = FontWeight.Bold, color = Color.Black)
+                Text("确定", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
             }
             
             Spacer(modifier = Modifier.height(8.dp))
@@ -533,7 +527,7 @@ private fun SubscriptionInputDialog(
             androidx.compose.material3.TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
             ) {
                 Text("取消")
             }

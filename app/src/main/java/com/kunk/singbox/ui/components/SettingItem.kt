@@ -26,11 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.kunk.singbox.ui.theme.Divider
 import com.kunk.singbox.ui.theme.Neutral500
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 
 @Composable
 fun SettingItem(
@@ -53,7 +49,7 @@ fun SettingItem(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (enabled) TextSecondary else TextSecondary.copy(alpha = 0.5f),
+                tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
@@ -66,7 +62,7 @@ fun SettingItem(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
-                color = if (enabled) TextPrimary else TextPrimary.copy(alpha = 0.5f),
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -75,7 +71,7 @@ fun SettingItem(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (enabled) TextSecondary else TextSecondary.copy(alpha = 0.5f),
+                    color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -86,7 +82,7 @@ fun SettingItem(
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
                 textAlign = TextAlign.End,
                 maxLines = 1,
@@ -100,7 +96,7 @@ fun SettingItem(
             Icon(
                 imageVector = Icons.Rounded.ChevronRight,
                 contentDescription = null,
-                tint = Neutral500,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -125,10 +121,10 @@ fun SettingSwitchItem(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.Black,
-                    checkedTrackColor = PureWhite,
-                    uncheckedThumbColor = Neutral500,
-                    uncheckedTrackColor = Divider,
+                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                    checkedTrackColor = MaterialTheme.colorScheme.primary,
+                    uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.outline,
                     uncheckedBorderColor = Color.Transparent
                 )
             )

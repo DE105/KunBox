@@ -48,13 +48,13 @@ fun NodeCard(
         return String.format(java.util.Locale.US, "%.1f %s", value, units[unitIndex])
     }
 
-    val borderColor = if (isSelected) PureWhite else Divider
+    val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
     val borderWidth = if (isSelected) 2.dp else 1.dp
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(SurfaceCard, RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
             .border(borderWidth, borderColor, RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
             .padding(16.dp)
@@ -72,14 +72,14 @@ fun NodeCard(
                     Box(
                         modifier = Modifier
                             .size(24.dp)
-                            .background(PureWhite, CircleShape)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape)
                             .padding(4.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Check,
                             contentDescription = "Selected",
-                            tint = AppBackground,
+                            tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -102,7 +102,7 @@ fun NodeCard(
                             text = name,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             modifier = Modifier.weight(1f, fill = false)
                         )
@@ -112,7 +112,7 @@ fun NodeCard(
                         Text(
                             text = type,
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         
                         Spacer(modifier = Modifier.width(8.dp))
@@ -121,7 +121,7 @@ fun NodeCard(
                             Text(
                                 text = formatTraffic(trafficUsed),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                         }
@@ -129,7 +129,7 @@ fun NodeCard(
                         if (isTesting) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(12.dp),
-                                color = PureWhite.copy(alpha = 0.7f),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                                 strokeWidth = 2.dp
                             )
                         } else if (latency != null) {
@@ -164,7 +164,7 @@ fun NodeCard(
                     Icon(
                         imageVector = Icons.Rounded.MoreVert,
                         contentDescription = "More",
-                        tint = TextSecondary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -176,13 +176,13 @@ fun NodeCard(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
                         modifier = Modifier
-                            .background(Neutral700)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
                             .width(100.dp)
                     ) {
                         DropdownMenuItem(
                             text = {
                                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("编辑", color = PureWhite)
+                                    Text("编辑", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
                             onClick = {
@@ -193,7 +193,7 @@ fun NodeCard(
                         DropdownMenuItem(
                             text = {
                                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("导出", color = PureWhite)
+                                    Text("导出", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
                             onClick = {
@@ -204,7 +204,7 @@ fun NodeCard(
                         DropdownMenuItem(
                             text = {
                                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("延迟", color = PureWhite)
+                                    Text("延迟", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
                             onClick = {
@@ -215,7 +215,7 @@ fun NodeCard(
                         DropdownMenuItem(
                             text = {
                                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("删除", color = PureWhite)
+                                    Text("删除", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
                             onClick = {

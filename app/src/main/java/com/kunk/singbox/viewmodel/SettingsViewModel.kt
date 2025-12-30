@@ -7,6 +7,7 @@ import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.CustomRule
 import com.kunk.singbox.model.DefaultRule
 import com.kunk.singbox.model.DnsStrategy
+import com.kunk.singbox.model.AppThemeMode
 import com.kunk.singbox.model.RoutingMode
 import com.kunk.singbox.model.AppRule
 import com.kunk.singbox.model.AppGroup
@@ -54,6 +55,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.setExcludeFromRecent(value) }
     }
     
+    fun setAppTheme(value: AppThemeMode) {
+        viewModelScope.launch { repository.setAppTheme(value) }
+    }
+
     // TUN/VPN 设置
     fun setTunEnabled(value: Boolean) {
         viewModelScope.launch { repository.setTunEnabled(value) }

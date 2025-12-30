@@ -9,8 +9,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.kunk.singbox.ui.theme.Divider
-import com.kunk.singbox.ui.theme.SurfaceCard
+import androidx.compose.material3.MaterialTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,9 +24,9 @@ fun StandardCard(
             modifier = modifier,
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = SurfaceCard
+                containerColor = MaterialTheme.colorScheme.surface
             ),
-            border = BorderStroke(1.dp, Divider),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             content = content
         )
     } else {
@@ -35,9 +34,9 @@ fun StandardCard(
             modifier = modifier,
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = SurfaceCard
+                containerColor = MaterialTheme.colorScheme.surface
             ),
-            border = BorderStroke(1.dp, Divider),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             content = content
         )
     }

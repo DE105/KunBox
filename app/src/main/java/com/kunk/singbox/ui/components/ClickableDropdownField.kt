@@ -27,9 +27,6 @@ import androidx.compose.ui.unit.sp
 import com.kunk.singbox.ui.theme.Neutral500
 import com.kunk.singbox.ui.theme.Neutral700
 import com.kunk.singbox.ui.theme.Neutral800
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 
 /**
  * A dropdown-style field that clearly indicates it is clickable.
@@ -49,7 +46,7 @@ fun ClickableDropdownField(
         Text(
             text = label,
             fontSize = 13.sp,
-            color = TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.Medium
         )
         
@@ -57,10 +54,10 @@ fun ClickableDropdownField(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(Neutral800.copy(alpha = 0.5f))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 .border(
                     width = 1.dp,
-                    color = Neutral700,
+                    color = MaterialTheme.colorScheme.outline,
                     shape = RoundedCornerShape(16.dp)
                 )
                 .clickable(onClick = onClick)
@@ -74,13 +71,13 @@ fun ClickableDropdownField(
                 Text(
                     text = value,
                     fontSize = 15.sp,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Normal
                 )
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = "选择",
-                    tint = Neutral500,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -107,7 +104,7 @@ fun StyledTextField(
         Text(
             text = label,
             fontSize = 13.sp,
-            color = TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.Medium
         )
         
@@ -117,19 +114,19 @@ fun StyledTextField(
             modifier = Modifier.fillMaxWidth(),
             placeholder = {
                 if (placeholder.isNotEmpty()) {
-                    Text(placeholder, color = Neutral700)
+                    Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                 }
             },
             singleLine = singleLine,
             shape = RoundedCornerShape(16.dp),
             colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                focusedBorderColor = PureWhite.copy(alpha = 0.6f),
-                unfocusedBorderColor = Neutral700,
-                focusedContainerColor = Neutral800.copy(alpha = 0.5f),
-                unfocusedContainerColor = Neutral800.copy(alpha = 0.3f),
-                cursorColor = PureWhite
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                cursorColor = MaterialTheme.colorScheme.primary
             )
         )
     }

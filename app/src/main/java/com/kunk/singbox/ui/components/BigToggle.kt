@@ -41,7 +41,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.kunk.singbox.ui.theme.OLEDBlack
-import com.kunk.singbox.ui.theme.PureWhite
 import androidx.compose.ui.viewinterop.AndroidView
 import android.widget.ImageView
 import com.kunk.singbox.R
@@ -83,21 +82,21 @@ fun BigToggle(
         transitionSpec = { tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing) },
         label = "BackgroundColor"
     ) { running ->
-        if (running) Color(0xFF4CAF50) else PureWhite
+        if (running) Color(0xFF4CAF50) else MaterialTheme.colorScheme.surface
     }
     
     val iconColor by transition.animateColor(
         transitionSpec = { tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing) },
         label = "IconColor"
     ) { running ->
-        if (running) PureWhite else OLEDBlack
+        if (running) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
     }
     
     val borderColor by transition.animateColor(
         transitionSpec = { tween(durationMillis = 300, easing = androidx.compose.animation.core.FastOutSlowInEasing) },
         label = "BorderColor"
     ) { running ->
-        if (running) Color(0xFF4CAF50) else Color(0xFFE0E0E0)
+        if (running) Color(0xFF4CAF50) else MaterialTheme.colorScheme.outline
     }
 
     // Ripple/Breathing animation when running

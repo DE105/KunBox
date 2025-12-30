@@ -41,13 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.draw.alpha
-import com.kunk.singbox.ui.theme.AppBackground
-import com.kunk.singbox.ui.theme.Divider
 import com.kunk.singbox.ui.theme.Neutral700
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.SurfaceCard
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -94,10 +88,10 @@ fun ProfileCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(SurfaceCard)
+            .background(MaterialTheme.colorScheme.surface)
             .border(
                 width = if (isSelected) 2.dp else 1.dp,
-                color = if (isSelected) PureWhite else Divider,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                 shape = RoundedCornerShape(16.dp)
             )
             .clickable(enabled = isEnabled, onClick = onClick)
@@ -115,10 +109,10 @@ fun ProfileCard(
                 Icon(
                     imageVector = Icons.Rounded.Check,
                     contentDescription = "Selected",
-                    tint = AppBackground,
+                    tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier
                         .size(24.dp)
-                        .background(PureWhite, CircleShape)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape)
                         .padding(4.dp)
                 )
             } else {
@@ -133,7 +127,7 @@ fun ProfileCard(
                         text = name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -141,7 +135,7 @@ fun ProfileCard(
                         Spacer(modifier = Modifier.width(8.dp))
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
-                            color = TextPrimary,
+                            color = MaterialTheme.colorScheme.onSurface,
                             strokeWidth = 2.dp
                         )
                     }
@@ -150,7 +144,7 @@ fun ProfileCard(
                 Text(
                     text = type + if (!isEnabled) " (已禁用)" else "",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 
                 if (totalTraffic > 0 || expireDate > 0) {
@@ -160,14 +154,14 @@ fun ProfileCard(
                             Icon(
                                 imageVector = Icons.Rounded.ImportExport,
                                 contentDescription = null,
-                                tint = TextSecondary,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "${formatTraffic(usedTraffic)} / ${formatTraffic(totalTraffic)}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         
@@ -179,14 +173,14 @@ fun ProfileCard(
                             Icon(
                                 imageVector = Icons.Rounded.DateRange,
                                 contentDescription = null,
-                                tint = TextSecondary,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = formatDate(expireDate),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -199,7 +193,7 @@ fun ProfileCard(
                 Icon(
                     imageVector = Icons.Rounded.MoreVert,
                     contentDescription = "More",
-                    tint = TextSecondary
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             MaterialTheme(
@@ -209,13 +203,13 @@ fun ProfileCard(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
                     modifier = Modifier
-                        .background(Neutral700)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                         .width(100.dp)
                 ) {
                     DropdownMenuItem(
                         text = {
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text("更新", color = PureWhite)
+                                Text("更新", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         },
                         onClick = {
@@ -226,7 +220,7 @@ fun ProfileCard(
                     DropdownMenuItem(
                         text = {
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text(if (isEnabled) "禁用" else "启用", color = PureWhite)
+                                Text(if (isEnabled) "禁用" else "启用", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         },
                         onClick = {
@@ -237,7 +231,7 @@ fun ProfileCard(
                     DropdownMenuItem(
                         text = {
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text("编辑", color = PureWhite)
+                                Text("编辑", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         },
                         onClick = {
@@ -248,7 +242,7 @@ fun ProfileCard(
                     DropdownMenuItem(
                         text = {
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text("删除", color = PureWhite)
+                                Text("删除", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         },
                         onClick = {

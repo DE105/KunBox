@@ -51,12 +51,8 @@ import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.components.StyledTextField
 import com.kunk.singbox.ui.navigation.Screen
 import androidx.compose.foundation.shape.RoundedCornerShape
-import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Neutral800
 import com.kunk.singbox.ui.theme.Neutral700
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.viewmodel.ProfilesViewModel
 import com.kunk.singbox.viewmodel.SettingsViewModel
@@ -428,9 +424,9 @@ fun RuleSetsScreen(
                 showInboundDialog = false
                 outboundEditingRuleSet = null
             },
-            containerColor = Neutral800,
+            containerColor = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(24.dp),
-            title = { Text("选择入站", color = TextPrimary) },
+            title = { Text("选择入站", color = MaterialTheme.colorScheme.onSurface) },
             text = {
                 Column {
                     availableInbounds.forEach { inbound ->
@@ -454,7 +450,7 @@ fun RuleSetsScreen(
                                 onCheckedChange = null
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = inbound, color = TextPrimary)
+                            Text(text = inbound, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -485,15 +481,15 @@ fun RuleSetsScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
                     if (isSelectionMode) {
                         val selectedCount = selectedItems.count { it.value }
-                        Text("已选择 $selectedCount 项", color = TextPrimary)
+                        Text("已选择 $selectedCount 项", color = MaterialTheme.colorScheme.onBackground)
                     } else {
-                        Text("规则集管理", color = TextPrimary)
+                        Text("规则集管理", color = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 navigationIcon = {
@@ -507,7 +503,7 @@ fun RuleSetsScreen(
                         Icon(
                             if (isSelectionMode) Icons.Rounded.Close else Icons.Rounded.ArrowBack,
                             contentDescription = if (isSelectionMode) "取消" else "返回",
-                            tint = PureWhite
+                            tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
                 },
@@ -521,32 +517,32 @@ fun RuleSetsScreen(
                             Icon(
                                 Icons.Rounded.Delete,
                                 contentDescription = "删除",
-                                tint = if (selectedCount > 0) MaterialTheme.colorScheme.error else TextSecondary
+                                tint = if (selectedCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     } else {
                         IconButton(onClick = { navController.navigate(Screen.RuleSetHub.route) }) {
-                            Icon(Icons.Rounded.CloudDownload, contentDescription = "导入", tint = PureWhite)
+                            Icon(Icons.Rounded.CloudDownload, contentDescription = "导入", tint = MaterialTheme.colorScheme.onBackground)
                         }
                         Box {
                             var showAddMenu by remember { mutableStateOf(false) }
                             IconButton(onClick = { showAddMenu = true }) {
-                                Icon(Icons.Rounded.Add, contentDescription = "添加", tint = PureWhite)
+                                Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
                             }
                             DropdownMenu(
                                 expanded = showAddMenu,
                                 onDismissRequest = { showAddMenu = false },
-                                modifier = Modifier.background(Neutral700)
+                                modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("添加规则集", color = TextPrimary) },
+                                    text = { Text("添加规则集", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                     onClick = {
                                         showAddMenu = false
                                         showAddDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("默认规则", color = TextPrimary) },
+                                    text = { Text("默认规则", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                     onClick = {
                                         showAddMenu = false
                                         showDefaultRuleSetsDialog = true
@@ -556,7 +552,7 @@ fun RuleSetsScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
@@ -578,7 +574,7 @@ fun RuleSetsScreen(
                     ) {
                         Text(
                             text = "暂无规则集",
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyLarge
                         )
                     }
@@ -808,7 +804,7 @@ fun RuleSetItem(
                     Text(
                         text = ruleSet.tag,
                         style = MaterialTheme.typography.titleMedium,
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -816,13 +812,13 @@ fun RuleSetItem(
                         CircularProgressIndicator(
                             modifier = Modifier.size(14.dp),
                             strokeWidth = 2.dp,
-                            color = TextPrimary
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "下载中...",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
                         // 状态标签 - 绿色
@@ -888,20 +884,20 @@ fun RuleSetItem(
                 Text(
                     text = "${ruleSet.type.displayName} • ${ruleSet.format}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (ruleSet.type == RuleSetType.REMOTE) {
                     Text(
                         text = ruleSet.url,
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1
                     )
                 } else {
                     Text(
                         text = ruleSet.path,
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1
                     )
                 }
@@ -912,7 +908,7 @@ fun RuleSetItem(
                         Icon(
                             imageVector = Icons.Rounded.MoreVert,
                             contentDescription = "更多选项",
-                            tint = TextSecondary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     MaterialTheme(
@@ -922,13 +918,13 @@ fun RuleSetItem(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false },
                             modifier = Modifier
-                                .background(Neutral700)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .width(100.dp)
                         ) {
                             DropdownMenuItem(
                                 text = {
                                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text("编辑", color = PureWhite)
+                                        Text("编辑", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 onClick = {
@@ -939,7 +935,7 @@ fun RuleSetItem(
                             DropdownMenuItem(
                                 text = {
                                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text("删除", color = PureWhite)
+                                        Text("删除", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 onClick = {
@@ -950,7 +946,7 @@ fun RuleSetItem(
                             DropdownMenuItem(
                                 text = {
                                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text("出站", color = PureWhite)
+                                        Text("出站", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 onClick = {
@@ -961,7 +957,7 @@ fun RuleSetItem(
                             DropdownMenuItem(
                                 text = {
                                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text("入站", color = PureWhite)
+                                        Text("入站", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 onClick = {
@@ -1038,13 +1034,13 @@ fun RuleSetEditorDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(24.dp),
-        containerColor = Neutral800,
-        title = { 
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = {
             Text(
                 text = if (initialRuleSet == null) "添加规则集" else "编辑规则集",
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            ) 
+                color = MaterialTheme.colorScheme.onSurface
+            )
         },
         text = {
             Column(
@@ -1144,18 +1140,18 @@ fun DefaultRuleSetsDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(24.dp),
-        containerColor = Neutral800,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Column {
                 Text(
                     text = "添加默认规则集",
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "适合中国大陆用户的常用规则",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         },
@@ -1190,12 +1186,12 @@ fun DefaultRuleSetsDialog(
                             Text(
                                 text = config.tag,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = if (isExisting) TextSecondary.copy(alpha = 0.5f) else TextPrimary
+                                color = if (isExisting) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = config.description + if (isExisting) " (已添加)" else "",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary.copy(alpha = if (isExisting) 0.5f else 1f)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (isExisting) 0.5f else 1f)
                             )
                         }
                         val modeText = when (config.outboundMode) {

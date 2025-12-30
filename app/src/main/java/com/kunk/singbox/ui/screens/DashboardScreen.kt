@@ -58,8 +58,6 @@ import com.kunk.singbox.ui.components.ModeChip
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StatusChip
 import com.kunk.singbox.ui.theme.Neutral500
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 import com.kunk.singbox.R
 import androidx.compose.ui.res.painterResource
 import android.widget.Toast
@@ -344,7 +342,7 @@ fun DashboardScreen(
                     Text(
                         text = "SingBox",
                         style = MaterialTheme.typography.headlineLarge,
-                        color = TextPrimary
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                 }
 
@@ -480,13 +478,13 @@ fun QuickActionButton(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = TextPrimary
+                tint = MaterialTheme.colorScheme.onBackground
             )
         }
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

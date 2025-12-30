@@ -49,11 +49,7 @@ import com.kunk.singbox.ui.components.ProfileNodeSelectDialog
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.components.StyledTextField
-import com.kunk.singbox.ui.theme.AppBackground
 import com.kunk.singbox.ui.theme.Neutral800
-import com.kunk.singbox.ui.theme.PureWhite
-import com.kunk.singbox.ui.theme.TextPrimary
-import com.kunk.singbox.ui.theme.TextSecondary
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.viewmodel.ProfilesViewModel
 import com.kunk.singbox.viewmodel.SettingsViewModel
@@ -100,14 +96,14 @@ private fun DomainRuleItem(rule: CustomRule, outboundText: String, onClick: () -
                 Text(
                     text = rule.name,
                     style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "${rule.type.displayName}: ${rule.value}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
                 Text(
@@ -121,7 +117,7 @@ private fun DomainRuleItem(rule: CustomRule, outboundText: String, onClick: () -
             Icon(
                 imageVector = Icons.Rounded.Edit,
                 contentDescription = "编辑",
-                tint = TextSecondary
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -191,21 +187,21 @@ fun DomainRulesScreen(
     }
 
     Scaffold(
-        containerColor = AppBackground,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("域名分流", color = TextPrimary) },
+                title = { Text("域名分流", color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = PureWhite)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "添加", tint = PureWhite)
+                        Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
@@ -226,7 +222,7 @@ fun DomainRulesScreen(
                     ) {
                         Text(
                             text = "暂无域名分流规则",
-                            color = TextSecondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyLarge
                         )
                     }
@@ -400,12 +396,12 @@ private fun DomainRuleEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Neutral800,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Text(
                 text = if (initialRule == null) "添加规则" else "编辑规则",
                 fontWeight = FontWeight.Bold,
-                color = TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
         },
         text = {
@@ -418,8 +414,8 @@ private fun DomainRuleEditorDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("类型", color = TextSecondary)
-                    Text(type.displayName, color = TextPrimary)
+                    Text("类型", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(type.displayName, color = MaterialTheme.colorScheme.onSurface)
                 }
 
                 StyledTextField(
@@ -437,8 +433,8 @@ private fun DomainRuleEditorDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("出站", color = TextSecondary)
-                    Text(outboundMode.displayName, color = TextPrimary)
+                    Text("出站", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(outboundMode.displayName, color = MaterialTheme.colorScheme.onSurface)
                 }
 
                 if (outboundMode == RuleSetOutboundMode.NODE ||
@@ -480,8 +476,8 @@ private fun DomainRuleEditorDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("选择目标", color = TextSecondary)
-                        Text(targetName, color = TextPrimary)
+                        Text("选择目标", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(targetName, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
