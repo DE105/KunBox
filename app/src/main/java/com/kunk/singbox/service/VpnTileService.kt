@@ -29,6 +29,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class VpnTileService : TileService() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -37,6 +38,8 @@ class VpnTileService : TileService() {
     private var serviceBound = false
     private var bindRequested = false
     private var tapPending = false
+    // 内存标记，用于在重启服务的过程中保持 UI 状态，防止被中间的 STOPPED 状态闪烁
+    @Volatile private var isStartingSequence = false
 
     @Volatile private var remoteService: ISingBoxService? = null
 
@@ -110,10 +113,51 @@ class VpnTileService : TileService() {
     override fun onClick() {
         super.onClick()
         if (isLocked) {
-            unlockAndRun { toggle() }
+            unlockAndRun { handleClick() }
             return
         }
-        toggle()
+        handleClick()
+    }
+
+    private fun handleClick() {
+        val tile = qsTile ?: return
+        
+        // 1. 检查 VPN 权限，如果需要授权则无法抢跑，必须跳转 Activity
+        val prepareIntent = VpnService.prepare(this)
+        if (prepareIntent != null) {
+            startActivityAndCollapse(prepareIntent)
+            return
+        }
+
+        // 2. UI 抢跑：立即根据当前状态更新 UI
+        // 如果当前是 Active 或 Active (Starting)，则认为是想关闭
+        // 如果是 Inactive，则认为是想开启
+        val isActive = tile.state == Tile.STATE_ACTIVE
+        
+        if (isActive) {
+            // 用户想关闭
+            // 立即更新 UI 为关闭状态
+            tile.state = Tile.STATE_INACTIVE
+            tile.label = getString(R.string.app_name)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    tile.subtitle = null
+                }
+            } catch (_: Exception) {}
+            tile.updateTile()
+            
+            // 异步执行停止逻辑
+            executeStopVpn()
+        } else {
+            // 用户想开启
+            // 立即更新 UI 为开启状态
+            tile.state = Tile.STATE_ACTIVE
+            tile.label = "启动中..."
+            tile.updateTile()
+            
+            // 异步执行开启逻辑
+            executeStartVpn()
+        }
     }
 
     private fun updateTile(activeLabelOverride: String? = null) {
@@ -135,7 +179,10 @@ class VpnTileService : TileService() {
                 .getString(KEY_VPN_PENDING, "")
         }.getOrNull().orEmpty()
 
-        if (!serviceBound || remoteService == null || pending.isNotEmpty()) {
+        // 优先级：内存中的启动标记 > Pending 状态 > Service 状态 > 持久化状态
+        if (isStartingSequence) {
+            lastServiceState = SingBoxService.ServiceState.STARTING
+        } else if (!serviceBound || remoteService == null || pending.isNotEmpty()) {
             lastServiceState = when (pending) {
                 "starting" -> SingBoxService.ServiceState.STARTING
                 "stopping" -> SingBoxService.ServiceState.STOPPING
@@ -144,16 +191,22 @@ class VpnTileService : TileService() {
         }
 
         val tile = qsTile ?: return
-        when (lastServiceState) {
-            SingBoxService.ServiceState.STARTING,
-            SingBoxService.ServiceState.RUNNING -> {
-                tile.state = Tile.STATE_ACTIVE
-            }
-            SingBoxService.ServiceState.STOPPING -> {
-                tile.state = Tile.STATE_UNAVAILABLE
-            }
-            SingBoxService.ServiceState.STOPPED -> {
-                tile.state = Tile.STATE_INACTIVE
+        
+        // 如果正在启动序列中，强制显示为 Active，覆盖中间的 STOPPED 状态
+        if (isStartingSequence) {
+            tile.state = Tile.STATE_ACTIVE
+        } else {
+            when (lastServiceState) {
+                SingBoxService.ServiceState.STARTING,
+                SingBoxService.ServiceState.RUNNING -> {
+                    tile.state = Tile.STATE_ACTIVE
+                }
+                SingBoxService.ServiceState.STOPPING -> {
+                    tile.state = Tile.STATE_UNAVAILABLE
+                }
+                SingBoxService.ServiceState.STOPPED -> {
+                    tile.state = Tile.STATE_INACTIVE
+                }
             }
         }
         val activeLabel = if (lastServiceState == SingBoxService.ServiceState.RUNNING ||
@@ -187,126 +240,162 @@ class VpnTileService : TileService() {
         }
     }
 
-    private fun toggle() {
-        val persistedActive = runCatching {
-            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(KEY_VPN_ACTIVE, false)
-        }.getOrDefault(false)
+    /**
+     * 执行停止 VPN 逻辑
+     */
+    private fun executeStopVpn() {
+        // 在主线程立即标记状态，防止竞态条件导致 UI 闪烁
+        persistVpnPending(this, "stopping")
+        persistVpnState(this, false)
 
-        val pending = runCatching {
-            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getString(KEY_VPN_PENDING, "")
-        }.getOrNull().orEmpty()
-
-        val effectiveState = if (pending.isNotEmpty()) {
-            when (pending) {
-                "starting" -> SingBoxService.ServiceState.STARTING
-                "stopping" -> SingBoxService.ServiceState.STOPPING
-                else -> SingBoxService.ServiceState.STOPPED
+        serviceScope.launch(Dispatchers.IO) {
+            // 确保 Service 已绑定或尝试绑定，以便发送命令
+            // 但对于停止操作，直接发 Intent 也可以
+            val coreMode = VpnStateStore.getMode(this@VpnTileService)
+            val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
+                Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
+                    action = ProxyOnlyService.ACTION_STOP
+                }
+            } else {
+                Intent(this@VpnTileService, SingBoxService::class.java).apply {
+                    action = SingBoxService.ACTION_STOP
+                }
             }
-        } else if (serviceBound && remoteService != null) {
-            val state = runCatching { remoteService?.state }.getOrNull()
-            SingBoxService.ServiceState.values().getOrNull(state ?: -1)
-                ?: SingBoxService.ServiceState.STOPPED
-        } else {
-            if (persistedActive) SingBoxService.ServiceState.RUNNING else SingBoxService.ServiceState.STOPPED
-        }
-
-        lastServiceState = effectiveState
-
-        when (effectiveState) {
-            SingBoxService.ServiceState.RUNNING,
-            SingBoxService.ServiceState.STARTING -> {
-                if (!serviceBound || remoteService == null) {
-                    tapPending = true
-                    bindService(force = true)
-                    updateTile()
-                    return
-                }
-                persistVpnPending(this, "stopping")
-                persistVpnState(this, false)
-                updateTile()
-                val coreMode = VpnStateStore.getMode(this)
-                val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
-                    Intent(this, ProxyOnlyService::class.java).apply {
-                        action = ProxyOnlyService.ACTION_STOP
-                    }
-                } else {
-                    Intent(this, SingBoxService::class.java).apply {
-                        action = SingBoxService.ACTION_STOP
-                    }
-                }
+            
+            try {
                 startService(intent)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                // 如果停止失败，恢复 UI 状态（虽然概率很低）
+                handleStartFailure("停止服务失败: ${e.message}")
             }
-            SingBoxService.ServiceState.STOPPED -> {
-                persistVpnPending(this, "starting")
-                updateTile()
-                serviceScope.launch {
-                    runCatching {
-                        Toast.makeText(this@VpnTileService, "正在切换 VPN...", Toast.LENGTH_SHORT).show()
-                    }
-                    val configRepository = ConfigRepository.getInstance(applicationContext)
-                    val settings = SettingsRepository.getInstance(applicationContext).settings.first()
+        }
+    }
 
-                    if (settings.tunEnabled) {
-                        val prepareIntent = VpnService.prepare(this@VpnTileService)
-                        if (prepareIntent != null) {
-                            persistVpnPending(this@VpnTileService, "")
-                            persistVpnState(this@VpnTileService, false)
-                            lastServiceState = SingBoxService.ServiceState.STOPPED
-                            updateTile()
+    /**
+     * 执行启动 VPN 逻辑
+     */
+    private fun executeStartVpn() {
+        // 在主线程立即标记状态，防止竞态条件导致 UI 闪烁
+        isStartingSequence = true
+        persistVpnPending(this, "starting")
+
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                // 在后台线程显示 Toast 需要切换到 Main
+                withContext(Dispatchers.Main) {
+                    runCatching {
+                         // 抢跑模式下不需要显示"正在切换"，因为 UI 已经变了，
+                         // 除非你想给用户一个额外的反馈
+                         // Toast.makeText(this@VpnTileService, "正在启动...", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                val configRepository = ConfigRepository.getInstance(applicationContext)
+                val settings = SettingsRepository.getInstance(applicationContext).settings.first()
+
+                // 双重检查 VPN 权限（防止在点击间隙权限被吊销）
+                if (settings.tunEnabled) {
+                    val prepareIntent = VpnService.prepare(this@VpnTileService)
+                    if (prepareIntent != null) {
+                        // 需要授权，回滚 UI 并跳转
+                        withContext(Dispatchers.Main) {
+                            revertToInactive()
                             prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             runCatching { startActivityAndCollapse(prepareIntent) }
-                            return@launch
                         }
+                        return@launch
                     }
-                    val configResult = configRepository.generateConfigFile()
-                    if (configResult != null) {
-                        persistVpnPending(this@VpnTileService, "starting")
+                }
 
-                        // Avoid running VPN and proxy-only cores at the same time (local mixed port conflict).
-                        if (settings.tunEnabled) {
-                            runCatching {
-                                startService(Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
-                                    action = ProxyOnlyService.ACTION_STOP
-                                })
-                            }
-                        } else {
-                            runCatching {
-                                startService(Intent(this@VpnTileService, SingBoxService::class.java).apply {
-                                    action = SingBoxService.ACTION_STOP
-                                })
-                            }
-                        }
-                        delay(600)
-
-                        val intent = if (settings.tunEnabled) {
-                            Intent(this@VpnTileService, SingBoxService::class.java).apply {
-                                action = SingBoxService.ACTION_START
-                                putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
-                            }
-                        } else {
-                            Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
-                                action = ProxyOnlyService.ACTION_START
-                                putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, configResult.path)
-                            }
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(intent)
-                        } else {
-                            startService(intent)
+                // 生成配置文件（耗时操作）
+                val configResult = configRepository.generateConfigFile()
+                
+                if (configResult != null) {
+                    // 停止冲突的服务
+                    if (settings.tunEnabled) {
+                        runCatching {
+                            startService(Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
+                                action = ProxyOnlyService.ACTION_STOP
+                            })
                         }
                     } else {
-                        persistVpnPending(this@VpnTileService, "")
-                        persistVpnState(this@VpnTileService, false)
+                        runCatching {
+                            startService(Intent(this@VpnTileService, SingBoxService::class.java).apply {
+                                action = SingBoxService.ACTION_STOP
+                            })
+                        }
+                    }
+                    
+                    // 短暂延迟确保旧服务清理（可选，视内核实现而定，这里保留原逻辑）
+                    delay(600)
+
+                    val intent = if (settings.tunEnabled) {
+                        Intent(this@VpnTileService, SingBoxService::class.java).apply {
+                            action = SingBoxService.ACTION_START
+                            putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
+                        }
+                    } else {
+                        Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
+                            action = ProxyOnlyService.ACTION_START
+                            putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, configResult.path)
+                        }
+                    }
+                    
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                    
+                    // 启动成功后，Service 的回调会触发 updateTile，
+                    // 此时 pending 仍为 "starting"，updateTile 会保持 Active 状态
+                } else {
+                    handleStartFailure("生成配置失败")
+                }
+            } catch (e: Exception) {
+                handleStartFailure("启动失败: ${e.message}")
+            } finally {
+                // 无论成功失败，结束启动序列标记
+                // 注意：成功时，Service 应该是 RUNNING 状态，
+                // 或者是 pending="starting"，所以 updateTile 依然会保持 Active
+                // 延迟一小会儿清除标记，确保 Service 状态已经稳定
+                if (isStartingSequence) {
+                    delay(2000)
+                    isStartingSequence = false
+                    // 最后刷新一次以同步真实状态
+                    withContext(Dispatchers.Main) {
                         updateTile()
                     }
                 }
             }
-            SingBoxService.ServiceState.STOPPING -> {
-                updateTile()
-            }
         }
+    }
+
+    private suspend fun handleStartFailure(reason: String) {
+        isStartingSequence = false // 立即取消标记
+        // 清除状态
+        persistVpnPending(this@VpnTileService, "")
+        persistVpnState(this@VpnTileService, false)
+        lastServiceState = SingBoxService.ServiceState.STOPPED
+        
+        withContext(Dispatchers.Main) {
+            revertToInactive()
+            Toast.makeText(this@VpnTileService, reason, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun revertToInactive() {
+        val tile = qsTile ?: return
+        tile.state = Tile.STATE_INACTIVE
+        tile.label = getString(R.string.app_name)
+        tile.updateTile()
+    }
+    
+    // 保留 toggle 方法以防其他地方调用（虽然这是 private）
+    private fun toggle() {
+        // Redirect to new logic
+        handleClick()
     }
 
     private fun bindService(force: Boolean = false) {
