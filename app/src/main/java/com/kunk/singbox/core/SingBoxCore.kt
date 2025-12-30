@@ -119,21 +119,17 @@ class SingBoxCore private constructor(private val context: Context) {
             Log.w(TAG, "Libbox not available, using fallback mode")
         }
     }
-    
-    /**
-     * 尝试初始化 libbox
-     */
+
     private fun initLibbox(): Boolean {
         return try {
-            // 尝试加载 libbox 类
-            Class.forName("io.nekohasekai.libbox.Libbox")
+            Libbox.version() // Simple check
             ensureLibboxSetup(context)
             true
-        } catch (e: ClassNotFoundException) {
-            Log.w(TAG, "Libbox class not found - AAR not included")
-            false
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize libbox: ${e.message}", e)
+            Log.e(TAG, "Libbox init failed", e)
+            false
+        } catch (e: NoClassDefFoundError) {
+            Log.e(TAG, "Libbox class not found", e)
             false
         }
     }
@@ -143,25 +139,8 @@ class SingBoxCore private constructor(private val context: Context) {
      */
     fun isLibboxAvailable(): Boolean = libboxAvailable
 
-    private fun maybeWarmupNative(libboxClass: Class<*>, url: String) {
-        val now = System.currentTimeMillis()
-        if (now - lastNativeWarmupAt < 1200L) return
-        try {
-            val m = libboxClass.methods.firstOrNull { method ->
-                Modifier.isStatic(method.modifiers)
-                        && method.parameterTypes.size == 3
-                        && method.parameterTypes[0] == String::class.java
-                        && method.parameterTypes[1] == String::class.java
-                        && (method.parameterTypes[2] == Long::class.javaPrimitiveType || method.parameterTypes[2] == Int::class.javaPrimitiveType)
-                        && method.name.endsWith("urlTestOnRunning", ignoreCase = true)
-            } ?: return
-            // 仅传 tag=direct 进行一次快速预热，忽略结果
-            val outboundJson = "{" + "\"tag\":\"direct\"" + "}"
-            try {
-                m.invoke(null, outboundJson, url, 1000L)
-            } catch (_: Exception) { }
-            lastNativeWarmupAt = System.currentTimeMillis()
-        } catch (_: Exception) { }
+    private fun maybeWarmupNative(url: String) {
+        // No-op for official libbox without urlTest
     }
 
     /**
@@ -198,8 +177,8 @@ class SingBoxCore private constructor(private val context: Context) {
         }
     }
 
-    private var discoveredUrlTestMethod: java.lang.reflect.Method? = null
-    private var discoveredMethodType: Int = 0 // 0: long, 1: URLTest object
+    // private var discoveredUrlTestMethod: java.lang.reflect.Method? = null
+    // private var discoveredMethodType: Int = 0 // 0: long, 1: URLTest object
     
     private fun adjustUrlForMode(original: String, method: LatencyTestMethod): String {
         return try {
@@ -220,94 +199,7 @@ class SingBoxCore private constructor(private val context: Context) {
         }
     }
     
-    private fun extractDelayFromUrlTest(resultObj: Any?, method: LatencyTestMethod): Long {
-        if (resultObj == null) return -1L
-        fun tryGet(names: Array<String>): Long? {
-            for (n in names) {
-                try {
-                    val m = resultObj.javaClass.getMethod(n)
-                    val v = m.invoke(resultObj)
-                    when (v) {
-                        is Long -> if (v > 0) return v
-                        is Int -> if (v > 0) return v.toLong()
-                    }
-                } catch (_: Exception) { }
-                try {
-                    val f = try { resultObj.javaClass.getDeclaredField(n) } catch (_: Exception) { null }
-                    if (f != null) {
-                        f.isAccessible = true
-                        val v = f.get(resultObj)
-                        when (v) {
-                            is Long -> if (v > 0) return v
-                            is Int -> if (v > 0) return v.toLong()
-                        }
-                    }
-                } catch (_: Exception) { }
-            }
-            return null
-        }
-        // 优先按模式取特定指标，取不到再回落到通用 delay
-        val valueByMode = when (method) {
-            LatencyTestMethod.TCP -> tryGet(arrayOf("tcpDelay", "getTcpDelay", "tcp", "connectDelay", "getConnectDelay", "connect"))
-            LatencyTestMethod.HANDSHAKE -> tryGet(arrayOf("handshakeDelay", "getHandshakeDelay", "tlsDelay", "getTlsDelay", "handshake", "tls"))
-            else -> tryGet(arrayOf("delay", "getDelay", "rtt", "latency", "getLatency"))
-        }
-        if (valueByMode != null) return valueByMode
-        // 最后通用兜底
-        return tryGet(arrayOf("delay", "getDelay")) ?: -1L
-    }
-
-    private fun hasDelayAccessors(rt: Class<*>): Boolean {
-        val methodNames = arrayOf(
-            "delay", "getDelay", "rtt", "latency", "getLatency",
-            "tcpDelay", "getTcpDelay", "connectDelay", "getConnectDelay",
-            "handshakeDelay", "getHandshakeDelay", "tlsDelay", "getTlsDelay"
-        )
-        try {
-            for (name in methodNames) {
-                try {
-                    val m = rt.getMethod(name)
-                    val rtpe = m.returnType
-                    if ((rtpe == Long::class.javaPrimitiveType || rtpe == Long::class.java ||
-                                rtpe == Int::class.javaPrimitiveType || rtpe == Int::class.java) && m.parameterCount == 0) {
-                        return true
-                    }
-                } catch (_: Exception) { }
-            }
-        } catch (_: Exception) { }
-        try {
-            val fields = rt.declaredFields
-            for (f in fields) {
-                if (methodNames.any { it.equals(f.name, ignoreCase = true) }) {
-                    val t = f.type
-                    if (t == Long::class.javaPrimitiveType || t == Long::class.java ||
-                        t == Int::class.javaPrimitiveType || t == Int::class.java) {
-                        return true
-                    }
-                }
-            }
-        } catch (_: Exception) { }
-        return false
-    }
-
-    private fun buildUrlTestArgs(
-        params: Array<Class<*>>,
-        outboundJson: String,
-        url: String,
-        pi: Any
-    ): Array<Any> {
-        val args = ArrayList<Any>(params.size)
-        args.add(outboundJson)
-        args.add(url)
-        if (params.size >= 3) {
-            val p2 = params[2]
-            args.add(if (p2 == Int::class.javaPrimitiveType) 5000 else 5000L)
-        }
-        if (params.size >= 4) {
-            args.add(pi)
-        }
-        return args.toTypedArray()
-    }
+    // Removed reflection helpers: extractDelayFromUrlTest, hasDelayAccessors, buildUrlTestArgs
 
     private suspend fun testWithLocalHttpProxy(outbound: Outbound, targetUrl: String, fallbackUrl: String? = null, timeoutMs: Int): Long = withContext(Dispatchers.IO) {
         // Mutex required because we're starting a new service instance which might conflict on global resources (e.g. bbolt DB in workingDir)
@@ -448,70 +340,10 @@ class SingBoxCore private constructor(private val context: Context) {
         timeoutMs: Int,
         method: LatencyTestMethod
     ): Long = withContext(Dispatchers.IO) {
-        if (!libboxAvailable) return@withContext -1L
-        try {
-            ensureLibboxSetup(context)
-            val tagArg = outbound.tag
-            val selectorJson = "{\"tag\":\"" + outbound.tag + "\"}"
-
-            // 动态查找 NekoBox 原生 urlTest 方法
-            if (discoveredUrlTestMethod == null) {
-                val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
-                // 查找签名匹配的方法：urlTest(String groupTag, String url, long timeout, PlatformInterface pi)
-                // 注意：NekoBox 的实现可能参数略有不同，需要灵活匹配
-                for (method in libboxClass.methods) {
-                    if (method.name.equals("urlTest", ignoreCase = true) ||
-                        method.name.equals("urlTestOnRunning", ignoreCase = true)) {
-                        
-                        // 简单的参数签名检查，根据实际 libbox 调整
-                        // 通常是 (String groupTag, String url, long/int timeout, ...)
-                        val paramTypes = method.parameterTypes
-                        if (paramTypes.size >= 2 &&
-                            paramTypes[0] == String::class.java &&
-                            paramTypes[1] == String::class.java) {
-                            
-                            discoveredUrlTestMethod = method
-                            Log.i(TAG, "Found native URLTest method: ${method.name}")
-                            break
-                        }
-                    }
-                }
-            }
-
-            val m = discoveredUrlTestMethod
-            if (m == null) {
-                // Log.d(TAG, "Native URLTest method not found, will use fallback.")
-                return@withContext -1L
-            }
-
-            return@withContext try {
-                val pi = TestPlatformInterface(context)
-                val firstArgs = listOf(tagArg, selectorJson)
-                var lastRtt = -1L
-                for (first in firstArgs) {
-                    val args = buildUrlTestArgs(m.parameterTypes, first, targetUrl, pi)
-                    val result = m.invoke(null, *args)
-                    val rtt = when {
-                        m.returnType == Long::class.javaPrimitiveType -> result as Long
-                        else -> extractDelayFromUrlTest(result, method)
-                    }
-                    if (rtt >= 0) {
-                        return@withContext rtt
-                    }
-                    lastRtt = rtt
-                }
-                if (lastRtt < 0) {
-                    Log.w(TAG, "Offline URLTest RTT returned negative: $lastRtt")
-                }
-                lastRtt
-            } catch (e: Exception) {
-                Log.w(TAG, "Offline URLTest RTT invoke failed: ${e.javaClass.simpleName}: ${e.message}")
-                -1L
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Offline URLTest RTT setup failed: ${e.javaClass.simpleName}: ${e.message}")
-            -1L
-        }
+        // 由于当前的 libbox.aar (官方版本) 不包含 NekoBox 特有的 urlTest 接口，
+        // 我们跳过直接调用，直接返回 -1，让上层逻辑回退到本地 HTTP 代理测速。
+        // 本地 HTTP 代理测速也是一种“原生”方式（流量经过内核），结果准确。
+        return@withContext -1L
     }
 
     private suspend fun testWithTemporaryServiceUrlTestOnRunning(
@@ -604,11 +436,10 @@ class SingBoxCore private constructor(private val context: Context) {
         if (libboxAvailable && VpnStateStore.getActive(context)) {
             // 先做一次轻量预热，避免批量首个请求落在 link 验证/路由冷启动窗口
             try {
-                val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
                 val warmupOutbound = outbounds.firstOrNull()
                 if (warmupOutbound != null) {
                     val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
-                    maybeWarmupNative(libboxClass, url)
+                    maybeWarmupNative(url)
                 }
             } catch (_: Exception) { }
             val semaphore = Semaphore(permits = 6)
@@ -682,9 +513,7 @@ class SingBoxCore private constructor(private val context: Context) {
         
         try {
             val configJson = gson.toJson(config)
-            val libboxClass = Class.forName("io.nekohasekai.libbox.Libbox")
-            val checkConfigMethod = libboxClass.getMethod("checkConfig", String::class.java)
-            checkConfigMethod.invoke(null, configJson)
+            Libbox.checkConfig(configJson)
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Config validation failed", e)
@@ -703,7 +532,12 @@ class SingBoxCore private constructor(private val context: Context) {
         private var defaultInterfaceName: String = ""
 
         override fun autoDetectInterfaceControl(fd: Int) {
-            // No TUN, no protect needed usually, but safe to ignore or log
+            // 重要：如果 VPN 正在运行，必须 protect 测速 socket，否则流量会被 VPN 拦截
+            try {
+                com.kunk.singbox.service.SingBoxService.instance?.protect(fd)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to protect socket fd=$fd", e)
+            }
         }
 
         override fun openTun(options: TunOptions?): Int {
@@ -711,10 +545,6 @@ class SingBoxCore private constructor(private val context: Context) {
             Log.w(TAG, "TestPlatformInterface: openTun called unexpected!")
             return -1
         }
-
-        override fun usePlatformInterfaceGetter(): Boolean = true
-
-        override fun usePlatformDefaultInterfaceMonitor(): Boolean = true
 
         override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
             currentInterfaceListener = listener
@@ -726,7 +556,7 @@ class SingBoxCore private constructor(private val context: Context) {
                     updateDefaultInterface(network)
                 }
                 override fun onLost(network: Network) {
-                    currentInterfaceListener?.updateDefaultInterface("", 0)
+                    currentInterfaceListener?.updateDefaultInterface("", 0, false, false)
                 }
             }
             val request = NetworkRequest.Builder()
@@ -760,7 +590,9 @@ class SingBoxCore private constructor(private val context: Context) {
                         NetworkInterface.getByName(interfaceName)?.index ?: 0
                     } catch (e: Exception) { 0 }
                     val caps = connectivityManager.getNetworkCapabilities(network)
-                    currentInterfaceListener?.updateDefaultInterface(interfaceName, index)
+                    val isExpensive = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
+                    val isConstrained = false // Simple assumption
+                    currentInterfaceListener?.updateDefaultInterface(interfaceName, index, isExpensive, isConstrained)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to update default interface", e)
@@ -809,8 +641,10 @@ class SingBoxCore private constructor(private val context: Context) {
         override fun readWIFIState(): WIFIState? = null
         override fun clearDNSCache() {}
         override fun sendNotification(p0: io.nekohasekai.libbox.Notification?) {}
-        // override fun localDNSTransport(): LocalDNSTransport? = null
-        // override fun systemCertificates(): StringIterator? = null
+        override fun localDNSTransport(): io.nekohasekai.libbox.LocalDNSTransport {
+            return com.kunk.singbox.core.LocalResolverImpl
+        }
+        override fun systemCertificates(): StringIterator? = null
         override fun writeLog(message: String?) {
             Log.v("SingBoxCoreTest", "libbox: $message")
             message?.let {

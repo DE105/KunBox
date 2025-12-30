@@ -70,9 +70,16 @@ gomobile init
 
 # 4. Clone/Update Source
 Write-Host "[5/6] Preparing Source..." -ForegroundColor Yellow
-$BuildDir = Join-Path $CacheDir "singbox-source"
-if (-not (Test-Path $BuildDir)) {
-    git clone --depth 1 --branch "v$Version" https://github.com/SagerNet/sing-box.git $BuildDir
+$LocalSource = Join-Path $PSScriptRoot "..\singbox-build"
+if (Test-Path $LocalSource) {
+    Write-Host "Using local source code from $LocalSource" -ForegroundColor Cyan
+    $BuildDir = $LocalSource
+}
+else {
+    $BuildDir = Join-Path $CacheDir "singbox-source"
+    if (-not (Test-Path $BuildDir)) {
+        git clone --depth 1 --branch "v$Version" https://github.com/SagerNet/sing-box.git $BuildDir
+    }
 }
 Push-Location $BuildDir
 

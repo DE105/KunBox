@@ -108,7 +108,9 @@ class ProxyOnlyService : Service() {
     }
 
     private val platformInterface = object : PlatformInterface {
-        override fun usePlatformInterfaceGetter(): Boolean = true
+        override fun localDNSTransport(): io.nekohasekai.libbox.LocalDNSTransport {
+            return com.kunk.singbox.core.LocalResolverImpl
+        }
 
         override fun autoDetectInterfaceControl(fd: Int) {
         }
@@ -119,8 +121,6 @@ class ProxyOnlyService : Service() {
         }
 
         override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
-
-        override fun usePlatformDefaultInterfaceMonitor(): Boolean = true
 
         override fun useProcFS(): Boolean {
             val procPaths = listOf(
@@ -232,7 +232,7 @@ class ProxyOnlyService : Service() {
                 }
 
                 override fun onLost(network: Network) {
-                    currentInterfaceListener?.updateDefaultInterface("", 0)
+                    currentInterfaceListener?.updateDefaultInterface("", 0, false, false)
                 }
             }
 
@@ -312,6 +312,8 @@ class ProxyOnlyService : Service() {
 
         override fun sendNotification(notification: io.nekohasekai.libbox.Notification?) {
         }
+
+        override fun systemCertificates(): StringIterator? = null
 
         override fun writeLog(message: String?) {
             if (message.isNullOrBlank()) return
@@ -526,7 +528,9 @@ class ProxyOnlyService : Service() {
             ""
         }
 
-        currentInterfaceListener?.updateDefaultInterface(ifaceName, 0)
+        val isExpensive = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
+        val isConstrained = false
+        currentInterfaceListener?.updateDefaultInterface(ifaceName, 0, isExpensive, isConstrained)
     }
 
     private fun notifyRemoteState(state: SingBoxService.ServiceState? = null) {

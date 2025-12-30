@@ -93,6 +93,10 @@ class SingBoxService : VpnService() {
         const val EXTRA_CLEAN_CACHE = "clean_cache"
         
         @Volatile
+        var instance: SingBoxService? = null
+            private set
+
+        @Volatile
         var isRunning = false
             private set(value) {
                 field = value
@@ -611,15 +615,19 @@ class SingBoxService : VpnService() {
     @Volatile private var postTunRebindJob: Job? = null
     
     // Platform interface implementation
-    private val platformInterface = object : PlatformInterface {
-        override fun usePlatformInterfaceGetter(): Boolean = true
+private val platformInterface = object : PlatformInterface {
+    override fun localDNSTransport(): io.nekohasekai.libbox.LocalDNSTransport {
+        return com.kunk.singbox.core.LocalResolverImpl
+    }
 
-        override fun autoDetectInterfaceControl(fd: Int) {
-            val result = protect(fd)
-            // Log.v(TAG, "autoDetectInterfaceControl: $fd, protect result: $result")
+    override fun autoDetectInterfaceControl(fd: Int) {
+        val result = protect(fd)
+        if (!result) {
+            Log.e(TAG, "autoDetectInterfaceControl: protect($fd) failed")
         }
-        
-        override fun openTun(options: TunOptions?): Int {
+    }
+    
+    override fun openTun(options: TunOptions?): Int {
             Log.v(TAG, "openTun called")
             if (options == null) return -1
             isConnectingTun.set(true)
@@ -878,8 +886,6 @@ class SingBoxService : VpnService() {
 
         override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
-        override fun usePlatformDefaultInterfaceMonitor(): Boolean = true
-
         override fun useProcFS(): Boolean {
             val procPaths = listOf(
                 "/proc/net/tcp",
@@ -1098,7 +1104,7 @@ class SingBoxService : VpnService() {
                     Log.i(TAG, "Network lost: $network")
                     if (network == lastKnownNetwork) {
                         lastKnownNetwork = null
-                        currentInterfaceListener?.updateDefaultInterface("", 0)
+                        currentInterfaceListener?.updateDefaultInterface("", 0, false, false)
                     }
                 }
                 
@@ -1269,9 +1275,7 @@ class SingBoxService : VpnService() {
         
         override fun sendNotification(notification: io.nekohasekai.libbox.Notification?) {}
         
-        // override fun localDNSTransport(): LocalDNSTransport? = null
-        
-        // override fun systemCertificates(): StringIterator? = null
+        override fun systemCertificates(): StringIterator? = null
         
         override fun writeLog(message: String?) {
             if (message.isNullOrBlank()) return
@@ -1394,8 +1398,10 @@ class SingBoxService : VpnService() {
                     NetworkInterface.getByName(interfaceName)?.index ?: 0
                 } catch (e: Exception) { 0 }
                 val caps = connectivityManager?.getNetworkCapabilities(network)
+                val isExpensive = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
+                val isConstrained = false
                 Log.i(TAG, "Default interface updated: $interfaceName (index: $index)")
-                currentInterfaceListener?.updateDefaultInterface(interfaceName, index)
+                currentInterfaceListener?.updateDefaultInterface(interfaceName, index, isExpensive, isConstrained)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update default interface", e)
@@ -1404,6 +1410,7 @@ class SingBoxService : VpnService() {
     
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createNotificationChannel()
         // 初始化 ConnectivityManager
         connectivityManager = getSystemService(ConnectivityManager::class.java)
@@ -1726,7 +1733,34 @@ class SingBoxService : VpnService() {
                     withContext(Dispatchers.Main) { stopSelf() }
                     return@launch
                 }
-                val configContent = configFile.readText()
+                var configContent = configFile.readText()
+                
+                // Force "system" stack on Android to avoid gVisor bind permission issues
+                try {
+                    val configObj = gson.fromJson(configContent, SingBoxConfig::class.java)
+                    if (configObj.inbounds != null) {
+                        val newInbounds = configObj.inbounds.map { inbound ->
+                            if (inbound.type == "tun") {
+                                // Force stack to system or mixed? System is safer for protect() delegation.
+                                // NekoBox uses mixed/gvisor but has the protect_server.
+                                // We use system to rely on dialer's protect.
+                                // Also force auto_route=false to avoid permission issues on strict ROMs (Samsung OneUI)
+                                inbound.copy(
+                                    stack = "system",
+                                    autoRoute = false
+                                )
+                            } else {
+                                inbound
+                            }
+                        }
+                        val newConfig = configObj.copy(inbounds = newInbounds)
+                        configContent = gson.toJson(newConfig)
+                        Log.i(TAG, "Patched config to force stack=system & auto_route=false")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to patch config stack: ${e.message}")
+                }
+
                 Log.v(TAG, "Config loaded, length: ${configContent.length}")
                 
                 try {
@@ -2266,6 +2300,9 @@ class SingBoxService : VpnService() {
         }
         serviceSupervisorJob.cancel()
         // cleanupSupervisorJob.cancel() // Allow cleanup to finish naturally
+        if (instance == this) {
+            instance = null
+        }
         super.onDestroy()
     }
      

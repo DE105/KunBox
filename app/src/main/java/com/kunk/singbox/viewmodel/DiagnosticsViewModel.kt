@@ -8,6 +8,7 @@ import com.google.gson.Gson
 import com.kunk.singbox.model.SingBoxConfig
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.service.SingBoxService
+import com.kunk.singbox.utils.TcpPing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -183,57 +184,40 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isPingLoading.value) return
         viewModelScope.launch {
             _isPingLoading.value = true
-            _resultTitle.value = "Ping 测试"
+            _resultTitle.value = "TCP Ping 测试"
             val host = "8.8.8.8"
+            val port = 53
             try {
-                val output = withContext(Dispatchers.IO) {
-                    // Ping 4 times
-                    val process = Runtime.getRuntime().exec("ping -c 4 $host")
-                    process.waitFor()
-                    process.inputStream.bufferedReader().readText()
+                val results = mutableListOf<Long>()
+                val count = 4
+                
+                // 执行 TCP Ping 4 次
+                repeat(count) {
+                    val rtt = TcpPing.connect(host, port)
+                    if (rtt >= 0) {
+                        results.add(rtt)
+                    }
                 }
                 
-                val summary = parsePingOutput(output)
-                _resultMessage.value = "目标: $host (Google DNS)\n\n$summary"
+                val summary = if (results.isNotEmpty()) {
+                    val min = results.minOrNull() ?: 0
+                    val max = results.maxOrNull() ?: 0
+                    val avg = results.average().toInt()
+                    val loss = ((count - results.size).toDouble() / count * 100).toInt()
+                    
+                    "发送: $count, 接收: ${results.size}, 丢失: $loss%\n" +
+                    "最短: ${min}ms, 平均: ${avg}ms, 最长: ${max}ms"
+                } else {
+                    "发送: $count, 接收: 0, 丢失: 100%"
+                }
+                
+                _resultMessage.value = "目标: $host:$port (Google DNS)\n方式: TCP Ping (Java Socket)\n\n$summary"
             } catch (e: Exception) {
-                _resultMessage.value = "Ping 执行失败: ${e.message}"
+                _resultMessage.value = "TCP Ping 执行失败: ${e.message}"
             } finally {
                 _isPingLoading.value = false
                 _showResultDialog.value = true
             }
-        }
-    }
-
-    private fun parsePingOutput(output: String): String {
-        try {
-            val lines = output.lines()
-            val statsLine = lines.find { it.contains("packets transmitted") }
-            val rttLine = lines.find { it.contains("rtt") || it.contains("round-trip") }
-            
-            val stats = if (statsLine != null) {
-                val parts = statsLine.split(",").map { it.trim() }
-                val sent = parts.find { it.contains("transmitted") }?.split(" ")?.firstOrNull() ?: "?"
-                val received = parts.find { it.contains("received") }?.split(" ")?.firstOrNull() ?: "?"
-                val loss = parts.find { it.contains("loss") }?.split(" ")?.firstOrNull() ?: "?"
-                "发送: $sent, 接收: $received, 丢失: $loss"
-            } else {
-                "统计信息解析失败"
-            }
-
-            val rtt = if (rttLine != null) {
-                val parts = rttLine.split("=").getOrNull(1)?.trim()?.split("/")
-                if (parts != null && parts.size >= 3) {
-                    "最短: ${parts[0]}ms, 平均: ${parts[1]}ms, 最长: ${parts[2]}ms"
-                } else {
-                    rttLine
-                }
-            } else {
-                ""
-            }
-
-            return "$stats\n$rtt"
-        } catch (e: Exception) {
-            return output
         }
     }
 
