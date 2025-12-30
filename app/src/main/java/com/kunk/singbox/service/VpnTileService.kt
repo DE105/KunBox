@@ -198,16 +198,18 @@ class VpnTileService : TileService() {
                 .getString(KEY_VPN_PENDING, "")
         }.getOrNull().orEmpty()
 
-        val effectiveState = if (serviceBound && remoteService != null) {
+        val effectiveState = if (pending.isNotEmpty()) {
+            when (pending) {
+                "starting" -> SingBoxService.ServiceState.STARTING
+                "stopping" -> SingBoxService.ServiceState.STOPPING
+                else -> SingBoxService.ServiceState.STOPPED
+            }
+        } else if (serviceBound && remoteService != null) {
             val state = runCatching { remoteService?.state }.getOrNull()
             SingBoxService.ServiceState.values().getOrNull(state ?: -1)
                 ?: SingBoxService.ServiceState.STOPPED
         } else {
-            when (pending) {
-                "starting" -> SingBoxService.ServiceState.STARTING
-                "stopping" -> SingBoxService.ServiceState.STOPPING
-                else -> if (persistedActive) SingBoxService.ServiceState.RUNNING else SingBoxService.ServiceState.STOPPED
-            }
+            if (persistedActive) SingBoxService.ServiceState.RUNNING else SingBoxService.ServiceState.STOPPED
         }
 
         lastServiceState = effectiveState

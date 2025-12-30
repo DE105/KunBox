@@ -1920,6 +1920,14 @@ class SingBoxService : VpnService() {
             } finally {
                 isStarting = false
                 startVpnJob = null
+                // Ensure tile state is refreshed after start attempt finishes
+                updateTileState()
+                runCatching {
+                    val intent = Intent(VpnTileService.ACTION_REFRESH_TILE).apply {
+                        `package` = packageName
+                    }
+                    sendBroadcast(intent)
+                }
             }
         }
     }
@@ -1949,6 +1957,13 @@ class SingBoxService : VpnService() {
             isStopping = true
         }
         updateServiceState(ServiceState.STOPPING)
+        updateTileState() // Force tile update immediately upon stopping
+        runCatching {
+            val intent = Intent(VpnTileService.ACTION_REFRESH_TILE).apply {
+                `package` = packageName
+            }
+            sendBroadcast(intent)
+        }
         stopForeignVpnMonitor()
 
         val jobToJoin = startVpnJob
