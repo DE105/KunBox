@@ -545,18 +545,28 @@ class SingBoxService : VpnService() {
         val now = SystemClock.elapsedRealtime()
         val last = lastCoreNetworkResetAtMs.get()
 
+        // 激进的重置策略：对于 Android 14+ 网络切换，更快的响应比防抖更重要
+        // 如果是 force（如网络变更），缩短防抖时间到 100ms
+        val minInterval = if (force) 100L else coreResetDebounceMs
+
         if (force) {
-            if (now - last < 300L) return
+            if (now - last < minInterval) return
             lastCoreNetworkResetAtMs.set(now)
             coreNetworkResetJob?.cancel()
             coreNetworkResetJob = null
             serviceScope.launch {
-                runCatching {
-                    boxService?.resetNetwork()
-                }.onSuccess {
-                    Log.d(TAG, "Core network stack reset triggered (reason=$reason)")
-                }.onFailure { e ->
-                    Log.w(TAG, "Failed to reset core network stack (reason=$reason)", e)
+                // 多次重试以确保在网络状态完全稳定后生效
+                repeat(2) { i ->
+                    if (i > 0) delay(250)
+                    runCatching {
+                        boxService?.resetNetwork()
+                        // 同时清除 DNS 缓存，因为网络切换后旧的 DNS 结果可能不再适用
+                        boxService?.javaClass?.getMethod("clearDNSCache")?.invoke(boxService)
+                    }.onSuccess {
+                        Log.d(TAG, "Core network stack reset triggered (reason=$reason, attempt=$i)")
+                    }.onFailure { e ->
+                        Log.w(TAG, "Failed to reset core network stack (reason=$reason, attempt=$i)", e)
+                    }
                 }
             }
             return
@@ -1104,33 +1114,50 @@ private val platformInterface = object : PlatformInterface {
                     val isVpn = caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
                     Log.i(TAG, "Network available: $network (isVpn=$isVpn)")
                     if (!isVpn) {
-                        networkCallbackReady = true
-                        updateDefaultInterface(network)
-                        // Ensure libbox is aware of the new physical interface immediately
-                        requestCoreNetworkReset(reason = "networkAvailable:$network", force = false)
+                        // Check if this network is the system's active default network
+                        val isActiveDefault = connectivityManager?.activeNetwork == network
+                        if (isActiveDefault) {
+                            networkCallbackReady = true
+                            updateDefaultInterface(network)
+                            // Ensure libbox is aware of the new physical interface immediately
+                            requestCoreNetworkReset(reason = "networkAvailable:$network", force = true)
+                        } else {
+                            Log.v(TAG, "Network available but not active default, ignoring for now: $network")
+                        }
                     }
                 }
                 
                 override fun onLost(network: Network) {
                     Log.i(TAG, "Network lost: $network")
                     if (network == lastKnownNetwork) {
-                        lastKnownNetwork = null
-                        currentInterfaceListener?.updateDefaultInterface("", 0, false, false)
+                        // Check if there is another active network immediately
+                        val newActive = connectivityManager?.activeNetwork
+                        if (newActive != null) {
+                             Log.i(TAG, "Old network lost, switching to new active: $newActive")
+                             updateDefaultInterface(newActive)
+                             requestCoreNetworkReset(reason = "networkLost_switch:$network->$newActive", force = true)
+                        } else {
+                             lastKnownNetwork = null
+                             currentInterfaceListener?.updateDefaultInterface("", 0, false, false)
+                        }
                     }
                 }
                 
                 override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
                     val isVpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                    Log.v(TAG, "Network capabilities changed: $network (isVpn=$isVpn)")
                     if (!isVpn) {
-                        networkCallbackReady = true
-                        updateDefaultInterface(network)
-                        // Trigger reset to ensure libbox updates its interface list if properties changed
-                        requestCoreNetworkReset(reason = "networkCapsChanged:$network", force = false)
+                        // Only react if this is the active network
+                        if (connectivityManager?.activeNetwork == network) {
+                            networkCallbackReady = true
+                            updateDefaultInterface(network)
+                            // Trigger reset to ensure libbox updates its interface list if properties changed
+                            requestCoreNetworkReset(reason = "networkCapsChanged:$network", force = false)
+                        }
                     }
                 }
             }
             
+            // Listen to all networks but filter in callback to respect system default
             val request = NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
@@ -1237,7 +1264,17 @@ private val platformInterface = object : PlatformInterface {
             return try {
                 val interfaces = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
                 object : NetworkInterfaceIterator {
-                    private val iterator = interfaces.filter { it.isUp && !it.isLoopback }.iterator()
+                    private val iterator = interfaces.filter {
+                        // On some Android 14+ devices, physical interfaces might momentarily report isUp=false during switching,
+                        // or restricted permissions might hide the real state.
+                        // However, libbox needs *some* interface to bind to.
+                        // We relax the check: allow non-loopback interfaces even if isUp is false,
+                        // trusting that they might become up or are usable for binding.
+                        // Actually, binding to a down interface usually fails, but filtering it out ensures failure.
+                        // Let's keep isUp check but maybe log if we are filtering too aggressively?
+                        // Reverting to standard check but with logging removed to reduce noise after diagnosis.
+                        it.isUp && !it.isLoopback
+                    }.iterator()
                     
                     override fun hasNext(): Boolean = iterator.hasNext()
                     
@@ -1324,30 +1361,59 @@ private val platformInterface = object : PlatformInterface {
         }
         
         // 遍历所有网络，筛选物理网络
+        // [Fix] 优先返回系统默认的 Active Network，只有当其无效时才自己筛选
+        // Android 系统会自动处理 WiFi/流量切换，我们强行选择可能导致与系统路由表冲突
+        val activeNetwork = cm.activeNetwork
+        if (activeNetwork != null) {
+            val caps = cm.getNetworkCapabilities(activeNetwork)
+            if (caps != null &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            ) {
+                // 如果系统已经选好了一个物理网络，直接用它，不要自己选
+                // 这能最大程度避免 Sing-box 选了 WiFi 但系统正在切流量（或反之）导致的 operation not permitted
+                Log.d(TAG, "findBestPhysicalNetwork: using system active network $activeNetwork")
+                return activeNetwork
+            }
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             val allNetworks = cm.allNetworks
             var bestNetwork: Network? = null
-            var bestValidated = false
+            var bestScore = -1
             
             for (net in allNetworks) {
                 val caps = cm.getNetworkCapabilities(net) ?: continue
                 val hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 val notVpn = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                 val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                val isWifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                val isCellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                val isEthernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
                 
                 if (hasInternet && notVpn) {
+                    var score = 0
                     if (validated) {
-                        // 找到一个 VALIDATED 的，直接返回
-                        return net
+                        if (isEthernet) score = 5
+                        else if (isWifi) score = 4
+                        else if (isCellular) score = 3
+                    } else {
+                        if (isEthernet) score = 2
+                        else if (isWifi) score = 2
+                        else if (isCellular) score = 1
                     }
-                    if (bestNetwork == null || !bestValidated) {
+                    
+                    if (score > bestScore) {
+                        bestScore = score
                         bestNetwork = net
-                        bestValidated = validated
                     }
                 }
             }
             
-            if (bestNetwork != null) return bestNetwork
+            if (bestNetwork != null) {
+                Log.d(TAG, "findBestPhysicalNetwork: fallback selected $bestNetwork (score=$bestScore)")
+                return bestNetwork
+            }
         }
         
         // fallback: 使用 activeNetwork
@@ -1374,6 +1440,15 @@ private val platformInterface = object : PlatformInterface {
             val interfaceName = linkProperties?.interfaceName ?: ""
             val upstreamChanged = interfaceName.isNotEmpty() && interfaceName != defaultInterfaceName
 
+            // 检查当前网络是否真的是 Active Network
+            // 如果网络正在切换，activeNetwork 可能短暂为 null 或旧网络，我们需要信任回调传入的 network
+            // 但如果 activeNetwork 明确指向另一个网络，我们应该谨慎
+            val systemActive = connectivityManager?.activeNetwork
+            if (systemActive != null && systemActive != network) {
+                 Log.w(TAG, "updateDefaultInterface: requested $network but system active is $systemActive. Potential conflict.")
+                 // 仍然设置，因为回调可能比 activeNetwork 属性更新
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 && (network != lastKnownNetwork || upstreamChanged)) {
                 setUnderlyingNetworks(arrayOf(network))
                 lastKnownNetwork = network
@@ -1382,7 +1457,8 @@ private val platformInterface = object : PlatformInterface {
                 postTunRebindJob = null
                 Log.i(TAG, "Switched underlying network to $network (upstream=$interfaceName)")
 
-                requestCoreNetworkReset(reason = "underlyingNetworkChanged", force = false)
+                // 强制重置，因为网络变更通常伴随着 IP/Interface 变更
+                requestCoreNetworkReset(reason = "underlyingNetworkChanged", force = true)
             }
 
             val now = System.currentTimeMillis()
@@ -2840,7 +2916,8 @@ private val platformInterface = object : PlatformInterface {
         if (postTunRebindJob?.isActive == true) return
         
         postTunRebindJob = serviceScope.launch rebind@{
-            val delays = listOf(300L, 800L, 1500L)
+            // 加大重试密度和时长，应对 Android 16 可能较慢的网络就绪
+            val delays = listOf(200L, 500L, 1000L, 2000L, 3000L)
             for (d in delays) {
                 delay(d)
                 if (isStopping) return@rebind
@@ -2854,7 +2931,9 @@ private val platformInterface = object : PlatformInterface {
                         Log.i(TAG, "Post-TUN rebind success ($reason): $bestNetwork")
                         com.kunk.singbox.repository.LogRepository.getInstance()
                             .addLog("INFO postTunRebind: $bestNetwork (reason=$reason)")
-                        requestCoreNetworkReset(reason = "postTunRebind:$reason", force = false)
+                        
+                        // 强制立即重置，不要防抖
+                        requestCoreNetworkReset(reason = "postTunRebind:$reason", force = true)
                     } catch (e: Exception) {
                         Log.w(TAG, "Post-TUN rebind failed ($reason): ${e.message}")
                     }
