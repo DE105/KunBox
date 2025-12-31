@@ -1734,12 +1734,21 @@ class ConfigRepository(private val context: Context) {
                 // 检查是否需要重启服务：如果 Outbound 列表发生了变化（例如跨配置切换、增删节点），
                 // 或者当前配置 ID 发生了变化（跨配置切换），则必须重启 VPN 以加载新的配置文件。
                 val currentTags = generationResult.outboundTags
-                val profileChanged = lastRunProfileId != _activeProfileId.value
-                val tagsChanged = lastRunOutboundTags == null || lastRunOutboundTags != currentTags || profileChanged
+                val profileChanged = lastRunProfileId != null && lastRunProfileId != _activeProfileId.value
                 
-                // 更新缓存
+                // 2025-fix: 改进 tagsChanged 判断逻辑
+                // 问题：lastRunOutboundTags 在 App 启动后为 null，导致首次切换节点时
+                // 即使配置没有实际变化，也会触发 VPN 完全重启
+                // 修复：如果 VPN 已经在运行（remoteRunning=true），且 lastRunOutboundTags 为 null，
+                // 则首先尝试热切换，不强制重启。只有当配置确实变化时才重启。
+                val tagsActuallyChanged = lastRunOutboundTags != null && lastRunOutboundTags != currentTags
+                val tagsChanged = tagsActuallyChanged || profileChanged
+                
+                // 更新缓存（在判断之后更新，确保下次能正确比较）
                 lastRunOutboundTags = currentTags
                 lastRunProfileId = _activeProfileId.value
+                
+                Log.d(TAG, "Node switch decision: tagsActuallyChanged=$tagsActuallyChanged, profileChanged=$profileChanged, tagsChanged=$tagsChanged, lastTagsWasNull=${lastRunOutboundTags == null}")
 
                 val coreMode = VpnStateStore.getMode(context)
                 val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {

@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -42,7 +43,9 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
@@ -334,6 +337,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
 
+            // 记录当前状态，用于判断是否需要等待
+            val wasRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
+            
             // Force restart to apply latest generated config.
             // ACTION_START on running service is ignored, so we must STOP first.
             runCatching {
@@ -347,7 +353,27 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 })
             }
 
-            delay(800)
+            // 【优雅等待】只有在服务之前正在运行时才需要等待
+            // 使用 drop(1) 跳过当前值，确保等待的是状态变化而不是当前状态
+            if (wasRunning) {
+                try {
+                    withTimeout(5000L) {
+                        // 使用 drop(1) 跳过当前值，等待真正的状态变化
+                        SingBoxRemote.state
+                            .drop(1)
+                            .first { it == SingBoxService.ServiceState.STOPPED }
+                    }
+                } catch (e: TimeoutCancellationException) {
+                    // 超时后仍然继续，但记录警告
+                    Log.w(TAG, "Timeout waiting for service to stop, proceeding with restart")
+                }
+            }
+            
+            // 额外等待确保 QUIC 连接和网络接口完全释放
+            // STOPPED 状态是在 cleanupScope 中异步设置的，boxService.close() 可能仍在执行
+            // 对于 Hysteria2/QUIC，需要更长时间来关闭 UDP 连接
+            // 增加到 2500ms 以确保绝对安全，避免 "use of closed network connection"
+            delay(2500)
 
             startCore()
         }
@@ -379,13 +405,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
             // Ensure only one core instance is running at a time to avoid local port conflicts.
             // Do not rely on VpnStateStore here (multi-process timing); just stop the opposite service.
-            when (desiredMode) {
+            val needToStopOpposite = when (desiredMode) {
                 VpnStateStore.CoreMode.VPN -> {
                     runCatching {
                         context.startService(Intent(context, ProxyOnlyService::class.java).apply {
                             action = ProxyOnlyService.ACTION_STOP
                         })
                     }
+                    true
                 }
                 VpnStateStore.CoreMode.PROXY -> {
                     runCatching {
@@ -393,12 +420,30 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                             action = SingBoxService.ACTION_STOP
                         })
                     }
+                    true
                 }
-                else -> {
-                }
+                else -> false
             }
 
-            delay(600)
+            // 如果需要停止对立服务，等待其完全停止
+            if (needToStopOpposite) {
+                // 先检查对立服务是否正在运行
+                val oppositeWasRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
+                if (oppositeWasRunning) {
+                    try {
+                        withTimeout(3000L) {
+                            // 使用 drop(1) 跳过当前值，等待真正的状态变化
+                            SingBoxRemote.state
+                                .drop(1)
+                                .first { it == SingBoxService.ServiceState.STOPPED }
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        Log.w(TAG, "Timeout waiting for opposite service to stop")
+                    }
+                }
+                // 额外缓冲时间确保网络接口释放（对于 QUIC 协议需要更长时间）
+                delay(800)
+            }
             
             // 生成配置文件并启动 VPN 服务
             try {

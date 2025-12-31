@@ -401,7 +401,7 @@ class SingBoxService : VpnService() {
      * 暴露给 ConfigRepository 调用，尝试热切换节点
      * @return true if hot switch triggered successfully, false if restart is needed
      */
-    fun hotSwitchNode(nodeTag: String): Boolean {
+    suspend fun hotSwitchNode(nodeTag: String): Boolean {
         if (boxService == null || !isRunning) return false
         
         try {
@@ -454,11 +454,15 @@ class SingBoxService : VpnService() {
             // 这是解决“切换后旧连接不断开”问题的核心
             try {
                 // 如果 libbox 开启了 with_conntrack，这会关闭所有连接
+                // 注意：这是异步操作，需要一点时间生效
                 commandClient?.closeConnections()
                 Log.i(TAG, "Closed all connections after hot switch")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to close connections: ${e.message}")
             }
+
+            // 增加缓冲时间，确保连接关闭状态已传播，避免新请求复用旧连接导致 "use of closed network connection"
+            delay(300)
 
             runCatching {
                 closeRecentConnectionsBestEffort(reason = "hotSwitch")
@@ -467,10 +471,7 @@ class SingBoxService : VpnService() {
             // 4. 重置网络栈 & 清理 DNS
             try {
                 requestCoreNetworkReset(reason = "hotSwitch", force = true)
-                runCatching {
-                    boxService?.javaClass?.getMethod("clearDNSCache")?.invoke(boxService)
-                }
-                Log.i(TAG, "Network stack reset & DNS cache cleared")
+                Log.i(TAG, "Network stack reset")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to reset network stack: ${e.message}")
             }
@@ -497,6 +498,7 @@ class SingBoxService : VpnService() {
     private val cleanupScope = CoroutineScope(Dispatchers.IO + cleanupSupervisorJob)
     @Volatile private var isStopping: Boolean = false
     @Volatile private var stopSelfRequested: Boolean = false
+    @Volatile private var cleanupJob: Job? = null
     @Volatile private var pendingStartConfigPath: String? = null
     @Volatile private var pendingCleanCache: Boolean = false
     @Volatile private var pendingHotSwitchNodeId: String? = null
@@ -560,8 +562,6 @@ class SingBoxService : VpnService() {
                     if (i > 0) delay(250)
                     runCatching {
                         boxService?.resetNetwork()
-                        // 同时清除 DNS 缓存，因为网络切换后旧的 DNS 结果可能不再适用
-                        boxService?.javaClass?.getMethod("clearDNSCache")?.invoke(boxService)
                     }.onSuccess {
                         Log.d(TAG, "Core network stack reset triggered (reason=$reason, attempt=$i)")
                     }.onFailure { e ->
@@ -895,7 +895,8 @@ private val platformInterface = object : PlatformInterface {
                 Log.i(TAG, "TUN interface established with fd: $fd")
                 
                 // Force a network reset after TUN is ready to clear any stale connections
-                requestCoreNetworkReset(reason = "openTun:success", force = false)
+                // force=true to ensure immediate update, skipping debounce
+                requestCoreNetworkReset(reason = "openTun:success", force = true)
                 
                 return fd
             } finally {
@@ -1140,6 +1141,10 @@ private val platformInterface = object : PlatformInterface {
                              lastKnownNetwork = null
                              currentInterfaceListener?.updateDefaultInterface("", 0, false, false)
                         }
+                    } else {
+                        // Even if a non-active network is lost, notify libbox to update interfaces
+                        // This prevents "no such network interface" errors when libbox tries to use a stale interface ID
+                        requestCoreNetworkReset(reason = "networkLost_other:$network", force = false)
                     }
                 }
                 
@@ -1265,15 +1270,9 @@ private val platformInterface = object : PlatformInterface {
                 val interfaces = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
                 object : NetworkInterfaceIterator {
                     private val iterator = interfaces.filter {
-                        // On some Android 14+ devices, physical interfaces might momentarily report isUp=false during switching,
-                        // or restricted permissions might hide the real state.
-                        // However, libbox needs *some* interface to bind to.
-                        // We relax the check: allow non-loopback interfaces even if isUp is false,
-                        // trusting that they might become up or are usable for binding.
-                        // Actually, binding to a down interface usually fails, but filtering it out ensures failure.
-                        // Let's keep isUp check but maybe log if we are filtering too aggressively?
-                        // Reverting to standard check but with logging removed to reduce noise after diagnosis.
-                        it.isUp && !it.isLoopback
+                        // Do not filter by isUp. During VPN restart, interfaces might briefly flap.
+                        // libbox needs to see all interfaces to configure routing correctly.
+                        !it.isLoopback
                     }.iterator()
                     
                     override fun hasNext(): Boolean = iterator.hasNext()
@@ -1462,22 +1461,20 @@ private val platformInterface = object : PlatformInterface {
             }
 
             val now = System.currentTimeMillis()
-            if (
-                autoReconnectEnabled &&
-                !isRunning &&
-                !isStarting &&
-                !isManuallyStopped &&
-                lastConfigPath != null &&
-                now - lastAutoReconnectAttemptMs >= autoReconnectDebounceMs
-            ) {
-                lastAutoReconnectAttemptMs = now
-                autoReconnectJob?.cancel()
-                autoReconnectJob = serviceScope.launch {
-                    delay(800)
-                    if (!isRunning && !isStarting && !isManuallyStopped && lastConfigPath != null) {
-                        Log.i(TAG, "Auto-reconnecting on network available: $interfaceName")
-                        startVpn(lastConfigPath!!)
+            if (autoReconnectEnabled && !isRunning && !isStarting && lastConfigPath != null) {
+                if (!isManuallyStopped && now - lastAutoReconnectAttemptMs >= autoReconnectDebounceMs) {
+                    Log.i(TAG, "Auto-reconnect triggered: interface=$interfaceName")
+                    lastAutoReconnectAttemptMs = now
+                    autoReconnectJob?.cancel()
+                    autoReconnectJob = serviceScope.launch {
+                        delay(800)
+                        if (!isRunning && !isStarting && !isManuallyStopped && lastConfigPath != null) {
+                            Log.i(TAG, "Auto-reconnecting now executing startVpn")
+                            startVpn(lastConfigPath!!)
+                        }
                     }
+                } else {
+                    Log.d(TAG, "Auto-reconnect skipped: manuallyStopped=$isManuallyStopped, debounce=${now - lastAutoReconnectAttemptMs < autoReconnectDebounceMs}")
                 }
             }
 
@@ -1499,7 +1496,13 @@ private val platformInterface = object : PlatformInterface {
     
     override fun onCreate() {
         super.onCreate()
+        Log.e(TAG, "SingBoxService onCreate: pid=${android.os.Process.myPid()} instance=${System.identityHashCode(this)}")
         instance = this
+        
+        // Restore manually stopped state from persistent storage
+        isManuallyStopped = VpnStateStore.isManuallyStopped(applicationContext)
+        Log.i(TAG, "Restored isManuallyStopped state: $isManuallyStopped")
+
         createNotificationChannel()
         // 初始化 ConnectivityManager
         connectivityManager = getSystemService(ConnectivityManager::class.java)
@@ -1539,6 +1542,7 @@ private val platformInterface = object : PlatformInterface {
         when (intent?.action) {
             ACTION_START -> {
                 isManuallyStopped = false
+                VpnStateStore.setManuallyStopped(applicationContext, false)
                 VpnTileService.persistVpnPending(applicationContext, "starting")
                 val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
                 val cleanCache = intent.getBooleanExtra(EXTRA_CLEAN_CACHE, false)
@@ -1584,6 +1588,7 @@ private val platformInterface = object : PlatformInterface {
             ACTION_STOP -> {
                 Log.i(TAG, "Received ACTION_STOP (manual) -> stopping VPN")
                 isManuallyStopped = true
+                VpnStateStore.setManuallyStopped(applicationContext, true)
                 VpnTileService.persistVpnPending(applicationContext, "stopping")
                 updateServiceState(ServiceState.STOPPING)
                 synchronized(this) {
@@ -1730,6 +1735,15 @@ private val platformInterface = object : PlatformInterface {
         startVpnJob?.cancel()
         startVpnJob = serviceScope.launch {
             try {
+                // Critical fix: wait for any pending cleanup to finish before starting new instance
+                // This prevents resource conflict (TUN fd, UDP ports) between old and new libbox instances
+                val cleanup = cleanupJob
+                if (cleanup != null && cleanup.isActive) {
+                    Log.i(TAG, "Waiting for previous service cleanup...")
+                    cleanup.join()
+                    Log.i(TAG, "Previous cleanup finished")
+                }
+
                 // Acquire locks
                 try {
                     val pm = getSystemService(PowerManager::class.java)
@@ -1901,11 +1915,18 @@ private val platformInterface = object : PlatformInterface {
 
                 // Force initial network reset to ensure libbox picks up current interfaces
                 // This is critical when VPN restarts quickly and physical interfaces might have changed ID/Index
-                try {
-                    boxService?.resetNetwork()
-                    Log.i(TAG, "Initial boxService.resetNetwork() called")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to call initial resetNetwork", e)
+                // [Optimized] Execute asynchronously to avoid blocking startup time
+                serviceScope.launch {
+                    try {
+                        // Give a breathing room for TUN interface to settle and routing tables to propagate
+                        // Previous 1000ms blocking delay was causing slow startup.
+                        // Now using 400ms async delay which is sufficient for most devices while keeping UI responsive.
+                        delay(400)
+                        boxService?.resetNetwork()
+                        Log.i(TAG, "Initial boxService.resetNetwork() called (async)")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to call initial resetNetwork", e)
+                    }
                 }
 
                 tryRegisterRunningServiceForLibbox()
@@ -1945,60 +1966,6 @@ private val platformInterface = object : PlatformInterface {
                 updateTileState()
 
                 startRouteGroupAutoSelect(configContent)
-
-                serviceScope.launch postStart@{
-                    val delays = listOf(800L, 2000L, 5000L)
-                    val settings = currentSettings
-                    val proxyPort = settings?.proxyPort ?: 0
-                    val canProbeProxy = settings?.appendHttpProxy == true && proxyPort > 0
-
-                    suspend fun probeOnce(): Boolean {
-                        if (!canProbeProxy) return false
-                        return withContext(Dispatchers.IO) {
-                            try {
-                                val client = OkHttpClient.Builder()
-                                    .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", proxyPort)))
-                                    .connectTimeout(2500, TimeUnit.MILLISECONDS)
-                                    .readTimeout(2500, TimeUnit.MILLISECONDS)
-                                    .writeTimeout(2500, TimeUnit.MILLISECONDS)
-                                    .build()
-                                val req = Request.Builder()
-                                    .url("https://cp.cloudflare.com/generate_204")
-                                    .get()
-                                    .build()
-                                client.newCall(req).execute().use { resp ->
-                                    resp.code in 200..399
-                                }
-                            } catch (_: Exception) {
-                                false
-                            }
-                        }
-                    }
-
-                    for (d in delays) {
-                        delay(d)
-                        if (!isRunning || isStopping) return@postStart
-
-                        if (probeOnce()) {
-                            return@postStart
-                        }
-
-                        try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                                val bestNetwork = findBestPhysicalNetwork()
-                                if (bestNetwork != null) {
-                                    try {
-                                        setUnderlyingNetworks(arrayOf(bestNetwork))
-                                        lastKnownNetwork = bestNetwork
-                                    } catch (_: Exception) {
-                                    }
-                                }
-                            }
-                            requestCoreNetworkReset(reason = "postStartProbe", force = false)
-                        } catch (_: Exception) {
-                        }
-                    }
-                }
                 
             } catch (e: CancellationException) {
                 Log.i(TAG, "startVpn cancelled")
@@ -2190,23 +2157,24 @@ private val platformInterface = object : PlatformInterface {
             Log.w(TAG, "Error closing command server/client", e)
         }
 
-        cleanupScope.launch(NonCancellable) {
+        cleanupJob = cleanupScope.launch(NonCancellable) {
             try {
+                // Wait for start job to finish
                 jobToJoin?.join()
-            } catch (_: Exception) {
-            }
+            } catch (_: Exception) {}
 
             try {
                 platformInterface.closeDefaultInterfaceMonitor(listener)
-            } catch (_: Exception) {
-            }
+            } catch (_: Exception) {}
 
             try {
-                // 优先关闭服务并注销运行中引用
-                try { serviceToClose?.close() } catch (_: Exception) {}
-                try { interfaceToClose?.close() } catch (_: Exception) {}
+                // Attempt graceful close first
+                withTimeout(2000L) {
+                    try { serviceToClose?.close() } catch (_: Exception) {}
+                    try { interfaceToClose?.close() } catch (_: Exception) {}
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "Error closing VPN interface", e)
+                Log.w(TAG, "Graceful close failed or timed out", e)
             }
 
             withContext(Dispatchers.Main) {
@@ -2236,7 +2204,6 @@ private val platformInterface = object : PlatformInterface {
             }
 
             if (!startAfterStop.isNullOrBlank()) {
-                // Avoid restarting while system VPN transport is still tearing down.
                 waitForSystemVpnDown(timeoutMs = 1500L)
                 withContext(Dispatchers.Main) {
                     startVpn(startAfterStop)
@@ -2406,8 +2373,18 @@ private val platformInterface = object : PlatformInterface {
     }
     
     override fun onDestroy() {
-        Log.i(TAG, "onDestroy called -> stopVpn(stopService=false)")
+        Log.i(TAG, "onDestroy called -> stopVpn(stopService=false) pid=${android.os.Process.myPid()}")
         TrafficRepository.getInstance(this).saveStats()
+        
+        // Ensure critical state is saved synchronously before we potentially halt
+        if (!isManuallyStopped) {
+             // If we are being destroyed but not manually stopped (e.g. app update or system kill),
+             // ensure we don't accidentally mark it as manually stopped, but we DO mark VPN as inactive.
+             VpnTileService.persistVpnState(applicationContext, false)
+             VpnStateStore.setMode(applicationContext, VpnStateStore.CoreMode.NONE)
+             Log.i(TAG, "onDestroy: Persisted vpn_active=false, mode=NONE")
+        }
+
         val shouldStop = runCatching {
             synchronized(this@SingBoxService) {
                 isRunning || isStopping || boxService != null || vpnInterface != null
@@ -2415,6 +2392,9 @@ private val platformInterface = object : PlatformInterface {
         }.getOrDefault(false)
 
         if (shouldStop) {
+            // Note: stopVpn launches a cleanup job on cleanupScope.
+            // If we halt() immediately, that job will die.
+            // For app updates, the system kills us anyway, so cleanup might be best-effort.
             stopVpn(stopService = false)
         } else {
             runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
@@ -2422,12 +2402,23 @@ private val platformInterface = object : PlatformInterface {
             updateServiceState(ServiceState.STOPPED)
             updateTileState()
         }
+        
         serviceSupervisorJob.cancel()
         // cleanupSupervisorJob.cancel() // Allow cleanup to finish naturally
+        
         if (instance == this) {
             instance = null
         }
         super.onDestroy()
+        
+        // Ensure process is killed on destroy to reset Go runtime state completely.
+        // This is the most reliable way to fix "use of closed network connection" on restart.
+        Log.e(TAG, "SingBoxService destroyed. Halting process ${android.os.Process.myPid()}.")
+        
+        // Give a tiny breath for logs to flush and sync-writes to complete if any
+        try { Thread.sleep(100) } catch (_: Exception) {}
+        
+        Runtime.getRuntime().halt(0)
     }
      
     override fun onRevoke() {
@@ -2490,25 +2481,13 @@ private val platformInterface = object : PlatformInterface {
                 if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
                 if (preExistingVpnNetworks.contains(network)) return
                 if (isConnectingTun.get()) return
+                
+                // Do not abort startup if foreign VPN is detected.
+                // Android system handles VPN mutual exclusion automatically (revoke).
+                // Self-aborting here causes issues during restart when old TUN interface
+                // might still be fading out or ghosting.
                 if (isStarting && !isRunning) {
-                    Log.w(TAG, "Foreign VPN detected during startup, aborting")
-                    LogRepository.getInstance()
-                        .addLog("WARN SingBoxService: foreign VPN detected during startup, aborting")
-                    isManuallyStopped = true
-                    isRunning = false
-                    isStarting = false
-                    setLastError("已检测到其他 VPN 正在启动，已停止本次连接")
-                    VpnTileService.persistVpnState(applicationContext, false)
-                    VpnTileService.persistVpnPending(applicationContext, "")
-                    updateServiceState(ServiceState.STOPPED)
-                    updateTileState()
-                    runCatching {
-                        val intent = Intent(VpnTileService.ACTION_REFRESH_TILE).apply {
-                            `package` = packageName
-                        }
-                        sendBroadcast(intent)
-                    }
-                    stopVpn(stopService = true)
+                    Log.w(TAG, "Foreign VPN detected during startup, ignoring to prevent self-kill race condition: $network")
                 }
             }
         }

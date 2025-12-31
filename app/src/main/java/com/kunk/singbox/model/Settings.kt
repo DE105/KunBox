@@ -15,7 +15,7 @@ data class AppSettings(
     // TUN/VPN 设置
     @SerializedName("tunEnabled") val tunEnabled: Boolean = true,
     @SerializedName("tunStack") val tunStack: TunStack = TunStack.SYSTEM,
-    @SerializedName("tunMtu") val tunMtu: Int = 1280,
+    @SerializedName("tunMtu") val tunMtu: Int = 9000,
     @SerializedName("tunInterfaceName") val tunInterfaceName: String = "tun0",
     @SerializedName("autoRoute") val autoRoute: Boolean = false,
     @SerializedName("strictRoute") val strictRoute: Boolean = true,
