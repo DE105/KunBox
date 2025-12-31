@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.1.3](https://github.com/roseforljh/KunBox/compare/v2.1.2...v2.1.3) (2025-12-31)
+
+
+### Bug Fixes
+
+* bug修复 ([c531ab3](https://github.com/roseforljh/KunBox/commit/c531ab3d11790f7513c722e0f02749f115205064))
+* 优化重连、断连、热重载 ([80890a4](https://github.com/roseforljh/KunBox/commit/80890a4e5aa9743300b7060e9cd8d9c3abc3772e))
+* 修复了热切换节点后 连接延迟的问题 ([d0b9027](https://github.com/roseforljh/KunBox/commit/d0b9027814fdfd5d1a0178e0cee00c5b1d74e717))
+* 增加日志开关 ([772aa41](https://github.com/roseforljh/KunBox/commit/772aa4112dd3ff3e70c3f0ee3477185dc01656b7))
+* 稳定网络 ([6c0e3f0](https://github.com/roseforljh/KunBox/commit/6c0e3f08ab06e765b7c6b5acf60d0b41262926f6))
+
 ## [2.1.2](https://github.com/roseforljh/KunBox/compare/v2.1.1...v2.1.2) (2025-12-30)
 
 
