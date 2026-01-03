@@ -20,10 +20,12 @@ import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
+import com.kunk.singbox.service.RuleSetAutoUpdateWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -386,6 +388,36 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val currentSets = settings.value.ruleSets.toMutableList()
             currentSets.removeAll { it.id in idsToDelete }
             repository.setRuleSets(currentSets)
+        }
+    }
+    
+    // 全局规则集自动更新设置
+    fun setRuleSetAutoUpdateEnabled(value: Boolean) {
+        viewModelScope.launch {
+            val currentSettings = repository.settings.first()
+            repository.setRuleSetAutoUpdateEnabled(value)
+            
+            // 根据开关状态调度或取消自动更新任务
+            if (value && currentSettings.ruleSetAutoUpdateInterval > 0) {
+                RuleSetAutoUpdateWorker.schedule(
+                    getApplication(),
+                    currentSettings.ruleSetAutoUpdateInterval
+                )
+            } else {
+                RuleSetAutoUpdateWorker.cancel(getApplication())
+            }
+        }
+    }
+    
+    fun setRuleSetAutoUpdateInterval(value: Int) {
+        viewModelScope.launch {
+            val currentSettings = repository.settings.first()
+            repository.setRuleSetAutoUpdateInterval(value)
+            
+            // 如果自动更新已启用，重新调度任务
+            if (currentSettings.ruleSetAutoUpdateEnabled && value > 0) {
+                RuleSetAutoUpdateWorker.schedule(getApplication(), value)
+            }
         }
     }
 

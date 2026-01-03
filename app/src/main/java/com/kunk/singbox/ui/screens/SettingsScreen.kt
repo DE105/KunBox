@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.VpnKey
 import androidx.compose.material.icons.rounded.Brightness6
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -42,7 +43,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.ui.components.AboutDialog
+import com.kunk.singbox.ui.components.EditableTextItem
 import com.kunk.singbox.ui.components.SettingItem
+import com.kunk.singbox.ui.components.SettingSwitchItem
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.navigation.Screen
@@ -195,7 +198,31 @@ fun SettingsScreen(
                     }
                 }
             )
-            com.kunk.singbox.ui.components.SettingSwitchItem(
+            SettingSwitchItem(
+                title = "规则集定时更新",
+                subtitle = if (settings.ruleSetAutoUpdateEnabled)
+                    "每 ${settings.ruleSetAutoUpdateInterval} 分钟自动更新"
+                else
+                    "开启后自动更新所有远程规则集",
+                icon = Icons.Rounded.Schedule,
+                checked = settings.ruleSetAutoUpdateEnabled,
+                onCheckedChange = { viewModel.setRuleSetAutoUpdateEnabled(it) }
+            )
+            if (settings.ruleSetAutoUpdateEnabled) {
+                EditableTextItem(
+                    title = "更新间隔",
+                    value = "${settings.ruleSetAutoUpdateInterval} 分钟",
+                    onValueChange = { newValue ->
+                        val interval = newValue.replace(" 分钟", "").toIntOrNull()
+                        if (interval != null && interval >= 15) {
+                            viewModel.setRuleSetAutoUpdateInterval(interval)
+                        } else {
+                            Toast.makeText(context, "更新间隔至少为 15 分钟", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
+            }
+            SettingSwitchItem(
                 title = "调试模式",
                 subtitle = "开启后记录详细日志（需重启服务）",
                 icon = Icons.Rounded.BugReport,

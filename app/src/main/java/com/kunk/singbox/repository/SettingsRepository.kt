@@ -109,6 +109,10 @@ class SettingsRepository(private val context: Context) {
         val APP_GROUPS = stringPreferencesKey("app_groups")
         val DNS_MIGRATED = booleanPreferencesKey("dns_migrated")
         val NODE_FILTER = stringPreferencesKey("node_filter")
+        
+        // 规则集自动更新
+        val RULE_SET_AUTO_UPDATE_ENABLED = booleanPreferencesKey("rule_set_auto_update_enabled")
+        val RULE_SET_AUTO_UPDATE_INTERVAL = intPreferencesKey("rule_set_auto_update_interval")
     }
     
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
@@ -282,7 +286,11 @@ class SettingsRepository(private val context: Context) {
             customRules = customRules,
             ruleSets = ruleSets,
             appRules = appRules,
-            appGroups = appGroups
+            appGroups = appGroups,
+            
+            // 规则集自动更新
+            ruleSetAutoUpdateEnabled = preferences[PreferencesKeys.RULE_SET_AUTO_UPDATE_ENABLED] ?: false,
+            ruleSetAutoUpdateInterval = preferences[PreferencesKeys.RULE_SET_AUTO_UPDATE_INTERVAL] ?: 60
         )
     }.flowOn(Dispatchers.Default)
     
@@ -495,6 +503,14 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAppGroups(value: List<AppGroup>) {
         context.dataStore.edit { it[PreferencesKeys.APP_GROUPS] = gson.toJson(value) }
         notifyRestartRequired()
+    }
+    
+    suspend fun setRuleSetAutoUpdateEnabled(value: Boolean) {
+        context.dataStore.edit { it[PreferencesKeys.RULE_SET_AUTO_UPDATE_ENABLED] = value }
+    }
+    
+    suspend fun setRuleSetAutoUpdateInterval(value: Int) {
+        context.dataStore.edit { it[PreferencesKeys.RULE_SET_AUTO_UPDATE_INTERVAL] = value }
     }
     
     suspend fun setNodeFilter(value: NodeFilter) {

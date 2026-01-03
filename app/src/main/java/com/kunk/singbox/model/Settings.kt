@@ -61,7 +61,11 @@ data class AppSettings(
     @SerializedName("customRules") val customRules: List<CustomRule> = emptyList(),
     @SerializedName("ruleSets") val ruleSets: List<RuleSet> = emptyList(),
     @SerializedName("appRules") val appRules: List<AppRule> = emptyList(),
-    @SerializedName("appGroups") val appGroups: List<AppGroup> = emptyList()
+    @SerializedName("appGroups") val appGroups: List<AppGroup> = emptyList(),
+    
+    // 规则集自动更新
+    @SerializedName("ruleSetAutoUpdateEnabled") val ruleSetAutoUpdateEnabled: Boolean = false,
+    @SerializedName("ruleSetAutoUpdateInterval") val ruleSetAutoUpdateInterval: Int = 60 // 分钟
 )
 
 enum class LatencyTestMethod(val displayName: String) {

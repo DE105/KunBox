@@ -62,7 +62,8 @@ data class RuleSet(
     @SerializedName("enabled") val enabled: Boolean = true,
     @SerializedName("outboundMode") val outboundMode: RuleSetOutboundMode? = RuleSetOutboundMode.DIRECT,
     @SerializedName("outboundValue") val outboundValue: String? = null, // ID for Node/Profile, or Name for Group
-    @SerializedName("inbounds") val inbounds: List<String>? = emptyList() // List of inbound tags
+    @SerializedName("inbounds") val inbounds: List<String>? = emptyList(), // List of inbound tags
+    @SerializedName("autoUpdateInterval") val autoUpdateInterval: Int = 0 // 0 means disabled, in minutes
 )
 
 @Keep
