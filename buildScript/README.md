@@ -43,6 +43,12 @@ buildScript/
 - 编译 `libbox.aar`
 - 自动复制到 `app/libs/` 目录
 
+```
+cd buildScript
+.\build.ps1
+# 选择 "1. Build libbox (Full Build)"
+```
+或者
 ```powershell
 .\buildScript\tasks\build_libbox.ps1
 ```

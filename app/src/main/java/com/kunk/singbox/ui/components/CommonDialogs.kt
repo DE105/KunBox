@@ -896,9 +896,36 @@ fun AboutDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val githubUrl = "https://github.com/roseforljh/singboxforandriod.git"
     val linkColor = MaterialTheme.colorScheme.primary
+    
+    // 获取版本信息
+    val appVersion = remember { com.kunk.singbox.utils.VersionInfo.getAppVersionName(context) }
+    val appVersionCode = remember { com.kunk.singbox.utils.VersionInfo.getAppVersionCode(context) }
+    
+    // 使用协程异步获取内核版本
+    var singBoxVersion by remember { mutableStateOf("加载中...") }
+    LaunchedEffect(Unit) {
+        singBoxVersion = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                // 确保 libbox 已初始化
+                com.kunk.singbox.core.SingBoxCore.ensureLibboxSetup(context)
+                val version = io.nekohasekai.libbox.Libbox.version()
+                // 如果版本是 "unknown"，显示更友好的信息
+                when {
+                    version.isNullOrBlank() -> "sing-box (内置)"
+                    version.equals("unknown", ignoreCase = true) -> "sing-box (内置)"
+                    else -> version
+                }
+            } catch (t: Throwable) {
+                "sing-box (内置)"
+            }
+        }
+    }
 
     val annotatedString = buildAnnotatedString {
-        append("KunBox for Android\n\n地址: ")
+        append("KunBox for Android\n\n")
+        append("应用版本: $appVersion ($appVersionCode)\n")
+        append("内核版本: $singBoxVersion\n\n")
+        append("地址: ")
         pushStringAnnotation(tag = "URL", annotation = githubUrl)
         withStyle(
             style = SpanStyle(
@@ -926,6 +953,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(16.dp))
+            
             ClickableText(
                 text = annotatedString,
                 style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
