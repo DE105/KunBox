@@ -25,6 +25,7 @@ import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
 import com.kunk.singbox.model.AppThemeMode
+import com.kunk.singbox.model.AppLanguage
 import com.kunk.singbox.viewmodel.NodeFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -43,15 +44,7 @@ class SettingsRepository(private val context: Context) {
 
     private fun parseVpnAppMode(raw: String?): VpnAppMode {
         if (raw.isNullOrBlank()) return VpnAppMode.ALL
-        VpnAppMode.entries.firstOrNull { it.name == raw }?.let { return it }
-        return VpnAppMode.fromDisplayName(raw)
-    }
-
-    private fun migrateVpnAppModeIfNeeded(raw: String?): String? {
-        if (raw.isNullOrBlank()) return null
-        if (VpnAppMode.entries.any { it.name == raw }) return null
-        val migrated = VpnAppMode.entries.firstOrNull { it.displayName == raw } ?: return null
-        return migrated.name
+        return VpnAppMode.entries.firstOrNull { it.name == raw } ?: VpnAppMode.ALL
     }
 
     private object PreferencesKeys {
@@ -60,6 +53,7 @@ class SettingsRepository(private val context: Context) {
         val AUTO_RECONNECT = booleanPreferencesKey("auto_reconnect")
         val EXCLUDE_FROM_RECENT = booleanPreferencesKey("exclude_from_recent")
         val APP_THEME = stringPreferencesKey("app_theme")
+        val APP_LANGUAGE = stringPreferencesKey("app_language")
         
         // TUN/VPN 设置
         val TUN_ENABLED = booleanPreferencesKey("tun_enabled")
@@ -116,7 +110,9 @@ class SettingsRepository(private val context: Context) {
     }
     
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
-        val selectedMirror = GhProxyMirror.fromDisplayName(preferences[PreferencesKeys.GH_PROXY_MIRROR] ?: "SagerNet (官方)")
+        val rawMirror = preferences[PreferencesKeys.GH_PROXY_MIRROR]
+        val selectedMirror = GhProxyMirror.entries.find { it.name == rawMirror }
+            ?: GhProxyMirror.entries.find { it.name == "SAGERNET_ORIGIN" }!!
         val currentMirrorUrl = selectedMirror.url
 
         val customRulesJson = preferences[PreferencesKeys.CUSTOM_RULES]
@@ -266,17 +262,18 @@ class SettingsRepository(private val context: Context) {
             autoConnect = preferences[PreferencesKeys.AUTO_CONNECT] ?: false,
             autoReconnect = preferences[PreferencesKeys.AUTO_RECONNECT] ?: true,
             excludeFromRecent = preferences[PreferencesKeys.EXCLUDE_FROM_RECENT] ?: false,
-            appTheme = com.kunk.singbox.model.AppThemeMode.valueOf(preferences[PreferencesKeys.APP_THEME] ?: com.kunk.singbox.model.AppThemeMode.SYSTEM.name),
+            appTheme = runCatching { AppThemeMode.valueOf(preferences[PreferencesKeys.APP_THEME] ?: "") }.getOrDefault(AppThemeMode.SYSTEM),
+            appLanguage = runCatching { AppLanguage.valueOf(preferences[PreferencesKeys.APP_LANGUAGE] ?: "") }.getOrDefault(AppLanguage.SYSTEM),
             
             // TUN/VPN 设置
             tunEnabled = preferences[PreferencesKeys.TUN_ENABLED] ?: true,
-            tunStack = TunStack.fromDisplayName(preferences[PreferencesKeys.TUN_STACK] ?: TunStack.SYSTEM.displayName),
+            tunStack = runCatching { TunStack.valueOf(preferences[PreferencesKeys.TUN_STACK] ?: "") }.getOrDefault(TunStack.SYSTEM),
             tunMtu = preferences[PreferencesKeys.TUN_MTU] ?: 1280,
             tunInterfaceName = preferences[PreferencesKeys.TUN_INTERFACE_NAME] ?: "tun0",
             autoRoute = preferences[PreferencesKeys.AUTO_ROUTE] ?: false,
             strictRoute = preferences[PreferencesKeys.STRICT_ROUTE] ?: true,
             endpointIndependentNat = preferences[PreferencesKeys.ENDPOINT_INDEPENDENT_NAT] ?: false,
-            vpnRouteMode = VpnRouteMode.fromDisplayName(preferences[PreferencesKeys.VPN_ROUTE_MODE] ?: VpnRouteMode.GLOBAL.displayName),
+            vpnRouteMode = runCatching { VpnRouteMode.valueOf(preferences[PreferencesKeys.VPN_ROUTE_MODE] ?: "") }.getOrDefault(VpnRouteMode.GLOBAL),
             vpnRouteIncludeCidrs = preferences[PreferencesKeys.VPN_ROUTE_INCLUDE_CIDRS] ?: "",
             vpnAppMode = parseVpnAppMode(preferences[PreferencesKeys.VPN_APP_MODE]),
             vpnAllowlist = preferences[PreferencesKeys.VPN_ALLOWLIST] ?: "",
@@ -287,15 +284,15 @@ class SettingsRepository(private val context: Context) {
             remoteDns = preferences[PreferencesKeys.REMOTE_DNS] ?: "https://dns.google/dns-query",
             fakeDnsEnabled = preferences[PreferencesKeys.FAKE_DNS_ENABLED] ?: true,
             fakeIpRange = preferences[PreferencesKeys.FAKE_IP_RANGE] ?: "198.18.0.0/15",
-            dnsStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.DNS_STRATEGY] ?: "优先 IPv4"),
-            remoteDnsStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.REMOTE_DNS_STRATEGY] ?: "Auto"),
-            directDnsStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.DIRECT_DNS_STRATEGY] ?: "Auto"),
-            serverAddressStrategy = DnsStrategy.fromDisplayName(preferences[PreferencesKeys.SERVER_ADDRESS_STRATEGY] ?: "Auto"),
+            dnsStrategy = runCatching { DnsStrategy.valueOf(preferences[PreferencesKeys.DNS_STRATEGY] ?: "") }.getOrDefault(DnsStrategy.PREFER_IPV4),
+            remoteDnsStrategy = runCatching { DnsStrategy.valueOf(preferences[PreferencesKeys.REMOTE_DNS_STRATEGY] ?: "") }.getOrDefault(DnsStrategy.AUTO),
+            directDnsStrategy = runCatching { DnsStrategy.valueOf(preferences[PreferencesKeys.DIRECT_DNS_STRATEGY] ?: "") }.getOrDefault(DnsStrategy.AUTO),
+            serverAddressStrategy = runCatching { DnsStrategy.valueOf(preferences[PreferencesKeys.SERVER_ADDRESS_STRATEGY] ?: "") }.getOrDefault(DnsStrategy.AUTO),
             dnsCacheEnabled = preferences[PreferencesKeys.DNS_CACHE_ENABLED] ?: true,
             
             // 路由设置
-            routingMode = RoutingMode.fromDisplayName(preferences[PreferencesKeys.ROUTING_MODE] ?: "规则模式"),
-            defaultRule = DefaultRule.fromDisplayName(preferences[PreferencesKeys.DEFAULT_RULE] ?: "代理"),
+            routingMode = runCatching { RoutingMode.valueOf(preferences[PreferencesKeys.ROUTING_MODE] ?: "") }.getOrDefault(RoutingMode.RULE),
+            defaultRule = runCatching { DefaultRule.valueOf(preferences[PreferencesKeys.DEFAULT_RULE] ?: "") }.getOrDefault(DefaultRule.PROXY),
             blockAds = preferences[PreferencesKeys.BLOCK_ADS] ?: true,
             blockQuic = preferences[PreferencesKeys.BLOCK_QUIC] ?: true,
             debugLoggingEnabled = preferences[PreferencesKeys.DEBUG_LOGGING_ENABLED] ?: false,
@@ -340,6 +337,10 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { it[PreferencesKeys.APP_THEME] = value.name }
     }
     
+    suspend fun setAppLanguage(value: AppLanguage) {
+        context.dataStore.edit { it[PreferencesKeys.APP_LANGUAGE] = value.name }
+    }
+    
     // TUN/VPN 设置
     suspend fun setTunEnabled(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.TUN_ENABLED] = value }
@@ -347,7 +348,7 @@ class SettingsRepository(private val context: Context) {
     }
     
     suspend fun setTunStack(value: TunStack) {
-        context.dataStore.edit { it[PreferencesKeys.TUN_STACK] = value.displayName }
+        context.dataStore.edit { it[PreferencesKeys.TUN_STACK] = value.name }
         notifyRestartRequired()
     }
     
@@ -377,7 +378,7 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setVpnRouteMode(value: VpnRouteMode) {
-        context.dataStore.edit { it[PreferencesKeys.VPN_ROUTE_MODE] = value.displayName }
+        context.dataStore.edit { it[PreferencesKeys.VPN_ROUTE_MODE] = value.name }
         notifyRestartRequired()
     }
 
@@ -423,22 +424,22 @@ class SettingsRepository(private val context: Context) {
     }
     
     suspend fun setDnsStrategy(value: DnsStrategy) {
-        context.dataStore.edit { it[PreferencesKeys.DNS_STRATEGY] = value.displayName }
+        context.dataStore.edit { it[PreferencesKeys.DNS_STRATEGY] = value.name }
         notifyRestartRequired()
     }
 
     suspend fun setRemoteDnsStrategy(value: DnsStrategy) {
-        context.dataStore.edit { it[PreferencesKeys.REMOTE_DNS_STRATEGY] = value.displayName }
+        context.dataStore.edit { it[PreferencesKeys.REMOTE_DNS_STRATEGY] = value.name }
         notifyRestartRequired()
     }
 
     suspend fun setDirectDnsStrategy(value: DnsStrategy) {
-        context.dataStore.edit { it[PreferencesKeys.DIRECT_DNS_STRATEGY] = value.displayName }
+        context.dataStore.edit { it[PreferencesKeys.DIRECT_DNS_STRATEGY] = value.name }
         notifyRestartRequired()
     }
 
     suspend fun setServerAddressStrategy(value: DnsStrategy) {
-        context.dataStore.edit { it[PreferencesKeys.SERVER_ADDRESS_STRATEGY] = value.displayName }
+        context.dataStore.edit { it[PreferencesKeys.SERVER_ADDRESS_STRATEGY] = value.name }
         notifyRestartRequired()
     }
     
@@ -449,14 +450,14 @@ class SettingsRepository(private val context: Context) {
     
     // 路由设置
     suspend fun setRoutingMode(value: RoutingMode, notifyRestartRequired: Boolean = true) {
-        context.dataStore.edit { it[PreferencesKeys.ROUTING_MODE] = value.displayName }
+        context.dataStore.edit { it[PreferencesKeys.ROUTING_MODE] = value.name }
         if (notifyRestartRequired) {
             notifyRestartRequired()
         }
     }
     
     suspend fun setDefaultRule(value: DefaultRule) {
-        context.dataStore.edit { it[PreferencesKeys.DEFAULT_RULE] = value.displayName }
+        context.dataStore.edit { it[PreferencesKeys.DEFAULT_RULE] = value.name }
         notifyRestartRequired()
     }
     
@@ -489,7 +490,7 @@ class SettingsRepository(private val context: Context) {
     }
     
     suspend fun setGhProxyMirror(value: GhProxyMirror) {
-        context.dataStore.edit { it[PreferencesKeys.GH_PROXY_MIRROR] = value.displayName }
+        context.dataStore.edit { it[PreferencesKeys.GH_PROXY_MIRROR] = value.name }
         notifyRestartRequired()
     }
     
@@ -563,13 +564,8 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun checkAndMigrateRuleSets() {
         try {
-            // Also migrate legacy vpnAppMode persisted as displayName to stable enum.name
+            // Legacy migration logic removed as we now use valueOf with runCatching
             val preferences = context.dataStore.data.first()
-            val rawVpnAppMode = preferences[PreferencesKeys.VPN_APP_MODE]
-            val migratedVpnAppMode = migrateVpnAppModeIfNeeded(rawVpnAppMode)
-            if (migratedVpnAppMode != null) {
-                context.dataStore.edit { it[PreferencesKeys.VPN_APP_MODE] = migratedVpnAppMode }
-            }
 
             val currentSettings = settings.first()
             val isDnsMigrated = preferences[PreferencesKeys.DNS_MIGRATED] ?: false

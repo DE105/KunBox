@@ -1,6 +1,8 @@
 package com.kunk.singbox.model
 
+import androidx.annotation.StringRes
 import com.google.gson.annotations.SerializedName
+import com.kunk.singbox.R
 
 /**
  * 所有应用设置的数据模型
@@ -11,6 +13,7 @@ data class AppSettings(
     @SerializedName("autoReconnect") val autoReconnect: Boolean = true,
     @SerializedName("excludeFromRecent") val excludeFromRecent: Boolean = false,
     @SerializedName("appTheme") val appTheme: AppThemeMode = AppThemeMode.SYSTEM,
+    @SerializedName("appLanguage") val appLanguage: AppLanguage = AppLanguage.SYSTEM,
     
     // TUN/VPN 设置
     @SerializedName("tunEnabled") val tunEnabled: Boolean = true,
@@ -68,106 +71,123 @@ data class AppSettings(
     @SerializedName("ruleSetAutoUpdateInterval") val ruleSetAutoUpdateInterval: Int = 60 // 分钟
 )
 
-enum class LatencyTestMethod(val displayName: String) {
-    @SerializedName("TCP") TCP("TCP 延迟"),
-    @SerializedName("REAL_RTT") REAL_RTT("真实延迟 (RTT)"),
-    @SerializedName("HANDSHAKE") HANDSHAKE("HTTP 握手延迟");
+enum class LatencyTestMethod(@StringRes val displayNameRes: Int) {
+    @SerializedName("TCP") TCP(R.string.latency_test_tcp),
+    @SerializedName("REAL_RTT") REAL_RTT(R.string.latency_test_rtt),
+    @SerializedName("HANDSHAKE") HANDSHAKE(R.string.latency_test_handshake);
     
     companion object {
         fun fromDisplayName(name: String): LatencyTestMethod {
-            return entries.find { it.displayName == name } ?: REAL_RTT
+            // Deprecated: use enum name for storage
+            return entries.find { it.name == name } ?: REAL_RTT
         }
     }
 }
 
-enum class TunStack(val displayName: String) {
-    @SerializedName("SYSTEM") SYSTEM("System"),
-    @SerializedName("GVISOR") GVISOR("gVisor"),
-    @SerializedName("MIXED") MIXED("Mixed");
+enum class TunStack(@StringRes val displayNameRes: Int) {
+    @SerializedName("SYSTEM") SYSTEM(R.string.tun_stack_system),
+    @SerializedName("GVISOR") GVISOR(R.string.tun_stack_gvisor),
+    @SerializedName("MIXED") MIXED(R.string.tun_stack_mixed);
     
     companion object {
         fun fromDisplayName(name: String): TunStack {
-            return entries.find { it.displayName == name } ?: SYSTEM
+            return entries.find { it.name == name } ?: SYSTEM
         }
     }
 }
 
-enum class VpnRouteMode(val displayName: String) {
-    @SerializedName("GLOBAL") GLOBAL("全局接管"),
-    @SerializedName("CUSTOM") CUSTOM("自定义接管");
+enum class VpnRouteMode(@StringRes val displayNameRes: Int) {
+    @SerializedName("GLOBAL") GLOBAL(R.string.vpn_route_mode_global),
+    @SerializedName("CUSTOM") CUSTOM(R.string.vpn_route_mode_custom);
 
     companion object {
         fun fromDisplayName(name: String): VpnRouteMode {
-            return entries.find { it.displayName == name } ?: GLOBAL
+            return entries.find { it.name == name } ?: GLOBAL
         }
     }
 }
 
-enum class VpnAppMode(val displayName: String) {
-    @SerializedName("ALL") ALL("全部应用"),
-    @SerializedName("ALLOWLIST") ALLOWLIST("仅允许列表"),
-    @SerializedName("BLOCKLIST") BLOCKLIST("排除列表");
+enum class VpnAppMode(@StringRes val displayNameRes: Int) {
+    @SerializedName("ALL") ALL(R.string.vpn_app_mode_all),
+    @SerializedName("ALLOWLIST") ALLOWLIST(R.string.vpn_app_mode_allowlist),
+    @SerializedName("BLOCKLIST") BLOCKLIST(R.string.vpn_app_mode_blocklist);
 
     companion object {
         fun fromDisplayName(name: String): VpnAppMode {
-            return entries.find { it.displayName == name } ?: ALL
+            return entries.find { it.name == name } ?: ALL
         }
     }
 }
 
-enum class DnsStrategy(val displayName: String) {
-    @SerializedName("AUTO") AUTO("Auto"),
-    @SerializedName("PREFER_IPV4") PREFER_IPV4("优先 IPv4"),
-    @SerializedName("PREFER_IPV6") PREFER_IPV6("优先 IPv6"),
-    @SerializedName("ONLY_IPV4") ONLY_IPV4("仅 IPv4"),
-    @SerializedName("ONLY_IPV6") ONLY_IPV6("仅 IPv6");
+enum class DnsStrategy(@StringRes val displayNameRes: Int) {
+    @SerializedName("AUTO") AUTO(R.string.dns_strategy_auto),
+    @SerializedName("PREFER_IPV4") PREFER_IPV4(R.string.dns_strategy_prefer_ipv4),
+    @SerializedName("PREFER_IPV6") PREFER_IPV6(R.string.dns_strategy_prefer_ipv6),
+    @SerializedName("ONLY_IPV4") ONLY_IPV4(R.string.dns_strategy_only_ipv4),
+    @SerializedName("ONLY_IPV6") ONLY_IPV6(R.string.dns_strategy_only_ipv6);
     
     companion object {
         fun fromDisplayName(name: String): DnsStrategy {
-            return entries.find { it.displayName == name } ?: AUTO
+            return entries.find { it.name == name } ?: AUTO
         }
     }
 }
 
-enum class RoutingMode(val displayName: String) {
-    @SerializedName("RULE") RULE("规则模式"),
-    @SerializedName("GLOBAL_PROXY") GLOBAL_PROXY("全局代理"),
-    @SerializedName("GLOBAL_DIRECT") GLOBAL_DIRECT("全局直连");
+enum class RoutingMode(@StringRes val displayNameRes: Int) {
+    @SerializedName("RULE") RULE(R.string.routing_mode_rule),
+    @SerializedName("GLOBAL_PROXY") GLOBAL_PROXY(R.string.routing_mode_global_proxy),
+    @SerializedName("GLOBAL_DIRECT") GLOBAL_DIRECT(R.string.routing_mode_global_direct);
     
     companion object {
         fun fromDisplayName(name: String): RoutingMode {
-            return entries.find { it.displayName == name } ?: RULE
+            return entries.find { it.name == name } ?: RULE
         }
     }
 }
 
-enum class DefaultRule(val displayName: String) {
-    @SerializedName("DIRECT") DIRECT("直连"),
-    @SerializedName("PROXY") PROXY("代理"),
-    @SerializedName("BLOCK") BLOCK("拦截");
+enum class DefaultRule(@StringRes val displayNameRes: Int) {
+    @SerializedName("DIRECT") DIRECT(R.string.default_rule_direct),
+    @SerializedName("PROXY") PROXY(R.string.default_rule_proxy),
+    @SerializedName("BLOCK") BLOCK(R.string.default_rule_block);
     
     companion object {
         fun fromDisplayName(name: String): DefaultRule {
-            return entries.find { it.displayName == name } ?: PROXY
+            return entries.find { it.name == name } ?: PROXY
         }
     }
 }
 
-enum class AppThemeMode(val displayName: String) {
-    @SerializedName("SYSTEM") SYSTEM("跟随系统"),
-    @SerializedName("LIGHT") LIGHT("亮色模式"),
-    @SerializedName("DARK") DARK("暗色模式");
+enum class AppThemeMode(@StringRes val displayNameRes: Int) {
+    @SerializedName("SYSTEM") SYSTEM(R.string.theme_system),
+    @SerializedName("LIGHT") LIGHT(R.string.theme_light),
+    @SerializedName("DARK") DARK(R.string.theme_dark);
 
     companion object {
         fun fromDisplayName(name: String): AppThemeMode {
-            return entries.find { it.displayName == name } ?: SYSTEM
+            return entries.find { it.name == name } ?: SYSTEM
         }
     }
 }
 
-enum class GhProxyMirror(val url: String, val displayName: String) {
-    @SerializedName("SAGERNET_ORIGIN") SAGERNET_ORIGIN("https://raw.githubusercontent.com/", "SagerNet (官方)"),
-    @SerializedName("JSDELIVR_CDN") JSDELIVR_CDN("https://cdn.jsdelivr.net/gh/", "jsDelivr (CDN)");
+enum class AppLanguage(@StringRes val displayNameRes: Int, val localeCode: String) {
+    @SerializedName("SYSTEM") SYSTEM(R.string.language_system, ""),
+    @SerializedName("CHINESE") CHINESE(R.string.language_chinese, "zh"),
+    @SerializedName("ENGLISH") ENGLISH(R.string.language_english, "en");
+
+    companion object {
+        fun fromLocaleCode(code: String): AppLanguage {
+            return entries.find { it.localeCode == code } ?: SYSTEM
+        }
+        
+        fun fromDisplayName(name: String): AppLanguage {
+            return entries.find { it.name == name } ?: SYSTEM
+        }
+    }
+}
+
+enum class GhProxyMirror(val url: String, @StringRes val displayNameRes: Int) {
+    @SerializedName("SAGERNET_ORIGIN") SAGERNET_ORIGIN("https://raw.githubusercontent.com/", R.string.gh_mirror_sagernet),
+    @SerializedName("JSDELIVR_CDN") JSDELIVR_CDN("https://cdn.jsdelivr.net/gh/", R.string.gh_mirror_jsdelivr);
     
     companion object {
         fun fromUrl(url: String): GhProxyMirror {
@@ -175,7 +195,7 @@ enum class GhProxyMirror(val url: String, val displayName: String) {
         }
         
         fun fromDisplayName(name: String): GhProxyMirror {
-            return entries.find { it.displayName == name } ?: SAGERNET_ORIGIN
+            return entries.find { it.name == name } ?: SAGERNET_ORIGIN
         }
     }
 }

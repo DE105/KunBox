@@ -90,18 +90,18 @@ class QrScannerActivity : AppCompatActivity() {
                             setResult(Activity.RESULT_OK, intent)
                             finish()
                         } else {
-                            Toast.makeText(this@QrScannerActivity, "未发现二维码", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@QrScannerActivity, getString(R.string.qr_scanner_no_qr_found), Toast.LENGTH_SHORT).show()
                         }
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@QrScannerActivity, "无法读取图片", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@QrScannerActivity, getString(R.string.qr_scanner_cannot_read_image), Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@QrScannerActivity, "解析失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@QrScannerActivity, getString(R.string.profiles_import_failed) + ": ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -128,10 +128,10 @@ class QrScannerActivity : AppCompatActivity() {
         isFlashOn = !isFlashOn
         if (isFlashOn) {
             barcodeScannerView.setTorchOn()
-            Toast.makeText(this, "闪光灯已开启", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.qr_scanner_flash_on), Toast.LENGTH_SHORT).show()
         } else {
             barcodeScannerView.setTorchOff()
-            Toast.makeText(this, "闪光灯已关闭", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.qr_scanner_flash_off), Toast.LENGTH_SHORT).show()
         }
     }
 

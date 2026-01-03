@@ -1,5 +1,6 @@
 package com.kunk.singbox.viewmodel
 
+import com.kunk.singbox.R
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -56,7 +57,7 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
 
         val name = profiles.value.find { it.id == profileId }?.name
         if (!name.isNullOrBlank()) {
-            emitToast("已切换到 $name")
+            emitToast(getApplication<Application>().getString(R.string.profiles_updated) + ": $name") // TODO: check string
         }
     }
 
@@ -67,18 +68,19 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         val name = before?.name
         if (!name.isNullOrBlank()) {
             val enabledAfter = !(before?.enabled ?: true)
-            emitToast(if (enabledAfter) "已启用: $name" else "已禁用: $name")
+            val msg = if (enabledAfter) getApplication<Application>().getString(R.string.common_enable) else getApplication<Application>().getString(R.string.common_disable)
+            emitToast("$msg: $name")
         }
     }
 
     fun updateProfileMetadata(profileId: String, newName: String, newUrl: String?, autoUpdateInterval: Int = 0) {
         configRepository.updateProfileMetadata(profileId, newName, newUrl, autoUpdateInterval)
-        emitToast("配置已更新")
+        emitToast(getApplication<Application>().getString(R.string.profiles_updated))
     }
 
     fun updateProfile(profileId: String) {
         viewModelScope.launch {
-            _updateStatus.value = "正在更新..."
+            _updateStatus.value = getApplication<Application>().getString(R.string.common_loading)
             
             val result = configRepository.updateProfile(profileId)
             
@@ -88,13 +90,13 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                     val changes = mutableListOf<String>()
                     if (result.addedCount > 0) changes.add("+${result.addedCount}")
                     if (result.removedCount > 0) changes.add("-${result.removedCount}")
-                    "更新成功 (${changes.joinToString("/")}，共${result.totalCount}节点)"
+                    getApplication<Application>().getString(R.string.settings_update_success) + " (${changes.joinToString("/")}, ${result.totalCount} nodes)" // TODO: better string
                 }
                 is SubscriptionUpdateResult.SuccessNoChanges -> {
-                    "更新完成，无变化 (${result.totalCount}节点)"
+                    getApplication<Application>().getString(R.string.update_status_success_no_changes) + " (${result.totalCount} nodes)" // TODO: better string
                 }
                 is SubscriptionUpdateResult.Failed -> {
-                    "更新失败: ${result.error}"
+                    getApplication<Application>().getString(R.string.settings_update_failed) + ": ${result.error}"
                 }
             }
             
@@ -107,9 +109,9 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         val name = profiles.value.find { it.id == profileId }?.name
         configRepository.deleteProfile(profileId)
         if (!name.isNullOrBlank()) {
-            emitToast("已删除配置: $name")
+            emitToast(getApplication<Application>().getString(R.string.profiles_deleted) + ": $name")
         } else {
-            emitToast("已删除配置")
+            emitToast(getApplication<Application>().getString(R.string.profiles_deleted))
         }
     }
 
@@ -123,7 +125,7 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         }
         
         viewModelScope.launch {
-            _importState.value = ImportState.Loading("正在获取订阅...")
+            _importState.value = ImportState.Loading(getApplication<Application>().getString(R.string.common_loading))
             
             val result = configRepository.importFromSubscription(
                 name = name,
@@ -139,7 +141,7 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                     _importState.value = ImportState.Success(profile)
                 },
                 onFailure = { error ->
-                    _importState.value = ImportState.Error(error.message ?: "导入失败")
+                    _importState.value = ImportState.Error(error.message ?: getApplication<Application>().getString(R.string.import_failed))
                 }
             )
         }
@@ -154,12 +156,12 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
             return
         }
         if (content.isBlank()) {
-            _importState.value = ImportState.Error("内容为空")
+            _importState.value = ImportState.Error(getApplication<Application>().getString(R.string.profiles_content_empty))
             return
         }
 
         viewModelScope.launch {
-            _importState.value = ImportState.Loading("正在解析配置...")
+            _importState.value = ImportState.Loading(getApplication<Application>().getString(R.string.common_loading))
 
             val result = configRepository.importFromContent(
                 name = name,
@@ -175,7 +177,7 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                     _importState.value = ImportState.Success(profile)
                 },
                 onFailure = { error ->
-                    _importState.value = ImportState.Error(error.message ?: "导入失败")
+                    _importState.value = ImportState.Error(error.message ?: getApplication<Application>().getString(R.string.import_failed))
                 }
             )
         }

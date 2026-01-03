@@ -1,5 +1,6 @@
 package com.kunk.singbox.viewmodel
 
+import com.kunk.singbox.R
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -210,11 +211,11 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
             val node = configRepository.getNodeById(nodeId)
             val success = configRepository.setActiveNode(nodeId)
 
-            val nodeName = node?.displayName ?: "未知节点"
+            val nodeName = node?.displayName ?: getApplication<Application>().getString(R.string.nodes_unknown_node)
             val msg = if (success) {
-                "已切换到 $nodeName"
+                getApplication<Application>().getString(R.string.profiles_updated) + ": $nodeName" // TODO: better string
             } else {
-                "切换到 $nodeName 失败"
+                "Failed to switch to $nodeName" // TODO: add to strings.xml
             }
             _switchResult.value = msg
             emitToast(msg)
@@ -233,7 +234,7 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
                 val node = nodes.value.find { it.id == nodeId }
                 val latency = configRepository.testNodeLatency(nodeId)
                 if (latency <= 0) {
-                    val msg = "${node?.displayName ?: "该节点"} 测速失败/超时"
+                    val msg = getApplication<Application>().getString(R.string.nodes_test_failed, node?.displayName ?: "")
                     _latencyMessage.value = msg
                     emitToast(msg)
                 }
@@ -291,9 +292,9 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteNode(nodeId: String) {
         viewModelScope.launch {
-            val nodeName = configRepository.getNodeById(nodeId)?.displayName ?: "该节点"
+            val nodeName = configRepository.getNodeById(nodeId)?.displayName ?: ""
             configRepository.deleteNode(nodeId)
-            emitToast("已删除节点: $nodeName")
+            emitToast(getApplication<Application>().getString(R.string.profiles_deleted) + ": $nodeName")
         }
     }
 
@@ -311,7 +312,7 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             settingsRepository.setNodeFilter(filter)
         }
-        emitToast("筛选已应用")
+        emitToast(getApplication<Application>().getString(R.string.nodes_filter_applied))
     }
     
     // 清除节点过滤条件
@@ -321,13 +322,13 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             settingsRepository.setNodeFilter(emptyFilter)
         }
-        emitToast("已清除筛选")
+        emitToast(getApplication<Application>().getString(R.string.nodes_filter_cleared))
     }
     
     fun clearLatency() {
         viewModelScope.launch {
             configRepository.clearAllNodesLatency()
-            emitToast("已清空延迟")
+            emitToast(getApplication<Application>().getString(R.string.nodes_latency_cleared))
         }
     }
 
@@ -347,18 +348,19 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
             )
             
             if (supportedPrefixes.none { trimmedContent.startsWith(it) }) {
-                _addNodeResult.value = "不支持的链接格式"
-                emitToast("不支持的链接格式")
+                val msg = getApplication<Application>().getString(R.string.nodes_unsupported_format)
+                _addNodeResult.value = msg
+                emitToast(msg)
                 return@launch
             }
             
             val result = configRepository.addSingleNode(trimmedContent)
             result.onSuccess { node ->
-                val msg = "已添加节点: ${node.displayName}"
+                val msg = getApplication<Application>().getString(R.string.common_add) + ": ${node.displayName}"
                 _addNodeResult.value = msg
                 emitToast(msg)
             }.onFailure { e ->
-                val msg = e.message ?: "添加失败"
+                val msg = e.message ?: getApplication<Application>().getString(R.string.nodes_add_failed)
                 _addNodeResult.value = msg
                 emitToast(msg)
             }

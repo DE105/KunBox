@@ -1,26 +1,28 @@
 package com.kunk.singbox.model
 
 import androidx.annotation.Keep
+import androidx.annotation.StringRes
 import com.google.gson.annotations.SerializedName
+import com.kunk.singbox.R
 import java.util.UUID
 
 @Keep
-enum class RuleType(val displayName: String) {
-    @SerializedName("DOMAIN") DOMAIN("域名"),
-    @SerializedName("DOMAIN_SUFFIX") DOMAIN_SUFFIX("域名后缀"),
-    @SerializedName("DOMAIN_KEYWORD") DOMAIN_KEYWORD("域名关键字"),
-    @SerializedName("IP_CIDR") IP_CIDR("IP CIDR"),
-    @SerializedName("GEOIP") GEOIP("GeoIP"),
-    @SerializedName("GEOSITE") GEOSITE("GeoSite"),
-    @SerializedName("PORT") PORT("端口"),
-    @SerializedName("PROCESS_NAME") PROCESS_NAME("进程名")
+enum class RuleType(@StringRes val displayNameRes: Int) {
+    @SerializedName("DOMAIN") DOMAIN(R.string.rule_type_domain),
+    @SerializedName("DOMAIN_SUFFIX") DOMAIN_SUFFIX(R.string.rule_type_domain_suffix),
+    @SerializedName("DOMAIN_KEYWORD") DOMAIN_KEYWORD(R.string.rule_type_domain_keyword),
+    @SerializedName("IP_CIDR") IP_CIDR(R.string.rule_type_ip_cidr),
+    @SerializedName("GEOIP") GEOIP(R.string.rule_type_geoip),
+    @SerializedName("GEOSITE") GEOSITE(R.string.rule_type_geosite),
+    @SerializedName("PORT") PORT(R.string.rule_type_port),
+    @SerializedName("PROCESS_NAME") PROCESS_NAME(R.string.rule_type_process_name)
 }
 
 @Keep
-enum class OutboundTag(val displayName: String) {
-    @SerializedName("DIRECT") DIRECT("直连"),
-    @SerializedName("PROXY") PROXY("代理"),
-    @SerializedName("BLOCK") BLOCK("拦截")
+enum class OutboundTag(@StringRes val displayNameRes: Int) {
+    @SerializedName("DIRECT") DIRECT(R.string.outbound_tag_direct),
+    @SerializedName("PROXY") PROXY(R.string.outbound_tag_proxy),
+    @SerializedName("BLOCK") BLOCK(R.string.outbound_tag_block)
 }
 
 @Keep
@@ -36,19 +38,19 @@ data class CustomRule(
 )
 
 @Keep
-enum class RuleSetType(val displayName: String) {
-    @SerializedName("REMOTE") REMOTE("远程"),
-    @SerializedName("LOCAL") LOCAL("本地")
+enum class RuleSetType(@StringRes val displayNameRes: Int) {
+    @SerializedName("REMOTE") REMOTE(R.string.ruleset_type_remote),
+    @SerializedName("LOCAL") LOCAL(R.string.ruleset_type_local)
 }
 
 @Keep
-enum class RuleSetOutboundMode(val displayName: String) {
-    @SerializedName("DIRECT") DIRECT("直连"),
-    @SerializedName("BLOCK") BLOCK("拦截"),
-    @SerializedName("PROXY") PROXY("代理"),
-    @SerializedName("NODE") NODE("单节点"),
-    @SerializedName("PROFILE") PROFILE("配置"),
-    @SerializedName("GROUP") GROUP("节点组")
+enum class RuleSetOutboundMode(@StringRes val displayNameRes: Int) {
+    @SerializedName("DIRECT") DIRECT(R.string.ruleset_outbound_direct),
+    @SerializedName("BLOCK") BLOCK(R.string.ruleset_outbound_block),
+    @SerializedName("PROXY") PROXY(R.string.ruleset_outbound_proxy),
+    @SerializedName("NODE") NODE(R.string.ruleset_outbound_node),
+    @SerializedName("PROFILE") PROFILE(R.string.ruleset_outbound_profile),
+    @SerializedName("GROUP") GROUP(R.string.ruleset_outbound_group)
 }
 
 @Keep

@@ -1,5 +1,7 @@
 package com.kunk.singbox.ui.components
 
+import androidx.compose.ui.res.stringResource
+import com.kunk.singbox.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -76,7 +78,7 @@ fun ClickableDropdownField(
                 )
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = "选择",
+                    contentDescription = stringResource(R.string.app_rules_click_to_select),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )

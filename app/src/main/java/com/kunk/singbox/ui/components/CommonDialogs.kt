@@ -1,6 +1,8 @@
 package com.kunk.singbox.ui.components
 
 import android.content.Intent
+import androidx.compose.ui.res.stringResource
+import com.kunk.singbox.R
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
@@ -83,7 +85,7 @@ import com.kunk.singbox.model.ProfileUi
 fun ConfirmDialog(
     title: String,
     message: String,
-    confirmText: String = "确认",
+    confirmText: String = stringResource(R.string.common_confirm),
     isDestructive: Boolean = false,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
@@ -132,7 +134,7 @@ fun ConfirmDialog(
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
             ) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     }
@@ -143,7 +145,7 @@ fun InputDialog(
     title: String,
     initialValue: String = "",
     placeholder: String = "",
-    confirmText: String = "确认",
+    confirmText: String = stringResource(R.string.common_confirm),
     singleLine: Boolean = true,
     minLines: Int = 1,
     maxLines: Int = if (singleLine) 1 else 6,
@@ -208,7 +210,7 @@ fun InputDialog(
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
             ) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     }
@@ -218,7 +220,7 @@ fun InputDialog(
 fun AppMultiSelectDialog(
     title: String,
     selectedPackages: Set<String>,
-    confirmText: String = "确定",
+    confirmText: String = stringResource(R.string.common_ok),
     enableQuickSelectCommonApps: Boolean = false,
     onConfirm: (List<String>) -> Unit,
     onDismiss: () -> Unit
@@ -339,13 +341,13 @@ fun AppMultiSelectDialog(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "正在加载应用列表...",
+                        text = stringResource(R.string.app_list_loading),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "已加载 ${loading.current} / ${loading.total} 个应用",
+                        text = stringResource(R.string.app_list_loaded, loading.current, loading.total),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -363,7 +365,7 @@ fun AppMultiSelectDialog(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text("搜索应用或包名", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
+                placeholder = { Text(stringResource(R.string.app_list_search_hint), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -384,7 +386,7 @@ fun AppMultiSelectDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("显示系统应用", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.app_list_show_system), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 Switch(
                     checked = showSystemApps,
                     onCheckedChange = { showSystemApps = it },
@@ -404,7 +406,7 @@ fun AppMultiSelectDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("显示无启动入口应用", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.app_list_show_no_launcher), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 Switch(
                     checked = showNoLauncherApps,
                     onCheckedChange = { showNoLauncherApps = it },
@@ -438,7 +440,7 @@ fun AppMultiSelectDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                     shape = RoundedCornerShape(22.dp)
                 ) {
-                    Text("一键勾选常用翻墙应用", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                    Text(stringResource(R.string.app_list_quick_select), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 }
             }
 
@@ -513,8 +515,8 @@ fun AppMultiSelectDialog(
                         if (app.isSystemApp || !app.hasLauncher) {
                             Text(
                                 text = when {
-                                    app.isSystemApp -> "系统"
-                                    else -> "后台"
+                                    app.isSystemApp -> stringResource(R.string.common_system)
+                                    else -> stringResource(R.string.common_background)
                                 },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
@@ -535,7 +537,7 @@ fun AppMultiSelectDialog(
                     modifier = Modifier.weight(1f).height(50.dp),
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
 
                 Button(
@@ -626,7 +628,7 @@ fun SingleSelectDialog(
                 shape = RoundedCornerShape(25.dp)
             ) {
                 Text(
-                    text = "确定",
+                    text = stringResource(R.string.common_ok),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimary
                 )
@@ -639,7 +641,7 @@ fun SingleSelectDialog(
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
             ) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     }
@@ -715,7 +717,7 @@ fun ProfileNodeSelectDialog(
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        text = "${itemsForProfile.size} 个节点",
+                                        text = stringResource(R.string.rulesets_nodes_count, itemsForProfile.size),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -807,13 +809,13 @@ fun ProfileNodeSelectDialog(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "未知配置($profileId)",
+                                        text = stringResource(R.string.rulesets_unknown_profile, profileId),
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        text = "${itemsForProfile.size} 个节点",
+                                        text = stringResource(R.string.rulesets_nodes_count, itemsForProfile.size),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -885,7 +887,7 @@ fun ProfileNodeSelectDialog(
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
             ) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     }
@@ -902,7 +904,9 @@ fun AboutDialog(onDismiss: () -> Unit) {
     val appVersionCode = remember { com.kunk.singbox.utils.VersionInfo.getAppVersionCode(context) }
     
     // 使用协程异步获取内核版本
-    var singBoxVersion by remember { mutableStateOf("加载中...") }
+    val kernelLoadingMsg = stringResource(R.string.about_kernel_loading)
+    val kernelBuiltinMsg = stringResource(R.string.about_kernel_builtin)
+    var singBoxVersion by remember { mutableStateOf(kernelLoadingMsg) }
     LaunchedEffect(Unit) {
         singBoxVersion = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -911,8 +915,8 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 val version = io.nekohasekai.libbox.Libbox.version()
                 // 如果版本是 "unknown"，显示更友好的信息
                 when {
-                    version.isNullOrBlank() -> "sing-box (内置)"
-                    version.equals("unknown", ignoreCase = true) -> "sing-box (内置)"
+                    version.isNullOrBlank() -> kernelBuiltinMsg
+                    version.equals("unknown", ignoreCase = true) -> kernelBuiltinMsg
                     else -> version
                 }
             } catch (t: Throwable) {
@@ -921,11 +925,17 @@ fun AboutDialog(onDismiss: () -> Unit) {
         }
     }
 
+    val aboutAddressMsg = stringResource(R.string.about_address)
+    val aboutBasedOnMsg = stringResource(R.string.about_based_on)
+    val aboutDesignedByMsg = stringResource(R.string.about_designed_by)
+
     val annotatedString = buildAnnotatedString {
         append("KunBox for Android\n\n")
-        append("应用版本: $appVersion ($appVersionCode)\n")
-        append("内核版本: $singBoxVersion\n\n")
-        append("地址: ")
+        append(stringResource(R.string.about_version, appVersion, appVersionCode))
+        append("\n")
+        append(stringResource(R.string.about_kernel_version, singBoxVersion))
+        append("\n\n")
+        append("$aboutAddressMsg ")
         pushStringAnnotation(tag = "URL", annotation = githubUrl)
         withStyle(
             style = SpanStyle(
@@ -936,7 +946,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
             append("KunBoxForAndroid")
         }
         pop()
-        append("\n\n基于 Sing-box 内核构建。\n\nDesigned by KunK.")
+        append("\n\n$aboutBasedOnMsg\n\n$aboutDesignedByMsg")
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -947,7 +957,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 .padding(24.dp)
         ) {
             Text(
-                text = "关于 KunBox",
+                text = stringResource(R.string.settings_about_kunbox),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -979,7 +989,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 shape = RoundedCornerShape(25.dp)
             ) {
                 Text(
-                    text = "确定",
+                    text = stringResource(R.string.common_ok),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimary
                 )
@@ -1007,7 +1017,7 @@ fun NodeFilterDialog(
                 .padding(24.dp)
         ) {
             Text(
-                text = "节点筛选",
+                text = stringResource(R.string.node_filter_title),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -1017,7 +1027,7 @@ fun NodeFilterDialog(
             
             // 过滤模式选择
             Text(
-                text = "过滤模式",
+                text = stringResource(R.string.node_filter_mode),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1042,7 +1052,7 @@ fun NodeFilterDialog(
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
-                    text = "不过滤",
+                    text = stringResource(R.string.node_filter_none),
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (filterMode == FilterMode.NONE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
@@ -1066,7 +1076,7 @@ fun NodeFilterDialog(
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
-                    text = "只显示包含",
+                    text = stringResource(R.string.node_filter_include),
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (filterMode == FilterMode.INCLUDE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
@@ -1090,7 +1100,7 @@ fun NodeFilterDialog(
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
-                    text = "排除包含",
+                    text = stringResource(R.string.node_filter_exclude),
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (filterMode == FilterMode.EXCLUDE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
@@ -1101,7 +1111,7 @@ fun NodeFilterDialog(
                 Spacer(modifier = Modifier.height(20.dp))
                 
                 Text(
-                    text = "关键字",
+                    text = stringResource(R.string.node_filter_keywords),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1111,7 +1121,7 @@ fun NodeFilterDialog(
                 OutlinedTextField(
                     value = keywordsText,
                     onValueChange = { keywordsText = it },
-                    placeholder = { Text("多个关键字用逗号分隔，如：香港, HK, 港", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
+                    placeholder = { Text(stringResource(R.string.node_filter_keywords_hint), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = false,
                     minLines = 2,
@@ -1130,7 +1140,7 @@ fun NodeFilterDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Text(
-                    text = "提示：关键字匹配节点名称，不区分大小写",
+                    text = stringResource(R.string.node_filter_keywords_tip),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1152,7 +1162,7 @@ fun NodeFilterDialog(
                     modifier = Modifier.weight(1f).height(50.dp),
                     colors = ButtonDefaults.textButtonColors(contentColor = Destructive)
                 ) {
-                    Text("清空")
+                    Text(stringResource(R.string.common_clear))
                 }
                 
                 // 取消按钮
@@ -1161,7 +1171,7 @@ fun NodeFilterDialog(
                     modifier = Modifier.weight(1f).height(50.dp),
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
                 
                 // 确定按钮
@@ -1182,7 +1192,7 @@ fun NodeFilterDialog(
                     shape = RoundedCornerShape(25.dp)
                 ) {
                     Text(
-                        text = "确定",
+                        text = stringResource(R.string.common_ok),
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary
                     )

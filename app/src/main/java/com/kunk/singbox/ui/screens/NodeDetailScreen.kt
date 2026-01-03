@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -44,6 +45,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -98,46 +100,47 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("服务器配置", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.node_detail_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
+                    val savedMsg = stringResource(R.string.node_detail_saved)
                     IconButton(onClick = {
                         if (editingOutbound != null) {
                             configRepository.updateNode(nodeId, editingOutbound!!)
-                            Toast.makeText(context, "配置已保存", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, savedMsg, Toast.LENGTH_SHORT).show()
                             navController.popBackStack()
                         }
                     }) {
-                        Icon(Icons.Rounded.Save, contentDescription = "保存", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.Save, contentDescription = stringResource(R.string.common_save), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            if (editingOutbound == null) {
-                StandardCard {
-                    SettingItem(title = "加载中...", value = "")
-                }
-            } else {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        if (editingOutbound == null) {
+            StandardCard {
+                SettingItem(title = stringResource(R.string.common_loading), value = "")
+            }
+        } else {
                 val outbound = editingOutbound!!
                 val type = outbound.type
 
                 // --- Common Header ---
                 StandardCard {
                     EditableTextItem(
-                        title = "配置名称",
+                        title = stringResource(R.string.node_detail_config_name),
                         value = outbound.tag,
                         icon = Icons.Rounded.Title,
                         onValueChange = { editingOutbound = outbound.copy(tag = it) }
@@ -145,20 +148,20 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
-                SectionHeader("服务器设置")
+                SectionHeader(stringResource(R.string.node_detail_server_settings))
 
                 // --- Server Info (Address/Port) ---
                 StandardCard {
                     // Most protocols have server/port
                     if (type != "wireguard") {
                         EditableTextItem(
-                            title = "服务器地址",
+                            title = stringResource(R.string.node_detail_server_address),
                             value = outbound.server ?: "",
                             icon = Icons.Rounded.Router,
                             onValueChange = { editingOutbound = outbound.copy(server = it) }
                         )
                         EditableTextItem(
-                            title = "服务器端口",
+                            title = stringResource(R.string.node_detail_server_port),
                             value = outbound.serverPort?.toString() ?: "",
                             icon = Icons.Rounded.Numbers,
                             onValueChange = { editingOutbound = outbound.copy(serverPort = it.toIntOrNull() ?: 0) }
@@ -170,7 +173,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     // 1. Shadowsocks
                     if (type == "shadowsocks") {
                         EditableSelectionItem(
-                            title = "加密方式",
+                            title = stringResource(R.string.node_detail_encryption),
                             value = outbound.method ?: "aes-256-gcm",
                             options = listOf(
                                 "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305",
@@ -184,20 +187,20 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                             onValueChange = { editingOutbound = outbound.copy(method = it) }
                         )
                         EditableTextItem(
-                            title = "密码",
+                            title = stringResource(R.string.node_detail_password),
                             value = outbound.password ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(password = it) }
                         )
                         EditableTextItem(
-                            title = "插件 (可选)",
+                            title = "Plugin (Optional)", // TODO: add to strings.xml
                             value = outbound.plugin ?: "",
                             icon = Icons.Rounded.Settings,
                             onValueChange = { editingOutbound = outbound.copy(plugin = if(it.isEmpty()) null else it) }
                         )
                         if (!outbound.plugin.isNullOrBlank()) {
                             EditableTextItem(
-                                title = "插件参数",
+                                title = stringResource(R.string.node_detail_plugin_options),
                                 value = outbound.pluginOpts ?: "",
                                 icon = Icons.Rounded.Settings,
                                 onValueChange = { editingOutbound = outbound.copy(pluginOpts = if(it.isEmpty()) null else it) }
@@ -224,13 +227,12 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                         
                         if (type == "vmess") {
                             EditableSelectionItem(
-                                title = "加密方式",
+                                title = stringResource(R.string.node_detail_encryption),
                                 value = outbound.security ?: "auto",
                                 options = listOf("auto", "aes-128-gcm", "chacha20-poly1305", "none", "zero"),
                                 icon = Icons.Rounded.Security,
                                 onValueChange = { editingOutbound = outbound.copy(security = it) }
                             )
-                            // 注意：sing-box 不支持 AlterID，只支持 AEAD 加密的 VMess (alterId=0)
                             // 此字段已从模型中移除
                         }
                         
@@ -245,7 +247,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                         }
                         
                         EditableSelectionItem(
-                            title = "包编码",
+                            title = stringResource(R.string.node_detail_packet_encoding),
                             value = outbound.packetEncoding ?: "",
                             options = listOf("", "xudp", "packet"),
                             icon = Icons.Rounded.Layers,
@@ -256,7 +258,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     // 3. Trojan
                     if (type == "trojan") {
                         EditableTextItem(
-                            title = "密码",
+                            title = stringResource(R.string.node_detail_password),
                             value = outbound.password ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(password = it) }
@@ -266,42 +268,42 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     // 4. Hysteria 2
                     if (type == "hysteria2") {
                          EditableTextItem(
-                            title = "密码",
+                            title = stringResource(R.string.node_detail_password),
                             value = outbound.password ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(password = it) }
                         )
                         EditableTextItem(
-                            title = "端口跳跃 (Ports)",
+                            title = "Ports (Jumping)", // TODO: add to strings.xml
                             value = outbound.ports ?: "",
                             icon = Icons.Rounded.Numbers,
                             onValueChange = { editingOutbound = outbound.copy(ports = if(it.isEmpty()) null else it) }
                         )
                         EditableTextItem(
-                            title = "混淆类型",
+                            title = stringResource(R.string.node_detail_obfs_type),
                             value = outbound.obfs?.type ?: "",
                             icon = Icons.Rounded.Lock,
-                            onValueChange = { 
+                            onValueChange = {
                                 val newObfs = if (it.isEmpty()) null else (outbound.obfs?.copy(type = it) ?: ObfsConfig(type = it))
                                 editingOutbound = outbound.copy(obfs = newObfs)
                             }
                         )
                         if (outbound.obfs?.type == "salamander") {
                             EditableTextItem(
-                                title = "混淆密码",
+                                title = stringResource(R.string.node_detail_obfs_password),
                                 value = outbound.obfs.password ?: "",
                                 icon = Icons.Rounded.Key,
                                 onValueChange = { editingOutbound = outbound.copy(obfs = outbound.obfs.copy(password = it)) }
                             )
                         }
                         EditableTextItem(
-                            title = "上行速度 (Mbps)",
+                            title = "Upload Speed (Mbps)", // TODO: add to strings.xml
                             value = outbound.upMbps?.toString() ?: "",
                             icon = Icons.Rounded.Speed,
                             onValueChange = { editingOutbound = outbound.copy(upMbps = it.toIntOrNull()) }
                         )
                         EditableTextItem(
-                            title = "下行速度 (Mbps)",
+                            title = "Download Speed (Mbps)", // TODO: add to strings.xml
                             value = outbound.downMbps?.toString() ?: "",
                             icon = Icons.Rounded.Speed,
                             onValueChange = { editingOutbound = outbound.copy(downMbps = it.toIntOrNull()) }
@@ -317,39 +319,39 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                             onValueChange = { editingOutbound = outbound.copy(uuid = it) }
                         )
                         EditableTextItem(
-                            title = "密码",
+                            title = stringResource(R.string.node_detail_password),
                             value = outbound.password ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(password = it) }
                         )
                             EditableSelectionItem(
-                                title = "拥塞控制",
+                                title = stringResource(R.string.node_detail_congestion_control),
                                 value = outbound.congestionControl ?: "bbr",
                                 options = listOf("bbr", "cubic", "new_reno"),
                                 icon = Icons.Rounded.Speed,
                                 onValueChange = { editingOutbound = outbound.copy(congestionControl = it) }
                             )
                             EditableSelectionItem(
-                                title = "UDP 中继模式",
+                                title = "UDP Relay Mode", // TODO: add to strings.xml
                                 value = outbound.udpRelayMode ?: "native",
                                 options = listOf("native", "quic"),
                                 icon = Icons.Rounded.SwapHoriz,
                                 onValueChange = { editingOutbound = outbound.copy(udpRelayMode = it) }
                             )
                             EditableTextItem(
-                                title = "心跳间隔 (Heartbeat)",
+                                title = "Heartbeat", // TODO: add to strings.xml
                                 value = outbound.heartbeat ?: "3s",
                                 icon = Icons.Rounded.Bolt,
                                 onValueChange = { editingOutbound = outbound.copy(heartbeat = it) }
                             )
                             SettingSwitchItem(
-                                title = "减少 RTT (Zero RTT)",
+                                title = "Zero RTT", // TODO: add to strings.xml
                                 checked = outbound.zeroRttHandshake == true,
                                 icon = Icons.Rounded.Bolt,
                                 onCheckedChange = { editingOutbound = outbound.copy(zeroRttHandshake = it) }
                             )
                             SettingSwitchItem(
-                                title = "禁用 SNI",
+                                title = "Disable SNI", // TODO: add to strings.xml
                                 checked = outbound.disableSni == true,
                                 icon = Icons.Rounded.Fingerprint,
                                 onCheckedChange = { editingOutbound = outbound.copy(disableSni = it) }
@@ -361,52 +363,52 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                         val peer = outbound.peers?.firstOrNull() ?: WireGuardPeer()
                         
                         EditableTextItem(
-                            title = "服务器地址",
+                            title = stringResource(R.string.node_detail_server_address),
                             value = peer.server ?: "",
                             icon = Icons.Rounded.Router,
-                            onValueChange = { 
+                            onValueChange = {
                                 val newPeer = peer.copy(server = it)
-                                editingOutbound = outbound.copy(peers = listOf(newPeer)) 
+                                editingOutbound = outbound.copy(peers = listOf(newPeer))
                             }
                         )
                         EditableTextItem(
-                            title = "服务器端口",
+                            title = stringResource(R.string.node_detail_server_port),
                             value = peer.serverPort?.toString() ?: "",
                             icon = Icons.Rounded.Numbers,
-                            onValueChange = { 
+                            onValueChange = {
                                 val newPeer = peer.copy(serverPort = it.toIntOrNull())
                                 editingOutbound = outbound.copy(peers = listOf(newPeer))
                             }
                         )
                         EditableTextItem(
-                            title = "私钥 (Private Key)",
+                            title = stringResource(R.string.node_detail_private_key),
                             value = outbound.privateKey ?: "",
                             icon = Icons.Rounded.Key,
                             onValueChange = { editingOutbound = outbound.copy(privateKey = it) }
                         )
                         EditableTextItem(
-                            title = "对端公钥 (Peer Public Key)",
+                            title = "Peer Public Key", // TODO: add to strings.xml
                             value = peer.publicKey ?: "",
                             icon = Icons.Rounded.Key,
-                            onValueChange = { 
+                            onValueChange = {
                                 val newPeer = peer.copy(publicKey = it)
                                 editingOutbound = outbound.copy(peers = listOf(newPeer))
                             }
                         )
                         EditableTextItem(
-                            title = "预共享密钥 (Pre-Shared Key)",
+                            title = "Pre-Shared Key", // TODO: add to strings.xml
                             value = peer.preSharedKey ?: "",
                             icon = Icons.Rounded.Key,
-                            onValueChange = { 
+                            onValueChange = {
                                 val newPeer = peer.copy(preSharedKey = if(it.isEmpty()) null else it)
                                 editingOutbound = outbound.copy(peers = listOf(newPeer))
                             }
                         )
                         EditableTextItem(
-                            title = "本地地址 (IPv4/IPv6 CIDR)",
+                            title = "Local Address (CIDR)", // TODO: add to strings.xml
                             value = outbound.localAddress?.joinToString(", ") ?: "",
                             icon = Icons.Rounded.Dns,
-                            onValueChange = { 
+                            onValueChange = {
                                 val list = it.split(",").map { s -> s.trim() }.filter { s -> s.isNotEmpty() }
                                 editingOutbound = outbound.copy(localAddress = list)
                             }
@@ -431,34 +433,34 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     // 7. SSH
                     if (type == "ssh") {
                         EditableTextItem(
-                            title = "用户名",
+                            title = stringResource(R.string.node_detail_username),
                             value = outbound.user ?: "",
                             icon = Icons.Rounded.Person,
                             onValueChange = { editingOutbound = outbound.copy(user = it) }
                         )
                         EditableTextItem(
-                            title = "密码",
+                            title = stringResource(R.string.node_detail_password),
                             value = outbound.password ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(password = if(it.isEmpty()) null else it) }
                         )
                         EditableTextItem(
-                            title = "私钥",
+                            title = stringResource(R.string.node_detail_private_key),
                             value = outbound.privateKey ?: "",
                             icon = Icons.Rounded.Key,
                             onValueChange = { editingOutbound = outbound.copy(privateKey = if(it.isEmpty()) null else it) }
                         )
                          EditableTextItem(
-                            title = "私钥密码 (Passphrase)",
+                            title = "Passphrase", // TODO: add to strings.xml
                             value = outbound.privateKeyPassphrase ?: "",
                             icon = Icons.Rounded.Key,
                             onValueChange = { editingOutbound = outbound.copy(privateKeyPassphrase = if(it.isEmpty()) null else it) }
                         )
                         EditableTextItem(
-                            title = "主机公钥 (Host Key)",
+                            title = "Host Key", // TODO: add to strings.xml
                             value = outbound.hostKey?.joinToString("\n") ?: "",
                             icon = Icons.Rounded.Fingerprint,
-                            onValueChange = { 
+                            onValueChange = {
                                 val list = it.split("\n").map { s -> s.trim() }.filter { s -> s.isNotEmpty() }
                                 editingOutbound = outbound.copy(hostKey = list)
                             }
@@ -468,25 +470,25 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     // 8. AnyTLS
                     if (type == "anytls") {
                         EditableTextItem(
-                            title = "密码",
+                            title = stringResource(R.string.node_detail_password),
                             value = outbound.password ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(password = it) }
                         )
                         EditableTextItem(
-                            title = "空闲会话检查间隔",
+                            title = stringResource(R.string.node_detail_idle_session_check),
                             value = outbound.idleSessionCheckInterval ?: "30s",
                             icon = Icons.Rounded.SwapHoriz,
                             onValueChange = { editingOutbound = outbound.copy(idleSessionCheckInterval = it) }
                         )
                         EditableTextItem(
-                            title = "空闲会话超时",
+                            title = stringResource(R.string.node_detail_idle_session_timeout),
                             value = outbound.idleSessionTimeout ?: "30s",
                             icon = Icons.Rounded.SwapHoriz,
                             onValueChange = { editingOutbound = outbound.copy(idleSessionTimeout = it) }
                         )
                         EditableTextItem(
-                            title = "最小空闲会话数",
+                            title = stringResource(R.string.node_detail_min_idle_sessions),
                             value = outbound.minIdleSession?.toString() ?: "0",
                             icon = Icons.Rounded.Numbers,
                             onValueChange = { editingOutbound = outbound.copy(minIdleSession = it.toIntOrNull()) }
@@ -496,20 +498,20 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     // 9. SOCKS
                     if (type == "socks") {
                         EditableSelectionItem(
-                            title = "SOCKS 版本",
+                            title = "SOCKS Version", // TODO: add to strings.xml
                             value = outbound.version?.toString() ?: "5",
                             options = listOf("4", "4a", "5"),
                             icon = Icons.Rounded.Tag,
                             onValueChange = { editingOutbound = outbound.copy(version = it.replace("a", "").toIntOrNull()) }
                         )
                         EditableTextItem(
-                            title = "用户名 (可选)",
+                            title = "Username (Optional)", // TODO: add to strings.xml
                             value = outbound.username ?: "",
                             icon = Icons.Rounded.Person,
                             onValueChange = { editingOutbound = outbound.copy(username = if(it.isEmpty()) null else it) }
                         )
                         EditableTextItem(
-                            title = "密码 (可选)",
+                            title = "Password (Optional)", // TODO: add to strings.xml
                             value = outbound.password ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(password = if(it.isEmpty()) null else it) }
@@ -519,13 +521,13 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     // 10. HTTP
                     if (type == "http") {
                         EditableTextItem(
-                            title = "用户名 (可选)",
+                            title = "Username (Optional)", // TODO: add to strings.xml
                             value = outbound.username ?: "",
                             icon = Icons.Rounded.Person,
                             onValueChange = { editingOutbound = outbound.copy(username = if(it.isEmpty()) null else it) }
                         )
                         EditableTextItem(
-                            title = "密码 (可选)",
+                            title = "Password (Optional)", // TODO: add to strings.xml
                             value = outbound.password ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(password = if(it.isEmpty()) null else it) }
@@ -535,20 +537,20 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     // 11. ShadowTLS
                     if (type == "shadowtls") {
                         EditableSelectionItem(
-                            title = "ShadowTLS 版本",
+                            title = "ShadowTLS Version", // TODO: add to strings.xml
                             value = outbound.version?.toString() ?: "3",
                             options = listOf("1", "2", "3"),
                             icon = Icons.Rounded.Tag,
                             onValueChange = { editingOutbound = outbound.copy(version = it.toIntOrNull()) }
                         )
                         EditableTextItem(
-                            title = "密码",
+                            title = stringResource(R.string.node_detail_password),
                             value = outbound.password ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(password = it) }
                         )
                         EditableTextItem(
-                            title = "出站代理 (Detour)",
+                            title = stringResource(R.string.node_detail_common_settings),
                             value = outbound.detour ?: "",
                             icon = Icons.Rounded.Route,
                             onValueChange = { editingOutbound = outbound.copy(detour = if(it.isEmpty()) null else it) }
@@ -558,25 +560,25 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                     // 12. Hysteria (v1)
                     if (type == "hysteria") {
                         EditableTextItem(
-                            title = "认证字符串",
+                            title = stringResource(R.string.node_detail_auth_string),
                             value = outbound.authStr ?: "",
                             icon = Icons.Rounded.Password,
                             onValueChange = { editingOutbound = outbound.copy(authStr = it) }
                         )
                         EditableTextItem(
-                            title = "上行速度 (Mbps)",
+                            title = "Upload Speed (Mbps)", // TODO: add to strings.xml
                             value = outbound.upMbps?.toString() ?: "",
                             icon = Icons.Rounded.Speed,
                             onValueChange = { editingOutbound = outbound.copy(upMbps = it.toIntOrNull()) }
                         )
                         EditableTextItem(
-                            title = "下行速度 (Mbps)",
+                            title = "Download Speed (Mbps)", // TODO: add to strings.xml
                             value = outbound.downMbps?.toString() ?: "",
                             icon = Icons.Rounded.Speed,
                             onValueChange = { editingOutbound = outbound.copy(downMbps = it.toIntOrNull()) }
                         )
                         EditableTextItem(
-                            title = "混淆类型",
+                            title = stringResource(R.string.node_detail_obfs_type),
                             value = outbound.obfs?.type ?: "",
                             icon = Icons.Rounded.Lock,
                             onValueChange = {
@@ -585,7 +587,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                             }
                         )
                         EditableTextItem(
-                            title = "端口跳跃间隔 (秒)",
+                            title = "Hop Interval (s)", // TODO: add to strings.xml
                             value = outbound.hopInterval ?: "10",
                             icon = Icons.Rounded.SwapHoriz,
                             onValueChange = { editingOutbound = outbound.copy(hopInterval = it) }
@@ -597,13 +599,13 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
 
                 // --- Transport ---
                 if (type in listOf("vmess", "vless", "trojan", "shadowsocks")) {
-                    SectionHeader("传输配置")
+                    SectionHeader(stringResource(R.string.node_detail_transport_settings))
                     StandardCard {
                         val transport = outbound.transport ?: TransportConfig(type = "tcp")
                         val currentType = transport.type ?: "tcp"
                         
                         EditableSelectionItem(
-                            title = "传输协议",
+                            title = stringResource(R.string.node_detail_transport_protocol),
                             value = currentType,
                             options = listOf("tcp", "http", "ws", "grpc", "quic", "httpupgrade"),
                             icon = Icons.Rounded.SwapHoriz,
@@ -627,7 +629,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                                 }
                             )
                             EditableTextItem(
-                                title = "WebSocket 路径",
+                                title = "WebSocket Path", // TODO: add to strings.xml
                                 value = transport.path ?: "/",
                                 icon = Icons.Rounded.Route,
                                 onValueChange = { editingOutbound = outbound.copy(transport = transport.copy(path = it)) }
@@ -659,7 +661,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                         if (currentType == "http" || currentType == "h2" || currentType == "httpupgrade") {
                             Spacer(modifier = Modifier.height(8.dp))
                             EditableTextItem(
-                                title = "路径",
+                                title = stringResource(R.string.node_detail_transport_path),
                                 value = transport.path ?: "/",
                                 icon = Icons.Rounded.Route,
                                 onValueChange = { editingOutbound = outbound.copy(transport = transport.copy(path = it)) }
@@ -681,7 +683,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                 
                 // --- TLS ---
                 if (type !in listOf("wireguard", "ssh", "shadowsocks")) {
-                    SectionHeader("TLS 安全设置")
+                    SectionHeader("TLS Settings") // TODO: add to strings.xml
                     StandardCard {
                         val tls = outbound.tls ?: TlsConfig(enabled = false)
                         val isTlsIntrinsic = type in listOf("hysteria2", "hysteria", "tuic", "anytls")
@@ -693,7 +695,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
 
                         if (!isTlsIntrinsic) {
                             EditableSelectionItem(
-                                title = "传输层加密",
+                                title = stringResource(R.string.node_detail_transport_security),
                                 value = securityType,
                                 options = listOf("none", "tls", "reality"),
                                 icon = Icons.Rounded.Security,
@@ -728,8 +730,8 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                             )
                             
                             SettingSwitchItem(
-                                title = "允许不安全连接 (Insecure)",
-                                subtitle = "禁用证书验证，可能存在安全风险",
+                                title = "Allow Insecure", // TODO: add to strings.xml
+                                subtitle = "Disable certificate verification", // TODO: add to strings.xml
                                 checked = tls.insecure == true,
                                 icon = Icons.Rounded.Lock,
                                 onCheckedChange = { editingOutbound = outbound.copy(tls = tls.copy(insecure = it)) }
@@ -758,7 +760,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                             // uTLS
                             Spacer(modifier = Modifier.height(8.dp))
                             EditableSelectionItem(
-                                title = "uTLS 指纹",
+                                title = "uTLS Fingerprint", // TODO: add to strings.xml
                                 value = tls.utls?.fingerprint ?: "",
                                 options = listOf("") + listOf("chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random", "randomized"),
                                 icon = Icons.Rounded.Fingerprint,
@@ -796,7 +798,7 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                             val ech = tls.ech ?: EchConfig(enabled = false)
                             Spacer(modifier = Modifier.height(8.dp))
                             SettingSwitchItem(
-                                title = "启用 ECH",
+                                title = "Enable ECH", // TODO: add to strings.xml
                                 checked = ech.enabled == true,
                                 icon = Icons.Rounded.Security,
                                 onCheckedChange = { enabled ->
@@ -829,14 +831,16 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
 
                 Spacer(modifier = Modifier.height(16.dp))
                 
+                // --- Transport ---
+                // ...
                 // --- Multiplex ---
                 if (type in listOf("vmess", "vless", "trojan", "shadowsocks")) {
-                    SectionHeader("Multiplex (多路复用)")
+                    SectionHeader(stringResource(R.string.node_detail_mux_settings))
                     StandardCard {
                         val mux = outbound.multiplex ?: MultiplexConfig(enabled = false)
                         SettingSwitchItem(
-                            title = "启用多路复用",
-                            subtitle = "优化并发连接性能",
+                            title = stringResource(R.string.node_detail_mux_enable),
+                            subtitle = stringResource(R.string.node_detail_mux_subtitle),
                             checked = mux.enabled == true,
                             icon = Icons.Rounded.CallSplit,
                             onCheckedChange = { enabled ->
@@ -846,14 +850,14 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
 
                         if (mux.enabled == true) {
                             EditableSelectionItem(
-                                title = "Mux 协议",
+                                title = "Mux Protocol", // TODO: add to strings.xml
                                 value = mux.protocol ?: "h2mux",
                                 options = listOf("h2mux", "smux", "yamux"),
                                 icon = Icons.Rounded.Merge,
                                 onValueChange = { editingOutbound = outbound.copy(multiplex = mux.copy(protocol = it)) }
                             )
                             EditableTextItem(
-                                title = "最大并发连接数",
+                                title = stringResource(R.string.node_detail_mux_max_connections),
                                 value = mux.maxConnections?.toString() ?: "5",
                                 icon = Icons.Rounded.Numbers,
                                 onValueChange = { editingOutbound = outbound.copy(multiplex = mux.copy(maxConnections = it.toIntOrNull())) }
@@ -885,10 +889,10 @@ fun NodeDetailScreen(navController: NavController, nodeId: String) {
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // --- Common Settings for all protocols ---
-                SectionHeader("通用设置")
+                SectionHeader(stringResource(R.string.node_detail_common_settings))
                 StandardCard {
                     EditableTextItem(
-                        title = "出站代理 (Detour)",
+                        title = stringResource(R.string.common_outbound) + " (Detour)",
                         value = outbound.detour ?: "",
                         icon = Icons.Rounded.Route,
                         onValueChange = { editingOutbound = outbound.copy(detour = if(it.isEmpty()) null else it) }

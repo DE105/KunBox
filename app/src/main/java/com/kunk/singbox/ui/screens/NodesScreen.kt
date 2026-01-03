@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -46,6 +47,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -128,14 +130,14 @@ fun NodesScreen(
 
     if (showSortDialog) {
         val sortOptions = listOf(
-            "默认" to NodesViewModel.SortType.DEFAULT,
-            "延迟 (低 -> 高)" to NodesViewModel.SortType.LATENCY,
-            "名称 (A -> Z)" to NodesViewModel.SortType.NAME,
-            "地区" to NodesViewModel.SortType.REGION
+            stringResource(R.string.nodes_sort_default) to NodesViewModel.SortType.DEFAULT,
+            stringResource(R.string.nodes_sort_latency) to NodesViewModel.SortType.LATENCY,
+            stringResource(R.string.nodes_sort_name) to NodesViewModel.SortType.NAME,
+            stringResource(R.string.nodes_sort_region) to NodesViewModel.SortType.REGION
         )
 
         SingleSelectDialog(
-            title = "排序方式",
+            title = stringResource(R.string.nodes_sort),
             options = sortOptions.map { it.first },
             selectedIndex = -1,
             onSelect = { index ->
@@ -148,9 +150,9 @@ fun NodesScreen(
 
     if (showAddNodeDialog) {
         InputDialog(
-            title = "添加节点",
-            placeholder = "输入节点链接 (vmess://, vless://, ss://, etc)...",
-            confirmText = "添加",
+            title = stringResource(R.string.nodes_add),
+            placeholder = stringResource(R.string.nodes_add_hint),
+            confirmText = stringResource(R.string.common_add),
             onConfirm = {
                 viewModel.addNode(it)
                 showAddNodeDialog = false
@@ -172,13 +174,14 @@ fun NodesScreen(
     }
 
     if (exportLink != null) {
+        val copiedMsg = stringResource(R.string.nodes_copied_to_clipboard)
         InputDialog(
-            title = "导出链接",
+            title = stringResource(R.string.nodes_export_link),
             initialValue = exportLink!!,
-            confirmText = "复制",
+            confirmText = stringResource(R.string.common_copy),
             onConfirm = {
                 clipboardManager.setText(AnnotatedString(it))
-                Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, copiedMsg, Toast.LENGTH_SHORT).show()
                 exportLink = null
             },
             onDismiss = { exportLink = null }
@@ -205,7 +208,7 @@ fun NodesScreen(
                         // Clear Latency
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "清空延迟",
+                                text = stringResource(R.string.nodes_clear_latency),
                                 color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(end = 8.dp),
                                 style = MaterialTheme.typography.labelMedium
@@ -218,14 +221,14 @@ fun NodesScreen(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary
                             ) {
-                                Icon(Icons.Rounded.Delete, contentDescription = "清空延迟")
+                                Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.nodes_clear_latency))
                             }
                         }
                         
                         // Add Node
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "添加节点",
+                                text = stringResource(R.string.nodes_add),
                                 color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(end = 8.dp),
                                 style = MaterialTheme.typography.labelMedium
@@ -238,14 +241,14 @@ fun NodesScreen(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary
                             ) {
-                                Icon(Icons.Rounded.Add, contentDescription = "添加节点")
+                                Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.nodes_add))
                             }
                         }
                         
                         // Test Latency
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = if (isTesting) "停止测试" else "测试延迟",
+                                text = if (isTesting) stringResource(R.string.nodes_stop_test) else stringResource(R.string.nodes_test_latency),
                                 color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(end = 8.dp),
                                 style = MaterialTheme.typography.labelMedium
@@ -265,7 +268,7 @@ fun NodesScreen(
                                         strokeWidth = 2.dp
                                     )
                                 } else {
-                                    Icon(Icons.Rounded.Bolt, contentDescription = "测试延迟")
+                                    Icon(Icons.Rounded.Bolt, contentDescription = stringResource(R.string.nodes_test_latency))
                                 }
                             }
                         }
@@ -279,7 +282,7 @@ fun NodesScreen(
                 ) {
                     Icon(
                         imageVector = if (isFabExpanded) Icons.Rounded.Close else Icons.Rounded.Add,
-                        contentDescription = "菜单"
+                        contentDescription = stringResource(R.string.common_menu)
                     )
                 }
             }
@@ -299,7 +302,7 @@ fun NodesScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "节点列表",
+                    text = stringResource(R.string.nodes_title),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
@@ -311,12 +314,12 @@ fun NodesScreen(
                         val hasFilter = nodeFilter.filterMode != FilterMode.NONE
                         Icon(
                             imageVector = Icons.Rounded.FilterAlt,
-                            contentDescription = "筛选",
+                            contentDescription = stringResource(R.string.nodes_filter),
                             tint = if (hasFilter) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
                         )
                     }
                     IconButton(onClick = { showSortDialog = true }) {
-                        Icon(Icons.Rounded.Sort, contentDescription = "排序", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.Sort, contentDescription = stringResource(R.string.nodes_sort), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 }
             }
@@ -337,7 +340,7 @@ fun NodesScreen(
                         modifier = Modifier.pointerInput(Unit) {
                             detectTapGestures(
                                 onLongPress = {
-                                    Toast.makeText(context, "分组由配置自动生成，如需删除请前往'配置管理'删除对应配置", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, context.getString(R.string.nodes_group_auto_generated), Toast.LENGTH_LONG).show()
                                 },
                                 onTap = {
                                     selectedGroupIndex = index

@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import android.content.Intent
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +20,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -46,27 +48,29 @@ fun LogsScreen(navController: NavController, viewModel: LogViewModel = viewModel
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("运行日志", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.logs_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
                     if (settings.debugLoggingEnabled) {
+                        val exportSubject = "KunBox " + stringResource(R.string.logs_title)
+                        val exportTitle = stringResource(R.string.logs_export)
                         IconButton(onClick = {
                             val logsText = viewModel.getLogsForExport()
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, "KunBox 运行日志")
+                                putExtra(Intent.EXTRA_SUBJECT, exportSubject)
                                 putExtra(Intent.EXTRA_TEXT, logsText)
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "导出日志"))
+                            context.startActivity(Intent.createChooser(shareIntent, exportTitle))
                         }) {
-                            Icon(Icons.Rounded.Share, contentDescription = "导出", tint = MaterialTheme.colorScheme.onBackground)
+                            Icon(Icons.Rounded.Share, contentDescription = stringResource(R.string.logs_export), tint = MaterialTheme.colorScheme.onBackground)
                         }
                         IconButton(onClick = { viewModel.clearLogs() }) {
-                            Icon(Icons.Rounded.Delete, contentDescription = "清空", tint = MaterialTheme.colorScheme.onBackground)
+                            Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.logs_clear), tint = MaterialTheme.colorScheme.onBackground)
                         }
                     }
                 },
@@ -94,21 +98,15 @@ fun LogsScreen(navController: NavController, viewModel: LogViewModel = viewModel
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
                     Text(
-                        text = "调试模式未开启",
+                        text = stringResource(R.string.logs_debug_disabled),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "未开启调试模式不记录日志以节省性能",
+                        text = stringResource(R.string.logs_debug_disabled_hint),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         modifier = Modifier.padding(top = 8.dp)
-                    )
-                    Text(
-                        text = "请在“设置 > 工具”中开启",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
             }

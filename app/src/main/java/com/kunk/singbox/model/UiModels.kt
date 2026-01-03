@@ -1,8 +1,11 @@
 package com.kunk.singbox.model
 
+import android.content.Context
 import androidx.annotation.Keep
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
 import com.google.gson.annotations.SerializedName
+import com.kunk.singbox.R
 
 @Keep
 @Immutable
@@ -86,14 +89,14 @@ data class BatchUpdateResult(
     val totalCount: Int get() = successWithChanges + successNoChanges + failed
     val successCount: Int get() = successWithChanges + successNoChanges
     
-    fun toDisplayMessage(): String {
+    fun toDisplayMessage(context: Context): String {
         return when {
-            totalCount == 0 -> "没有可更新的订阅"
-            failed == totalCount -> "更新失败"
-            successWithChanges > 0 && failed == 0 -> "更新成功，${successWithChanges}个订阅有变化"
-            successNoChanges == totalCount -> "更新完成，无变化"
-            failed > 0 -> "更新完成，${successCount}个成功，${failed}个失败"
-            else -> "更新完成"
+            totalCount == 0 -> context.getString(R.string.update_status_no_subscription)
+            failed == totalCount -> context.getString(R.string.update_status_failed)
+            successWithChanges > 0 && failed == 0 -> context.getString(R.string.update_status_success_changes, successWithChanges)
+            successNoChanges == totalCount -> context.getString(R.string.update_status_success_no_changes)
+            failed > 0 -> context.getString(R.string.update_status_partial, successCount, failed)
+            else -> context.getString(R.string.update_status_complete)
         }
     }
 }
@@ -145,8 +148,12 @@ data class ConnectionStats(
     val duration: Long // ms
 )
 
-enum class ConnectionState {
-    Idle, Connecting, Connected, Disconnecting, Error
+enum class ConnectionState(@StringRes val displayNameRes: Int) {
+    Idle(R.string.connection_idle),
+    Connecting(R.string.connection_connecting),
+    Connected(R.string.connection_connected),
+    Disconnecting(R.string.connection_disconnecting),
+    Error(R.string.connection_error)
 }
 
 @Keep

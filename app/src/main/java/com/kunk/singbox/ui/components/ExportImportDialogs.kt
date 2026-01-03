@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.components
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -8,6 +9,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.*
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,7 +61,7 @@ fun ExportProgressDialog(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "正在导出数据...",
+                            text = stringResource(R.string.common_loading),
                             style = MaterialTheme.typography.bodyLarge
                         )
                     }
@@ -72,19 +74,19 @@ fun ExportProgressDialog(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "导出成功",
+                            text = stringResource(R.string.export_success),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "数据已保存到选择的位置",
+                            text = stringResource(R.string.export_success_message),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(onClick = onDismiss) {
-                            Text("确定")
+                            Text(stringResource(R.string.common_ok))
                         }
                     }
                     is ExportState.Error -> {
@@ -96,7 +98,7 @@ fun ExportProgressDialog(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "导出失败",
+                            text = stringResource(R.string.export_failed),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -109,7 +111,7 @@ fun ExportProgressDialog(
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(onClick = onDismiss) {
-                            Text("关闭")
+                            Text(stringResource(R.string.common_close))
                         }
                     }
                     else -> {}
@@ -147,7 +149,7 @@ fun ImportPreviewDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(
-                    text = "确认导入",
+                    text = stringResource(R.string.import_confirm_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -166,21 +168,21 @@ fun ImportPreviewDialog(
                             .fillMaxWidth()
                             .padding(16.dp)
                     ) {
-                        SummaryRow("导出时间", dateFormat.format(Date(summary.exportTime)))
-                        SummaryRow("应用版本", summary.appVersion)
-                        SummaryRow("数据版本", "v${summary.version}")
+                        SummaryRow(stringResource(R.string.import_export_time), dateFormat.format(Date(summary.exportTime)))
+                        SummaryRow(stringResource(R.string.import_app_version), summary.appVersion)
+                        SummaryRow(stringResource(R.string.import_data_version), "v${summary.version}")
                         
                         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                         
-                        SummaryRow("配置数量", "${summary.profileCount} 个")
-                        SummaryRow("节点总数", "${summary.totalNodeCount} 个")
+                        SummaryRow(stringResource(R.string.import_profile_count), stringResource(R.string.import_count_items, summary.profileCount))
+                        SummaryRow(stringResource(R.string.import_node_count), stringResource(R.string.import_count_items, summary.totalNodeCount))
                         
                         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                         
-                        SummaryRow("包含设置", if (summary.hasSettings) "是" else "否")
-                        SummaryRow("自定义规则", if (summary.hasCustomRules) "是" else "否")
-                        SummaryRow("规则集", if (summary.hasRuleSets) "是" else "否")
-                        SummaryRow("应用分流", if (summary.hasAppRules) "是" else "否")
+                        SummaryRow(stringResource(R.string.import_has_settings), if (summary.hasSettings) stringResource(R.string.common_yes) else stringResource(R.string.common_no))
+                        SummaryRow(stringResource(R.string.import_has_custom_rules), if (summary.hasCustomRules) stringResource(R.string.common_yes) else stringResource(R.string.common_no))
+                        SummaryRow(stringResource(R.string.import_has_rulesets), if (summary.hasRuleSets) stringResource(R.string.common_yes) else stringResource(R.string.common_no))
+                        SummaryRow(stringResource(R.string.import_has_app_rules), if (summary.hasAppRules) stringResource(R.string.common_yes) else stringResource(R.string.common_no))
                     }
                 }
                 
@@ -207,7 +209,7 @@ fun ImportPreviewDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "导入将覆盖现有的同名配置和设置",
+                            text = stringResource(R.string.import_overwrite_warning),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -222,11 +224,11 @@ fun ImportPreviewDialog(
                     horizontalArrangement = Arrangement.End
                 ) {
                     TextButton(onClick = onDismiss) {
-                        Text("取消")
+                        Text(stringResource(R.string.common_cancel))
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(onClick = onConfirm) {
-                        Text("确认导入")
+                        Text(stringResource(R.string.import_confirm_button))
                     }
                 }
             }
@@ -301,7 +303,7 @@ fun ImportProgressDialog(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "正在导入数据...",
+                            text = stringResource(R.string.common_loading),
                             style = MaterialTheme.typography.bodyLarge
                         )
                     }
@@ -314,7 +316,7 @@ fun ImportProgressDialog(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "导入成功",
+                            text = stringResource(R.string.import_success),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -324,14 +326,14 @@ fun ImportProgressDialog(
                         ) {
                             if (state.profilesImported > 0) {
                                 Text(
-                                    text = "导入了 ${state.profilesImported} 个配置，共 ${state.nodesImported} 个节点",
+                                    text = stringResource(R.string.import_success) + ": ${state.profilesImported} profiles, ${state.nodesImported} nodes", // TODO: better string
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             if (state.settingsImported) {
                                 Text(
-                                    text = "设置已恢复",
+                                    text = stringResource(R.string.import_settings_restored),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -339,14 +341,14 @@ fun ImportProgressDialog(
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "如果 VPN 正在运行，请重启以应用新配置",
+                            text = stringResource(R.string.main_restart), // TODO: better string for "restart VPN"
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(onClick = onDismiss) {
-                            Text("确定")
+                            Text(stringResource(R.string.common_ok))
                         }
                     }
                     is ImportState.PartialSuccess -> {
@@ -358,13 +360,13 @@ fun ImportProgressDialog(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "部分导入成功",
+                            text = stringResource(R.string.import_partial_success),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "成功: ${state.profilesImported} 个配置\n失败: ${state.profilesFailed} 个配置",
+                            text = "Success: ${state.profilesImported}\nFailed: ${state.profilesFailed}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -401,7 +403,7 @@ fun ImportProgressDialog(
                         }
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(onClick = onDismiss) {
-                            Text("确定")
+                            Text(stringResource(R.string.common_ok))
                         }
                     }
                     is ImportState.Error -> {
@@ -413,7 +415,7 @@ fun ImportProgressDialog(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "导入失败",
+                            text = stringResource(R.string.import_failed),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -426,7 +428,7 @@ fun ImportProgressDialog(
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(onClick = onDismiss) {
-                            Text("关闭")
+                            Text(stringResource(R.string.common_close))
                         }
                     }
                     else -> {}
@@ -462,7 +464,7 @@ fun ValidatingDialog() {
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "正在验证数据...",
+                    text = stringResource(R.string.common_loading),
                     style = MaterialTheme.typography.bodyLarge
                 )
             }

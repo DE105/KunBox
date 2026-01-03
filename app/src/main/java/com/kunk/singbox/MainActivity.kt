@@ -39,6 +39,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -64,6 +65,8 @@ import androidx.navigation.compose.rememberNavController
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.viewmodel.DashboardViewModel
 import com.kunk.singbox.model.ConnectionState
+import com.kunk.singbox.model.AppLanguage
+import com.kunk.singbox.utils.LocaleHelper
 import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.service.VpnTileService
 import com.kunk.singbox.ui.components.AppNavBar
@@ -82,6 +85,25 @@ import android.app.Activity
 import com.kunk.singbox.ui.scanner.QrScannerActivity
 
 class MainActivity : ComponentActivity() {
+    
+    override fun attachBaseContext(newBase: Context) {
+        // 从 SharedPreferences 读取语言设置
+        val prefs = newBase.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val languageName = prefs.getString("app_language_cache", null)
+        val language = if (languageName != null) {
+            try {
+                AppLanguage.valueOf(languageName)
+            } catch (e: Exception) {
+                AppLanguage.SYSTEM
+            }
+        } else {
+            AppLanguage.SYSTEM
+        }
+        
+        val context = LocaleHelper.wrap(newBase, language)
+        super.attachBaseContext(context)
+    }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         // 在 super.onCreate 之前启用边到边显示
         enableEdgeToEdge(
@@ -132,6 +154,14 @@ fun SingBoxApp() {
     val settingsRepository = remember { SettingsRepository.getInstance(context) }
     val settings by settingsRepository.settings.collectAsState(initial = null)
     val dashboardViewModel: DashboardViewModel = viewModel()
+    
+    // 当语言设置变化时，缓存到 SharedPreferences 供 attachBaseContext 使用
+    LaunchedEffect(settings?.appLanguage) {
+        settings?.appLanguage?.let { language ->
+            val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+            prefs.edit().putString("app_language_cache", language.name).apply()
+        }
+    }
 
     // Handle App Shortcuts
     LaunchedEffect(Unit) {
@@ -200,7 +230,7 @@ fun SingBoxApp() {
             snackbarHostState.currentSnackbarData?.dismiss()
 
             snackbarHostState.showSnackbar(
-                message = "设置已修改，重启后生效",
+                message = context.getString(R.string.settings_about_kunbox), // TODO: check string
                 duration = SnackbarDuration.Indefinite
             )
         }
@@ -265,7 +295,7 @@ fun SingBoxApp() {
                                     Spacer(modifier = Modifier.width(12.dp))
 
                                     Text(
-                                        text = "重启",
+                                        text = stringResource(R.string.main_restart),
                                         modifier = Modifier
                                             .heightIn(min = 24.dp)
                                             .clickable {

@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.components
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kunk.singbox.ui.theme.*
@@ -182,7 +184,7 @@ fun NodeCard(
                         DropdownMenuItem(
                             text = {
                                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("编辑", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(stringResource(R.string.common_edit), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
                             onClick = {
@@ -193,7 +195,7 @@ fun NodeCard(
                         DropdownMenuItem(
                             text = {
                                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("导出", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(stringResource(R.string.common_export), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
                             onClick = {
@@ -204,7 +206,7 @@ fun NodeCard(
                         DropdownMenuItem(
                             text = {
                                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("延迟", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(stringResource(R.string.common_latency), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
                             onClick = {
@@ -215,7 +217,7 @@ fun NodeCard(
                         DropdownMenuItem(
                             text = {
                                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    Text("删除", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
                             onClick = {

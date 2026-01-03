@@ -11,6 +11,7 @@ import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.*
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.kunk.singbox.R
 import com.kunk.singbox.model.*
 import com.kunk.singbox.repository.InstalledAppsRepository
 import com.kunk.singbox.ui.components.AppListLoadingDialog
@@ -104,9 +106,9 @@ fun AppRulesScreen(
 
     if (showDeleteConfirm != null) {
         ConfirmDialog(
-            title = "删除规则",
-            message = "确定要删除 \"${showDeleteConfirm?.appName}\" 的分流规则吗？",
-            confirmText = "删除",
+            title = stringResource(R.string.app_rules_delete_title),
+            message = stringResource(R.string.app_rules_delete_confirm, showDeleteConfirm?.appName ?: ""),
+            confirmText = stringResource(R.string.common_delete),
             onConfirm = {
                 settingsViewModel.deleteAppRule(showDeleteConfirm!!.id)
                 showDeleteConfirm = null
@@ -119,15 +121,15 @@ fun AppRulesScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("应用分流", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.app_rules_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.common_add), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -149,12 +151,12 @@ fun AppRulesScreen(
                 item {
                     StandardCard {
                         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                            Text("为不同应用设置不同的代理规则", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.app_rules_description), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                OutboundChip(RuleSetOutboundMode.PROXY, "代理")
-                                OutboundChip(RuleSetOutboundMode.DIRECT, "直连")
-                                OutboundChip(RuleSetOutboundMode.BLOCK, "拦截")
+                                OutboundChip(RuleSetOutboundMode.PROXY, stringResource(R.string.outbound_tag_proxy))
+                                OutboundChip(RuleSetOutboundMode.DIRECT, stringResource(R.string.outbound_tag_direct))
+                                OutboundChip(RuleSetOutboundMode.BLOCK, stringResource(R.string.outbound_tag_block))
                             }
                         }
                     }
@@ -166,9 +168,9 @@ fun AppRulesScreen(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(48.dp))
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Text("暂无应用分流规则", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.app_rules_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("点击右上角 + 添加规则", color = Neutral500, fontSize = 12.sp)
+                                Text(stringResource(R.string.app_rules_empty_individual_hint), color = Neutral500, fontSize = 12.sp)
                             }
                         }
                     }
@@ -190,14 +192,14 @@ fun AppRulesScreen(
                                     allNodes.find { it.id == value } ?: allNodes.find { it.name == value }
                                 }
                                 val profileName = profiles.find { p -> p.id == node?.sourceProfileId }?.name
-                                if (node != null && profileName != null) "${node.name} ($profileName)" else "未选择"
+                                if (node != null && profileName != null) "${node.name} ($profileName)" else stringResource(R.string.app_rules_not_selected)
                             }
-                            RuleSetOutboundMode.PROFILE -> profiles.find { it.id == rule.outboundValue }?.name ?: "未知配置"
-                            RuleSetOutboundMode.GROUP -> rule.outboundValue ?: "未知组"
+                            RuleSetOutboundMode.PROFILE -> profiles.find { it.id == rule.outboundValue }?.name ?: stringResource(R.string.app_rules_unknown_profile)
+                            RuleSetOutboundMode.GROUP -> rule.outboundValue ?: stringResource(R.string.app_rules_unknown_group)
                         }
                         AppRuleItem(
                             rule = rule,
-                            outboundText = outboundText,
+                            outboundText = "${stringResource(mode.displayNameRes)} → $outboundText",
                             onClick = { editingRule = rule },
                             onToggle = { settingsViewModel.toggleAppRuleEnabled(rule.id) },
                             onDelete = { showDeleteConfirm = rule }

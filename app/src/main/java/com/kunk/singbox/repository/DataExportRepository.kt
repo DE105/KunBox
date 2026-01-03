@@ -1,5 +1,6 @@
 package com.kunk.singbox.repository
 
+import com.kunk.singbox.R
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -117,7 +118,7 @@ class DataExportRepository(private val context: Context) {
         try {
             val jsonResult = exportAllData()
             if (jsonResult.isFailure) {
-                return@withContext Result.failure(jsonResult.exceptionOrNull() ?: Exception("导出失败"))
+                return@withContext Result.failure(jsonResult.exceptionOrNull() ?: Exception(context.getString(R.string.export_failed)))
             }
             
             val jsonString = jsonResult.getOrThrow()
@@ -125,7 +126,7 @@ class DataExportRepository(private val context: Context) {
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                 outputStream.write(jsonString.toByteArray(Charsets.UTF_8))
                 outputStream.flush()
-            } ?: throw Exception("无法打开文件进行写入")
+            } ?: throw Exception("Could not open file for writing")
             
             Log.d(TAG, "Data exported to file successfully")
             Result.success(Unit)
@@ -147,20 +148,20 @@ class DataExportRepository(private val context: Context) {
             // 验证版本
             if (exportData.version > CURRENT_VERSION) {
                 return@withContext Result.failure(
-                    Exception("数据版本过高 (v${exportData.version})，请更新应用后重试")
+                    Exception("Data version too high (v${exportData.version}), please update app and try again")
                 )
             }
             
             // 验证必要字段
             if (exportData.settings == null) {
-                return@withContext Result.failure(Exception("数据格式错误：缺少设置信息"))
+                return@withContext Result.failure(Exception("Data format error: missing settings info"))
             }
             
             Log.d(TAG, "Import data validated: version=${exportData.version}, profiles=${exportData.profiles.size}")
             Result.success(exportData)
         } catch (e: JsonSyntaxException) {
             Log.e(TAG, "Invalid JSON format", e)
-            Result.failure(Exception("数据格式错误，请检查文件是否正确"))
+            Result.failure(Exception("Data format error, please check file validity"))
         } catch (e: Exception) {
             Log.e(TAG, "Validation failed", e)
             Result.failure(e)
@@ -239,7 +240,7 @@ class DataExportRepository(private val context: Context) {
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to import settings", e)
-                    errors.add("设置导入失败: ${e.message}")
+                    errors.add("Failed to import settings: ${e.message}")
                 }
             }
             
@@ -253,7 +254,7 @@ class DataExportRepository(private val context: Context) {
                         Log.d(TAG, "Profile imported: ${profileData.profile.name}, nodes=$nodeCount")
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to import profile: ${profileData.profile.name}", e)
-                        errors.add("配置 '${profileData.profile.name}' 导入失败: ${e.message}")
+                        errors.add("Profile '${profileData.profile.name}' import failed: ${e.message}")
                     }
                 }
             }
@@ -307,7 +308,7 @@ class DataExportRepository(private val context: Context) {
         try {
             val jsonData = context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 inputStream.bufferedReader().readText()
-            } ?: throw Exception("无法读取文件")
+            } ?: throw Exception("Could not read file")
             
             Log.d(TAG, "Read ${jsonData.length} bytes from file")
             importData(jsonData, options)
@@ -324,7 +325,7 @@ class DataExportRepository(private val context: Context) {
         try {
             val jsonData = context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 inputStream.bufferedReader().readText()
-            } ?: throw Exception("无法读取文件")
+            } ?: throw Exception("Could not read file")
             
             validateImportData(jsonData)
         } catch (e: Exception) {
@@ -416,7 +417,7 @@ class DataExportRepository(private val context: Context) {
         
         if (existingById != null || existingByName != null) {
             if (!overwrite) {
-                throw Exception("配置已存在")
+                throw Exception("Profile already exists")
             }
             // 删除现有配置
             val existingId = existingById?.id ?: existingByName?.id
@@ -470,7 +471,7 @@ class DataExportRepository(private val context: Context) {
             configRepository.reloadProfiles()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to reload profiles", e)
-            throw Exception("导入后刷新配置失败，请重启应用")
+            throw Exception("Failed to refresh config after import, please restart app")
         }
         
         // 计算节点数量

@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.*
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,9 +76,9 @@ fun RuleSetHubScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("规则集中心", color = MaterialTheme.colorScheme.onBackground)
+                        Text(stringResource(R.string.ruleset_hub_title), color = MaterialTheme.colorScheme.onBackground)
                         Text(
-                            text = "数量: ${filteredRuleSets.size}",
+                            text = stringResource(R.string.import_count_items, filteredRuleSets.size),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -84,12 +86,12 @@ fun RuleSetHubScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
-                     IconButton(onClick = { activityRuleSetViewModel.fetchRuleSets() }) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "刷新", tint = MaterialTheme.colorScheme.onBackground)
+                    IconButton(onClick = { activityRuleSetViewModel.fetchRuleSets() }) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.common_refresh), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -106,11 +108,11 @@ fun RuleSetHubScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("搜索规则集...", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    placeholder = { Text(stringResource(R.string.common_search), color = MaterialTheme.colorScheme.onSurfaceVariant) },
                     leadingIcon = {
                         Icon(
                             Icons.Rounded.Search,
-                            contentDescription = "搜索",
+                            contentDescription = stringResource(R.string.common_search),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     },
@@ -140,7 +142,7 @@ fun RuleSetHubScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(text = error!!, color = MaterialTheme.colorScheme.error)
                         Button(onClick = { activityRuleSetViewModel.fetchRuleSets() }) {
-                            Text("重试")
+                            Text(stringResource(R.string.common_retry))
                         }
                     }
                 }
@@ -235,7 +237,7 @@ fun HubRuleSetItem(
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
-                                text = "已下载",
+                                text = stringResource(R.string.common_downloaded),
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
@@ -270,14 +272,14 @@ fun HubRuleSetItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "规则数量：${ruleSet.ruleCount}",
+                    text = "Rules count: ${ruleSet.ruleCount}", // TODO: add to strings.xml
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 
                 Icon(
                     imageVector = Icons.Rounded.Visibility,
-                    contentDescription = "查看",
+                    contentDescription = stringResource(R.string.common_view),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
                 )
@@ -294,14 +296,14 @@ fun HubRuleSetItem(
                     onClick = onAddSource,
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Text("添加 源文件", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(R.string.common_add) + " Source", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                 }
                 
                 TextButton(
                     onClick = onAddBinary,
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Text("添加 二进制", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(R.string.common_add) + " Binary", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

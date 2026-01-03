@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -66,10 +68,10 @@ fun ProfileEditorScreen(navController: NavController) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("编辑配置", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.profile_editor_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
@@ -77,7 +79,7 @@ fun ProfileEditorScreen(navController: NavController) {
                         // TODO: Save logic
                         navController.popBackStack()
                     }) {
-                        Icon(Icons.Rounded.Save, contentDescription = "保存", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.Save, contentDescription = stringResource(R.string.common_save), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)

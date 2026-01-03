@@ -1,5 +1,6 @@
 package com.kunk.singbox.repository
 
+import com.kunk.singbox.R
 import android.content.Intent
 import android.content.Context
 import android.os.Build
@@ -112,8 +113,8 @@ class ConfigRepository(private val context: Context) {
         if (tag.isNullOrBlank()) return null
         if (tag.equals("PROXY", ignoreCase = true)) return null
         return when (tag) {
-            "direct" -> "直连"
-            "block" -> "拦截"
+            "direct" -> context.getString(R.string.outbound_tag_direct)
+            "block" -> context.getString(R.string.outbound_tag_block)
             "dns-out" -> "DNS"
             else -> {
                 lastTagToNodeName[tag]
@@ -140,7 +141,8 @@ class ConfigRepository(private val context: Context) {
 
         return try {
             val configJson = configFile.readText()
-            val config = gson.fromJson(configJson, SingBoxConfig::class.java)
+            var config = gson.fromJson(configJson, SingBoxConfig::class.java)
+            config = deduplicateTags(config)
             cacheConfig(profileId, config)
             config
         } catch (e: Exception) {
@@ -609,24 +611,25 @@ class ConfigRepository(private val context: Context) {
             }
 
             if (fetchResult == null) {
-                return@withContext Result.failure(Exception("无法解析配置格式，请检查订阅链接是否正确"))
+                return@withContext Result.failure(Exception(context.getString(R.string.profiles_import_failed)))
             }
             
             val config = fetchResult.config
             val userInfo = fetchResult.userInfo
 
-            onProgress("正在提取节点...")
+            onProgress(context.getString(R.string.profiles_extracting_nodes, 0, 0))
             
             val profileId = UUID.randomUUID().toString()
-            val nodes = extractNodesFromConfig(config, profileId, onProgress)
+            val deduplicatedConfig = deduplicateTags(config)
+            val nodes = extractNodesFromConfig(deduplicatedConfig, profileId, onProgress)
             
             if (nodes.isEmpty()) {
-                return@withContext Result.failure(Exception("未找到有效节点"))
+                return@withContext Result.failure(Exception("No valid nodes found")) // TODO: add to strings.xml
             }
             
             // 保存配置文件
             val configFile = File(configDir, "$profileId.json")
-            configFile.writeText(gson.toJson(config))
+            configFile.writeText(gson.toJson(deduplicatedConfig))
             
             // 创建配置
             val profile = ProfileUi(
@@ -644,7 +647,7 @@ class ConfigRepository(private val context: Context) {
             )
             
             // 保存到内存
-            cacheConfig(profileId, config)
+            cacheConfig(profileId, deduplicatedConfig)
             profileNodes[profileId] = nodes
             updateAllNodesAndGroups()
             
@@ -662,17 +665,17 @@ class ConfigRepository(private val context: Context) {
                 com.kunk.singbox.service.SubscriptionAutoUpdateWorker.schedule(context, profileId, autoUpdateInterval)
             }
             
-            onProgress("导入成功，共 ${nodes.size} 个节点")
+            onProgress(context.getString(R.string.profiles_import_success, nodes.size.toString()))
             
             Result.success(profile)
         } catch (e: Exception) {
             Log.e(TAG, "Subscription import failed", e)
             // 确保抛出的异常信息对用户友好
             val msg = when(e) {
-                is java.net.SocketTimeoutException -> "连接超时，请检查网络"
-                is java.net.UnknownHostException -> "无法解析域名，请检查链接"
-                is javax.net.ssl.SSLHandshakeException -> "SSL证书验证失败"
-                else -> e.message ?: "导入失败"
+                is java.net.SocketTimeoutException -> "Connection timeout, please check your network"
+                is java.net.UnknownHostException -> "Failed to resolve domain, please check the link"
+                is javax.net.ssl.SSLHandshakeException -> "SSL certificate validation failed"
+                else -> e.message ?: context.getString(R.string.profiles_import_failed)
             }
             Result.failure(Exception(msg))
         }
@@ -685,23 +688,24 @@ class ConfigRepository(private val context: Context) {
         onProgress: (String) -> Unit = {}
     ): Result<ProfileUi> = withContext(Dispatchers.IO) {
         try {
-            onProgress("正在解析配置...")
+            onProgress(context.getString(R.string.common_loading))
 
             val normalized = normalizeImportedContent(content)
             val config = subscriptionManager.parse(normalized)
-                ?: return@withContext Result.failure(Exception("无法解析配置格式"))
+                ?: return@withContext Result.failure(Exception(context.getString(R.string.profiles_import_failed)))
 
-            onProgress("正在提取节点...")
+            onProgress(context.getString(R.string.profiles_extracting_nodes, 0, 0))
 
             val profileId = UUID.randomUUID().toString()
-            val nodes = extractNodesFromConfig(config, profileId, onProgress)
+            val deduplicatedConfig = deduplicateTags(config)
+            val nodes = extractNodesFromConfig(deduplicatedConfig, profileId, onProgress)
 
             if (nodes.isEmpty()) {
-                return@withContext Result.failure(Exception("未找到有效节点"))
+                return@withContext Result.failure(Exception("No valid nodes found")) // TODO: add to strings.xml
             }
 
             val configFile = File(configDir, "$profileId.json")
-            configFile.writeText(gson.toJson(config))
+            configFile.writeText(gson.toJson(deduplicatedConfig))
 
             val profile = ProfileUi(
                 id = profileId,
@@ -713,7 +717,7 @@ class ConfigRepository(private val context: Context) {
                 updateStatus = UpdateStatus.Idle
             )
 
-            cacheConfig(profileId, config)
+            cacheConfig(profileId, deduplicatedConfig)
             profileNodes[profileId] = nodes
             updateAllNodesAndGroups()
 
@@ -724,7 +728,7 @@ class ConfigRepository(private val context: Context) {
                 setActiveProfile(profileId)
             }
 
-            onProgress("导入成功，共 ${nodes.size} 个节点")
+            onProgress(context.getString(R.string.profiles_import_success, nodes.size.toString()))
 
             Result.success(profile)
         } catch (e: Exception) {
@@ -1514,11 +1518,11 @@ class ConfigRepository(private val context: Context) {
             processedCount++
             // 每处理50个节点回调一次进度
             if (processedCount % 50 == 0) {
-                onProgress?.invoke("正在提取节点 ($processedCount/$totalCount)...")
+                onProgress?.invoke(context.getString(R.string.profiles_extracting_nodes, processedCount, totalCount))
             }
 
             if (outbound.type in proxyTypes) {
-                var group = nodeToGroup[outbound.tag] ?: "未分组"
+                var group = nodeToGroup[outbound.tag] ?: "Default"
                 
                 // 校验分组名是否为有效名称 (避免链接被当作分组名)
                 if (group.contains("://") || group.length > 50) {
@@ -1717,7 +1721,7 @@ class ConfigRepository(private val context: Context) {
             }
 
             if (node == null) {
-                val msg = "找不到目标节点: $nodeId"
+                val msg = "Target node not found: $nodeId"
                 Log.w(TAG, msg)
                 return@withContext NodeSwitchResult.Failed(msg)
             }
@@ -1725,7 +1729,7 @@ class ConfigRepository(private val context: Context) {
             try {
                 val generationResult = generateConfigFile()
                 if (generationResult == null) {
-                    val msg = "配置生成失败"
+                    val msg = context.getString(R.string.dashboard_config_generation_failed)
                     Log.e(TAG, msg)
                     return@withContext NodeSwitchResult.Failed(msg)
                 }
@@ -1801,7 +1805,7 @@ class ConfigRepository(private val context: Context) {
                 NodeSwitchResult.Success
             } catch (e: Exception) {
 
-                val msg = "切换异常: ${e.message ?: "未知错误"}"
+                val msg = "Switch error: ${e.message ?: "unknown error"}"
                 Log.e(TAG, "Error during hot switch", e)
                 NodeSwitchResult.Failed(msg)
             }
@@ -1939,7 +1943,7 @@ class ConfigRepository(private val context: Context) {
                         Log.e(TAG, "Latency test error for $nodeId", e)
                         // 2025-debug: 记录详细测速失败原因到日志系统，方便用户排查
                         val nodeName = _nodes.value.find { it.id == nodeId }?.name
-                        com.kunk.singbox.repository.LogRepository.getInstance().addLog("测速失败 [${nodeName ?: nodeId}]: ${e.message}")
+                        com.kunk.singbox.repository.LogRepository.getInstance().addLog(context.getString(R.string.nodes_test_failed, nodeName ?: nodeId) + ": ${e.message}")
                         -1L
                     }
                 }
@@ -2113,7 +2117,8 @@ class ConfigRepository(private val context: Context) {
             val config = fetchResult.config
             val userInfo = fetchResult.userInfo
 
-            val newNodes = extractNodesFromConfig(config, profile.id)
+            val deduplicatedConfig = deduplicateTags(config)
+            val newNodes = extractNodesFromConfig(deduplicatedConfig, profile.id)
             val newNodeNames = newNodes.map { it.name }.toSet()
             
             // 计算变化
@@ -2122,9 +2127,9 @@ class ConfigRepository(private val context: Context) {
             
             // 更新存储
             val configFile = File(configDir, "${profile.id}.json")
-            configFile.writeText(gson.toJson(config))
+            configFile.writeText(gson.toJson(deduplicatedConfig))
             
-            cacheConfig(profile.id, config)
+            cacheConfig(profile.id, deduplicatedConfig)
             profileNodes[profile.id] = newNodes
             updateAllNodesAndGroups()
             
@@ -2221,9 +2226,9 @@ class ConfigRepository(private val context: Context) {
 
             val validation = singBoxCore.validateConfig(runConfig)
             validation.exceptionOrNull()?.let { e ->
-                val msg = e.cause?.message ?: e.message ?: "未知错误"
+                val msg = e.cause?.message ?: e.message ?: "unknown error"
                 Log.e(TAG, "Config pre-validation failed: $msg", e)
-                throw Exception("配置校验失败: $msg", e)
+                throw Exception("Config validation failed: $msg", e)
             }
             
             // 写入临时配置文件
@@ -3681,10 +3686,10 @@ class ConfigRepository(private val context: Context) {
         try {
             // 1. 使用 ConfigRepository 统一的 parseNodeLink 解析链接，确保解析逻辑一致
             val outbound = parseNodeLink(link.trim())
-                ?: return@withContext Result.failure(Exception("无法解析节点链接"))
+                ?: return@withContext Result.failure(Exception("Failed to parse node link"))
             
             // 2. 查找或创建"手动添加"配置
-            val manualProfileName = "手动添加"
+            val manualProfileName = "Manual"
             var manualProfile = _profiles.value.find { it.name == manualProfileName && it.type == ProfileType.Imported }
             val profileId: String
             val existingConfig: SingBoxConfig?
@@ -3727,7 +3732,8 @@ class ConfigRepository(private val context: Context) {
                 newOutbounds.add(Outbound(type = "dns", tag = "dns-out"))
             }
             
-            val newConfig = SingBoxConfig(outbounds = newOutbounds)
+            // 确保没有其他重复
+            val newConfig = deduplicateTags(SingBoxConfig(outbounds = newOutbounds))
             
             // 4. 保存配置文件
             val configFile = File(configDir, "$profileId.json")
@@ -3775,7 +3781,7 @@ class ConfigRepository(private val context: Context) {
             Result.success(addedNode ?: nodes.last())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add single node", e)
-            Result.failure(Exception("添加节点失败: ${e.message}"))
+            Result.failure(Exception(context.getString(R.string.nodes_add_failed) + ": ${e.message}"))
         }
     }
 
@@ -3791,7 +3797,8 @@ class ConfigRepository(private val context: Context) {
         val newOutbounds = config.outbounds?.map {
             if (it.tag == node.name) it.copy(tag = newName) else it
         }
-        val newConfig = config.copy(outbounds = newOutbounds)
+        var newConfig = config.copy(outbounds = newOutbounds)
+        newConfig = deduplicateTags(newConfig)
 
         // 更新内存中的配置
         cacheConfig(profileId, newConfig)
@@ -3839,7 +3846,8 @@ class ConfigRepository(private val context: Context) {
         val newOutbounds = config.outbounds?.map {
             if (it.tag == node.name) newOutbound else it
         }
-        val newConfig = config.copy(outbounds = newOutbounds)
+        var newConfig = config.copy(outbounds = newOutbounds)
+        newConfig = deduplicateTags(newConfig)
 
         // 更新内存中的配置
         cacheConfig(profileId, newConfig)
@@ -4156,5 +4164,40 @@ class ConfigRepository(private val context: Context) {
         
         val queryPart = buildOptionalQuery(params)
         return "tuic://$uuid:$password@$server:$port${queryPart}#$name"
+    }
+
+    /**
+     * 去除重复的 outbound tag
+     */
+    private fun deduplicateTags(config: SingBoxConfig): SingBoxConfig {
+        val outbounds = config.outbounds ?: return config
+        val seenTags = mutableSetOf<String>()
+        
+        val newOutbounds = outbounds.map { outbound ->
+            var tag = outbound.tag
+            // 处理空 tag
+            if (tag.isBlank()) {
+                tag = "unnamed"
+            }
+            
+            var newTag = tag
+            var counter = 1
+            
+            // 如果 tag 已经存在，则添加后缀直到不冲突
+            while (seenTags.contains(newTag)) {
+                newTag = "${tag}_$counter"
+                counter++
+            }
+            
+            seenTags.add(newTag)
+            
+            if (newTag != outbound.tag) {
+                outbound.copy(tag = newTag)
+            } else {
+                outbound
+            }
+        }
+        
+        return config.copy(outbounds = newOutbounds)
     }
 }

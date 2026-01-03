@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Route
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kunk.singbox.model.AppThemeMode
+import com.kunk.singbox.model.AppLanguage
 import com.kunk.singbox.model.ImportOptions
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.ui.components.AboutDialog
@@ -82,6 +86,7 @@ fun SettingsScreen(
     
     var showAboutDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
     var isUpdatingRuleSets by remember { mutableStateOf(false) }
     var updateMessage by remember { mutableStateOf("") }
     
@@ -113,14 +118,33 @@ fun SettingsScreen(
 
     if (showThemeDialog) {
         SingleSelectDialog(
-            title = "应用主题",
-            options = AppThemeMode.entries.map { it.displayName },
+            title = stringResource(R.string.settings_app_theme),
+            options = AppThemeMode.entries.map { stringResource(it.displayNameRes) },
             selectedIndex = AppThemeMode.entries.indexOf(settings.appTheme),
             onSelect = { index ->
                 viewModel.setAppTheme(AppThemeMode.entries[index])
                 showThemeDialog = false
             },
             onDismiss = { showThemeDialog = false }
+        )
+    }
+    
+    if (showLanguageDialog) {
+        SingleSelectDialog(
+            title = stringResource(R.string.settings_app_language),
+            options = AppLanguage.entries.map { stringResource(it.displayNameRes) },
+            selectedIndex = AppLanguage.entries.indexOf(settings.appLanguage),
+            onSelect = { index ->
+                viewModel.setAppLanguage(AppLanguage.entries[index])
+                showLanguageDialog = false
+                // 提示用户需要重启应用
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.settings_restart_needed),
+                    Toast.LENGTH_LONG
+                ).show()
+            },
+            onDismiss = { showLanguageDialog = false }
         )
     }
     
@@ -171,7 +195,7 @@ fun SettingsScreen(
             .padding(16.dp)
     ) {
         Text(
-            text = "设置",
+            text = stringResource(R.string.settings_title),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
@@ -179,17 +203,23 @@ fun SettingsScreen(
         )
 
         // 1. Connection & Startup
-        SettingsGroupTitle("通用")
+        SettingsGroupTitle(stringResource(R.string.settings_general))
         StandardCard {
             SettingItem(
-                title = "应用主题",
-                value = settings.appTheme.displayName,
+                title = stringResource(R.string.settings_app_theme),
+                value = stringResource(settings.appTheme.displayNameRes),
                 icon = Icons.Rounded.Brightness6,
                 onClick = { showThemeDialog = true }
             )
             SettingItem(
-                title = "连接与启动",
-                subtitle = "自动连接、断线重连",
+                title = stringResource(R.string.settings_app_language),
+                value = stringResource(settings.appLanguage.displayNameRes),
+                icon = Icons.Rounded.Language,
+                onClick = { showLanguageDialog = true }
+            )
+            SettingItem(
+                title = stringResource(R.string.settings_connection_startup),
+                subtitle = stringResource(R.string.settings_connection_startup_subtitle),
                 icon = Icons.Rounded.PowerSettingsNew,
                 onClick = { navController.navigate(Screen.ConnectionSettings.route) }
             )
@@ -198,23 +228,23 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // 2. Network
-        SettingsGroupTitle("网络")
+        SettingsGroupTitle(stringResource(R.string.settings_network))
         StandardCard {
             SettingItem(
-                title = "路由设置",
-                subtitle = "模式、规则集、默认规则",
+                title = stringResource(R.string.settings_routing),
+                subtitle = stringResource(R.string.settings_routing_subtitle),
                 icon = Icons.Rounded.Route,
                 onClick = { navController.navigate(Screen.RoutingSettings.route) }
             )
             SettingItem(
-                title = "DNS 设置",
-                value = "自动",
+                title = stringResource(R.string.settings_dns),
+                value = stringResource(R.string.settings_dns_auto),
                 icon = Icons.Rounded.Dns,
                 onClick = { navController.navigate(Screen.DnsSettings.route) }
             )
             SettingItem(
-                title = "TUN / VPN",
-                subtitle = "堆栈、MTU、分应用代理",
+                title = stringResource(R.string.settings_tun_vpn),
+                subtitle = stringResource(R.string.settings_tun_vpn_subtitle),
                 icon = Icons.Rounded.VpnKey,
                 onClick = { navController.navigate(Screen.TunSettings.route) }
             )
@@ -223,11 +253,18 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // 3. Tools
-        SettingsGroupTitle("工具")
+        // Pre-define string resources for use in click handlers
+        val preparingUpdateMsg = stringResource(R.string.settings_preparing_update)
+        val updateSuccessMsg = stringResource(R.string.settings_update_success)
+        val updateFailedMsg = stringResource(R.string.settings_update_failed)
+        val rulesetUpdateSuccessMsg = stringResource(R.string.settings_ruleset_update_success)
+        val rulesetUpdateFailedMsg = stringResource(R.string.settings_ruleset_update_failed)
+        
+        SettingsGroupTitle(stringResource(R.string.settings_tools))
         StandardCard {
             SettingItem(
-                title = if (isUpdatingRuleSets) updateMessage else "更新规则集",
-                subtitle = if (isUpdatingRuleSets) "正在下载..." else "手动更新广告与路由规则",
+                title = if (isUpdatingRuleSets) updateMessage else stringResource(R.string.settings_update_rulesets),
+                subtitle = if (isUpdatingRuleSets) stringResource(R.string.settings_updating) else stringResource(R.string.settings_update_rulesets_subtitle),
                 icon = Icons.Rounded.Sync,
                 trailing = {
                     if (isUpdatingRuleSets) {
@@ -241,7 +278,7 @@ fun SettingsScreen(
                 onClick = {
                     if (!isUpdatingRuleSets) {
                         isUpdatingRuleSets = true
-                        updateMessage = "准备更新..."
+                        updateMessage = preparingUpdateMsg
                         scope.launch {
                             try {
                                 val success = RuleSetRepository.getInstance(context).ensureRuleSetsReady(
@@ -250,17 +287,17 @@ fun SettingsScreen(
                                 ) {
                                     updateMessage = it
                                 }
-                                updateMessage = if (success) "更新成功" else "更新失败"
+                                updateMessage = if (success) updateSuccessMsg else updateFailedMsg
                                 Toast.makeText(
                                     context,
-                                    if (success) "规则集更新成功" else "规则集更新失败",
+                                    if (success) rulesetUpdateSuccessMsg else rulesetUpdateFailedMsg,
                                     Toast.LENGTH_SHORT
                                 ).show()
                             } catch (e: Exception) {
-                                updateMessage = "发生错误: ${e.message}"
+                                updateMessage = "Error: ${e.message}"
                                 Toast.makeText(
                                     context,
-                                    "规则集更新失败: ${e.message}",
+                                    "$rulesetUpdateFailedMsg: ${e.message}",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             } finally {
@@ -272,43 +309,44 @@ fun SettingsScreen(
                 }
             )
             SettingSwitchItem(
-                title = "规则集定时更新",
+                title = stringResource(R.string.settings_ruleset_auto_update),
                 subtitle = if (settings.ruleSetAutoUpdateEnabled)
-                    "每 ${settings.ruleSetAutoUpdateInterval} 分钟自动更新"
+                    stringResource(R.string.settings_ruleset_auto_update_enabled, settings.ruleSetAutoUpdateInterval)
                 else
-                    "开启后自动更新所有远程规则集",
+                    stringResource(R.string.settings_ruleset_auto_update_disabled),
                 icon = Icons.Rounded.Schedule,
                 checked = settings.ruleSetAutoUpdateEnabled,
                 onCheckedChange = { viewModel.setRuleSetAutoUpdateEnabled(it) }
             )
             if (settings.ruleSetAutoUpdateEnabled) {
+                val intervalMinMsg = stringResource(R.string.settings_update_interval_min)
                 EditableTextItem(
-                    title = "更新间隔",
-                    value = "${settings.ruleSetAutoUpdateInterval} 分钟",
+                    title = stringResource(R.string.settings_update_interval),
+                    value = stringResource(R.string.settings_update_interval_value, settings.ruleSetAutoUpdateInterval),
                     onValueChange = { newValue ->
-                        val interval = newValue.replace(" 分钟", "").toIntOrNull()
+                        val interval = newValue.filter { it.isDigit() }.toIntOrNull()
                         if (interval != null && interval >= 15) {
                             viewModel.setRuleSetAutoUpdateInterval(interval)
                         } else {
-                            Toast.makeText(context, "更新间隔至少为 15 分钟", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, intervalMinMsg, Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
             }
             SettingSwitchItem(
-                title = "调试模式",
-                subtitle = "开启后记录详细日志（需重启服务）",
+                title = stringResource(R.string.settings_debug_mode),
+                subtitle = stringResource(R.string.settings_debug_mode_subtitle),
                 icon = Icons.Rounded.BugReport,
                 checked = settings.debugLoggingEnabled,
                 onCheckedChange = { viewModel.setDebugLoggingEnabled(it) }
             )
             SettingItem(
-                title = "运行日志",
+                title = stringResource(R.string.settings_logs),
                 icon = Icons.Rounded.History,
                 onClick = { navController.navigate(Screen.Logs.route) }
             )
             SettingItem(
-                title = "网络诊断",
+                title = stringResource(R.string.settings_network_diagnostics),
                 icon = Icons.Rounded.BugReport,
                 onClick = { navController.navigate(Screen.Diagnostics.route) }
             )
@@ -317,19 +355,19 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(16.dp))
         
         // 4. 数据管理
-        SettingsGroupTitle("数据管理")
+        SettingsGroupTitle(stringResource(R.string.settings_data_management))
         StandardCard {
             SettingItem(
-                title = "导出数据",
-                subtitle = "备份所有配置和设置到文件",
+                title = stringResource(R.string.settings_export_data),
+                subtitle = stringResource(R.string.settings_export_data_subtitle),
                 icon = Icons.Rounded.Upload,
                 onClick = {
                     exportLauncher.launch(generateExportFileName())
                 }
             )
             SettingItem(
-                title = "导入数据",
-                subtitle = "从备份文件恢复配置和设置",
+                title = stringResource(R.string.settings_import_data),
+                subtitle = stringResource(R.string.settings_import_data_subtitle),
                 icon = Icons.Rounded.Download,
                 onClick = {
                     importLauncher.launch(arrayOf("application/json", "*/*"))
@@ -340,10 +378,10 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // 5. About
-        SettingsGroupTitle("关于")
+        SettingsGroupTitle(stringResource(R.string.settings_about))
         StandardCard {
             SettingItem(
-                title = "关于应用",
+                title = stringResource(R.string.settings_about_app),
                 icon = Icons.Rounded.Info,
                 onClick = { showAboutDialog = true }
             )

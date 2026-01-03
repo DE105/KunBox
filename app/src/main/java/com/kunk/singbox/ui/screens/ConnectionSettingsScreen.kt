@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -42,43 +44,43 @@ fun ConnectionSettingsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("连接与启动", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.connection_settings_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(scrollState)
-        ) {
-            StandardCard {
-                SettingSwitchItem(
-                    title = "自动连接",
-                    subtitle = "启动应用时自动连接 VPN",
-                    checked = settings.autoConnect,
-                    onCheckedChange = { settingsViewModel.setAutoConnect(it) }
-                )
-                SettingSwitchItem(
-                    title = "断线重连",
-                    subtitle = "网络断开后自动尝试重新连接",
-                    checked = settings.autoReconnect,
-                    onCheckedChange = { settingsViewModel.setAutoReconnect(it) }
-                )
-                SettingSwitchItem(
-                    title = "在最近任务中隐藏",
-                    subtitle = "开启后，应用将不会出现在手机的最近任务列表中",
-                    checked = settings.excludeFromRecent,
-                    onCheckedChange = { settingsViewModel.setExcludeFromRecent(it) }
-                )
-            }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .padding(16.dp)
+            .verticalScroll(scrollState)
+    ) {
+        StandardCard {
+            SettingSwitchItem(
+                title = stringResource(R.string.connection_settings_auto_connect),
+                subtitle = stringResource(R.string.connection_settings_auto_connect_subtitle),
+                checked = settings.autoConnect,
+                onCheckedChange = { settingsViewModel.setAutoConnect(it) }
+            )
+            SettingSwitchItem(
+                title = stringResource(R.string.connection_settings_auto_reconnect),
+                subtitle = stringResource(R.string.connection_settings_auto_reconnect_subtitle),
+                checked = settings.autoReconnect,
+                onCheckedChange = { settingsViewModel.setAutoReconnect(it) }
+            )
+            SettingSwitchItem(
+                title = stringResource(R.string.connection_settings_hide_recent),
+                subtitle = stringResource(R.string.connection_settings_hide_recent_subtitle),
+                checked = settings.excludeFromRecent,
+                onCheckedChange = { settingsViewModel.setExcludeFromRecent(it) }
+            )
+        }
             
             Spacer(modifier = Modifier.height(16.dp))
 

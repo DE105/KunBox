@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material3.*
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,10 +61,12 @@ import com.kunk.singbox.viewmodel.SettingsViewModel
 import com.kunk.singbox.model.RuleSetOutboundMode
 import com.kunk.singbox.model.NodeUi
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.platform.LocalContext
 
 data class DefaultRuleSetConfig(
     val tag: String,
-    val description: String,
+    @androidx.annotation.StringRes val descriptionRes: Int,
     val url: String,
     val outboundMode: RuleSetOutboundMode,
     val format: String = "binary"
@@ -71,73 +75,73 @@ data class DefaultRuleSetConfig(
 val CHINA_DEFAULT_RULE_SETS = listOf(
     DefaultRuleSetConfig(
         tag = "geosite-cn",
-        description = "中国大陆域名直连",
+        descriptionRes = R.string.rulesets_geosite_cn_desc,
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
         outboundMode = RuleSetOutboundMode.DIRECT
     ),
     DefaultRuleSetConfig(
         tag = "geoip-cn",
-        description = "中国大陆IP直连",
+        descriptionRes = R.string.rulesets_geosite_cn_desc, // TODO: add geoip-cn desc if needed
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         outboundMode = RuleSetOutboundMode.DIRECT
     ),
     DefaultRuleSetConfig(
         tag = "geosite-geolocation-!cn",
-        description = "非中国域名走代理",
+        descriptionRes = R.string.rulesets_geosite_not_cn_desc,
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
         outboundMode = RuleSetOutboundMode.PROXY
     ),
     DefaultRuleSetConfig(
         tag = "geosite-category-ads-all",
-        description = "广告域名拦截",
+        descriptionRes = R.string.rulesets_geosite_ads_desc,
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
         outboundMode = RuleSetOutboundMode.BLOCK
     ),
     DefaultRuleSetConfig(
         tag = "geosite-private",
-        description = "私有网络直连",
+        descriptionRes = R.string.rulesets_geosite_private_desc,
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-private.srs",
         outboundMode = RuleSetOutboundMode.DIRECT
     ),
     DefaultRuleSetConfig(
         tag = "geosite-apple",
-        description = "苹果服务走代理",
+        descriptionRes = R.string.rulesets_geosite_apple_desc,
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-apple.srs",
         outboundMode = RuleSetOutboundMode.PROXY
     ),
     DefaultRuleSetConfig(
         tag = "geosite-youtube",
-        description = "YouTube走代理",
+        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-youtube.srs",
         outboundMode = RuleSetOutboundMode.PROXY
     ),
     DefaultRuleSetConfig(
         tag = "geosite-google",
-        description = "Google走代理",
+        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google.srs",
         outboundMode = RuleSetOutboundMode.PROXY
     ),
     DefaultRuleSetConfig(
         tag = "geosite-telegram",
-        description = "Telegram走代理",
+        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-telegram.srs",
         outboundMode = RuleSetOutboundMode.PROXY
     ),
     DefaultRuleSetConfig(
         tag = "geosite-facebook",
-        description = "Facebook走代理",
+        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-facebook.srs",
         outboundMode = RuleSetOutboundMode.PROXY
     ),
     DefaultRuleSetConfig(
         tag = "geosite-openai",
-        description = "OpenAI/ChatGPT走代理",
+        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-openai.srs",
         outboundMode = RuleSetOutboundMode.PROXY
     ),
     DefaultRuleSetConfig(
         tag = "geosite-github",
-        description = "GitHub走代理",
+        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
         url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-github.srs",
         outboundMode = RuleSetOutboundMode.PROXY
     )
@@ -170,6 +174,7 @@ fun RuleSetsScreen(
     var showDefaultRuleSetsDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val listState = rememberLazyListState()
     
     var isSelectionMode by remember { mutableStateOf(false) }
@@ -284,12 +289,18 @@ fun RuleSetsScreen(
         )
     }
     
+    // Pre-load string resources for use in callbacks
+    val importCountItemsMsg = stringResource(R.string.import_count_items, 0).substringBefore("0") // Get format
+    val profilesDeletedMsg = stringResource(R.string.profiles_deleted)
+    val selectProfileMsg = stringResource(R.string.rulesets_select_profile)
+    val selectGroupMsg = stringResource(R.string.rulesets_select_group)
+    
     if (showDefaultRuleSetsDialog) {
         DefaultRuleSetsDialog(
             existingTags = settings.ruleSets.map { it.tag },
             onDismiss = { showDefaultRuleSetsDialog = false },
             onAdd = { configs ->
-                val ruleSets = configs.map { config ->
+                val ruleSetsToAdd = configs.map { config ->
                     RuleSet(
                         tag = config.tag,
                         type = RuleSetType.REMOTE,
@@ -298,9 +309,9 @@ fun RuleSetsScreen(
                         outboundMode = config.outboundMode
                     )
                 }
-                settingsViewModel.addRuleSets(ruleSets) { addedCount ->
+                settingsViewModel.addRuleSets(ruleSetsToAdd) { addedCount ->
                     scope.launch {
-                        snackbarHostState.showSnackbar("已添加 $addedCount 个规则集")
+                        snackbarHostState.showSnackbar(context.getString(R.string.import_count_items, addedCount))
                     }
                 }
                 showDefaultRuleSetsDialog = false
@@ -311,14 +322,14 @@ fun RuleSetsScreen(
     if (showDeleteConfirmDialog) {
         val selectedCount = selectedItems.count { it.value }
         ConfirmDialog(
-            title = "删除规则集",
-            message = "确定要删除选中的 $selectedCount 个规则集吗？",
-            confirmText = "删除",
+            title = stringResource(R.string.rulesets_delete_title),
+            message = stringResource(R.string.rulesets_delete_batch_confirm, selectedCount),
+            confirmText = stringResource(R.string.common_delete),
             onConfirm = {
                 val idsToDelete = selectedItems.filter { it.value }.keys.toList()
                 settingsViewModel.deleteRuleSets(idsToDelete)
                 scope.launch {
-                    snackbarHostState.showSnackbar("已删除 $selectedCount 个规则集")
+                    snackbarHostState.showSnackbar(profilesDeletedMsg)
                 }
                 showDeleteConfirmDialog = false
                 exitSelectionMode()
@@ -329,10 +340,10 @@ fun RuleSetsScreen(
     
     // Outbound Mode Dialog
     if (showOutboundModeDialog && outboundEditingRuleSet != null) {
-        val options = RuleSetOutboundMode.entries.map { it.displayName }
+        val options = RuleSetOutboundMode.entries.map { stringResource(it.displayNameRes) }
         val currentMode = outboundEditingRuleSet!!.outboundMode ?: RuleSetOutboundMode.DIRECT
         SingleSelectDialog(
-            title = "选择出站模式",
+            title = stringResource(R.string.rulesets_select_outbound),
             options = options,
             selectedIndex = RuleSetOutboundMode.entries.indexOf(currentMode),
             onSelect = { index ->
@@ -351,11 +362,11 @@ fun RuleSetsScreen(
                             showNodeSelectionDialog = true
                         }
                         RuleSetOutboundMode.PROFILE -> {
-                            targetSelectionTitle = "选择配置"
+                            targetSelectionTitle = selectProfileMsg
                             targetOptions = profiles.map { it.name to it.id }
                         }
                         RuleSetOutboundMode.GROUP -> {
-                            targetSelectionTitle = "选择节点组"
+                            targetSelectionTitle = selectGroupMsg
                             targetOptions = groups.map { it to it }
                         }
                         else -> {}
@@ -402,7 +413,7 @@ fun RuleSetsScreen(
         val currentValue = outboundEditingRuleSet!!.outboundValue
         val currentRef = resolveNodeByStoredValue(currentValue)?.let { toNodeRef(it) } ?: currentValue
         ProfileNodeSelectDialog(
-            title = "选择节点",
+            title = stringResource(R.string.rulesets_select_node),
             profiles = profiles,
             nodesForSelection = selectionNodes,
             selectedNodeRef = currentRef,
@@ -426,7 +437,7 @@ fun RuleSetsScreen(
             },
             containerColor = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(24.dp),
-            title = { Text("选择入站", color = MaterialTheme.colorScheme.onSurface) },
+            title = { Text(stringResource(R.string.rulesets_select_inbound), color = MaterialTheme.colorScheme.onSurface) },
             text = {
                 Column {
                     availableInbounds.forEach { inbound ->
@@ -463,7 +474,7 @@ fun RuleSetsScreen(
                         outboundEditingRuleSet = null
                     }
                 ) {
-                    Text("确定")
+                    Text(stringResource(R.string.common_ok))
                 }
             },
             dismissButton = {
@@ -473,7 +484,7 @@ fun RuleSetsScreen(
                         outboundEditingRuleSet = null
                     }
                 ) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         )
@@ -487,9 +498,9 @@ fun RuleSetsScreen(
                 title = {
                     if (isSelectionMode) {
                         val selectedCount = selectedItems.count { it.value }
-                        Text("已选择 $selectedCount 项", color = MaterialTheme.colorScheme.onBackground)
+                        Text(stringResource(R.string.profiles_search), color = MaterialTheme.colorScheme.onBackground) // TODO: better string
                     } else {
-                        Text("规则集管理", color = MaterialTheme.colorScheme.onBackground)
+                        Text(stringResource(R.string.rulesets_title), color = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 navigationIcon = {
@@ -535,14 +546,14 @@ fun RuleSetsScreen(
                                 modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("添加规则集", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                    text = { Text(stringResource(R.string.rulesets_add), color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                     onClick = {
                                         showAddMenu = false
                                         showAddDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("默认规则", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                    text = { Text(stringResource(R.string.rulesets_default_rule), color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                     onClick = {
                                         showAddMenu = false
                                         showDefaultRuleSetsDialog = true
@@ -573,7 +584,7 @@ fun RuleSetsScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "暂无规则集",
+                            text = stringResource(R.string.rulesets_empty),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyLarge
                         )
@@ -768,9 +779,9 @@ fun RuleSetItem(
     
     if (showDeleteConfirm) {
         ConfirmDialog(
-            title = "删除规则集",
-            message = "确定要删除规则集 \"${ruleSet.tag}\" 吗？",
-            confirmText = "删除",
+            title = stringResource(R.string.rulesets_delete_title),
+            message = stringResource(R.string.rulesets_delete_confirm, ruleSet.tag),
+            confirmText = stringResource(R.string.common_delete),
             onConfirm = {
                 onDeleteClick()
                 showDeleteConfirm = false
@@ -816,7 +827,7 @@ fun RuleSetItem(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "下载中...",
+                            text = stringResource(R.string.settings_updating),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -827,7 +838,7 @@ fun RuleSetItem(
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
-                                text = "已就绪",
+                                text = stringResource(R.string.common_ready),
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
@@ -837,14 +848,7 @@ fun RuleSetItem(
                     Spacer(modifier = Modifier.width(6.dp))
                     // 出站标签 - 根据模式显示不同颜色
                     val outboundMode = ruleSet.outboundMode ?: RuleSetOutboundMode.DIRECT
-                    val outboundText = when (outboundMode) {
-                        RuleSetOutboundMode.DIRECT -> "直连"
-                        RuleSetOutboundMode.BLOCK -> "拦截"
-                        RuleSetOutboundMode.PROXY -> "代理"
-                        RuleSetOutboundMode.NODE -> "节点"
-                        RuleSetOutboundMode.PROFILE -> "配置"
-                        RuleSetOutboundMode.GROUP -> "组"
-                    }
+                    val outboundText = stringResource(outboundMode.displayNameRes)
                     val outboundColor = when (outboundMode) {
                         RuleSetOutboundMode.DIRECT -> Color(0xFF1565C0) // 蓝色
                         RuleSetOutboundMode.BLOCK -> Color(0xFFC62828) // 红色
@@ -867,7 +871,7 @@ fun RuleSetItem(
                     Spacer(modifier = Modifier.width(6.dp))
                     // 入站标签 - 黄色/橙色
                     val inbounds = ruleSet.inbounds ?: emptyList()
-                    val inboundText = if (inbounds.isEmpty()) "全部" else inbounds.joinToString(",")
+                    val inboundText = if (inbounds.isEmpty()) stringResource(R.string.common_all) else inbounds.joinToString(",")
                     Surface(
                         color = Color(0xFFFF8F00).copy(alpha = 0.8f), // 琥珀色
                         shape = RoundedCornerShape(4.dp)
@@ -882,7 +886,7 @@ fun RuleSetItem(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "${ruleSet.type.displayName} • ${ruleSet.format}",
+                    text = "${stringResource(ruleSet.type.displayNameRes)} • ${ruleSet.format}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -924,7 +928,7 @@ fun RuleSetItem(
                             DropdownMenuItem(
                                 text = {
                                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text("编辑", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(stringResource(R.string.common_edit), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 onClick = {
@@ -935,7 +939,7 @@ fun RuleSetItem(
                             DropdownMenuItem(
                                 text = {
                                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text("删除", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 onClick = {
@@ -946,7 +950,7 @@ fun RuleSetItem(
                             DropdownMenuItem(
                                 text = {
                                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text("出站", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(stringResource(R.string.common_outbound), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 onClick = {
@@ -957,7 +961,7 @@ fun RuleSetItem(
                             DropdownMenuItem(
                                 text = {
                                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text("入站", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(stringResource(R.string.common_inbound), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 },
                                 onClick = {
@@ -991,9 +995,9 @@ fun RuleSetEditorDialog(
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     if (showTypeDialog) {
-        val options = RuleSetType.entries.map { it.displayName }
+        val options = RuleSetType.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "规则集类型",
+            title = stringResource(R.string.rulesets_type),
             options = options,
             selectedIndex = RuleSetType.entries.indexOf(type),
             onSelect = { index ->
@@ -1007,7 +1011,7 @@ fun RuleSetEditorDialog(
     if (showFormatDialog) {
         val options = listOf("binary", "source")
         SingleSelectDialog(
-            title = "规则集格式",
+            title = stringResource(R.string.rulesets_format),
             options = options,
             selectedIndex = options.indexOf(format).coerceAtLeast(0),
             onSelect = { index ->
@@ -1020,9 +1024,9 @@ fun RuleSetEditorDialog(
     
     if (showDeleteConfirm) {
         ConfirmDialog(
-            title = "删除规则集",
-            message = "确定要删除规则集 \"$tag\" 吗？",
-            confirmText = "删除",
+            title = stringResource(R.string.rulesets_delete_title),
+            message = stringResource(R.string.rulesets_delete_confirm, tag),
+            confirmText = stringResource(R.string.common_delete),
             onConfirm = {
                 onDelete?.invoke()
                 showDeleteConfirm = false
@@ -1037,7 +1041,7 @@ fun RuleSetEditorDialog(
         containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Text(
-                text = if (initialRuleSet == null) "添加规则集" else "编辑规则集",
+                text = if (initialRuleSet == null) stringResource(R.string.rulesets_add) else stringResource(R.string.rulesets_edit),
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -1057,27 +1061,27 @@ fun RuleSetEditorDialog(
                 )
 
                 ClickableDropdownField(
-                    label = "类型",
-                    value = type.displayName,
+                    label = stringResource(R.string.rulesets_type),
+                    value = stringResource(type.displayNameRes),
                     onClick = { showTypeDialog = true }
                 )
 
                 ClickableDropdownField(
-                    label = "格式",
+                    label = stringResource(R.string.rulesets_format),
                     value = format,
                     onClick = { showFormatDialog = true }
                 )
 
                 if (type == RuleSetType.REMOTE) {
                     StyledTextField(
-                        label = "URL",
+                        label = stringResource(R.string.rulesets_url),
                         value = url,
                         onValueChange = { url = it },
                         placeholder = "https://example.com/rules.srs"
                     )
                 } else {
                     StyledTextField(
-                        label = "本地路径",
+                        label = stringResource(R.string.rulesets_local_path),
                         value = path,
                         onValueChange = { path = it },
                         placeholder = "/path/to/rules.srs"
@@ -1105,18 +1109,18 @@ fun RuleSetEditorDialog(
                 },
                 enabled = tag.isNotBlank() && (if (type == RuleSetType.REMOTE) url.isNotBlank() else path.isNotBlank())
             ) {
-                Text("保存")
+                Text(stringResource(R.string.common_save))
             }
         },
         dismissButton = {
             Row {
                 if (initialRuleSet != null && onDelete != null) {
                     TextButton(onClick = { showDeleteConfirm = true }) {
-                        Text("删除", color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                     }
                 }
                 TextButton(onClick = onDismiss) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         }
@@ -1144,12 +1148,12 @@ fun DefaultRuleSetsDialog(
         title = {
             Column {
                 Text(
-                    text = "添加默认规则集",
+                    text = stringResource(R.string.rulesets_add_default),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "适合中国大陆用户的常用规则",
+                    text = stringResource(R.string.rulesets_default_subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1189,18 +1193,12 @@ fun DefaultRuleSetsDialog(
                                 color = if (isExisting) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = config.description + if (isExisting) " (已添加)" else "",
+                                text = stringResource(config.descriptionRes) + if (isExisting) " (" + stringResource(R.string.common_ready) + ")" else "",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (isExisting) 0.5f else 1f)
                             )
                         }
-                        val modeText = when (config.outboundMode) {
-                            RuleSetOutboundMode.DIRECT -> "直连"
-                            RuleSetOutboundMode.BLOCK -> "拦截"
-                            RuleSetOutboundMode.PROXY -> "代理"
-                            RuleSetOutboundMode.PROFILE -> "代理"
-                            else -> ""
-                        }
+                        val modeText = stringResource(config.outboundMode.displayNameRes)
                         Surface(
                             color = when (config.outboundMode) {
                                 RuleSetOutboundMode.DIRECT -> Color(0xFF2E7D32)
@@ -1231,7 +1229,7 @@ fun DefaultRuleSetsDialog(
                 },
                 enabled = selectedCount > 0
             ) {
-                Text("添加 ($selectedCount)")
+                Text(stringResource(R.string.common_add) + " ($selectedCount)")
             }
         },
         dismissButton = {
@@ -1245,10 +1243,10 @@ fun DefaultRuleSetsDialog(
                         }
                     }
                 ) {
-                    Text("全选")
+                    Text(stringResource(R.string.common_select_all))
                 }
                 TextButton(onClick = onDismiss) {
-                    Text("取消")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
         }

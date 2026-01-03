@@ -1,5 +1,6 @@
 package com.kunk.singbox.viewmodel
 
+import com.kunk.singbox.R
 import android.app.Application
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
@@ -68,11 +69,11 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isRunConfigLoading.value) return
         viewModelScope.launch {
             _isRunConfigLoading.value = true
-            _resultTitle.value = "运行配置 (running_config.json)"
+            _resultTitle.value = "Running Config (running_config.json)"
             try {
                 val configResult = withContext(Dispatchers.IO) { configRepository.generateConfigFile() }
                 if (configResult?.path.isNullOrBlank()) {
-                    _resultMessage.value = "无法生成运行配置：未选择配置或生成失败。"
+                    _resultMessage.value = "Failed to generate running config: no profile selected or generation failed."
                 } else {
                     val realPath = configResult!!.path
                     val rawJson = withContext(Dispatchers.IO) { File(realPath).readText() }
@@ -93,17 +94,17 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     val samplePkgs = samplePkgRule?.packageName?.take(5).orEmpty()
 
                     _resultMessage.value = buildString {
-                        appendLine("文件: $realPath")
-                        appendLine("final 出站: $finalOutbound")
-                        appendLine("路由规则数: ${rules.size}")
-                        appendLine("应用分流规则数(package_name): ${pkgRules.size}")
-                        appendLine("是否包含应用分流规则: ${pkgRules.isNotEmpty()}")
-                        appendLine("示例(package_name -> outbound): $samplePkgs -> $sampleOutbound")
-                        appendLine("出站 tag 包含 final: ${outboundTags.contains(finalOutbound)}")
+                        appendLine("File: $realPath")
+                        appendLine("Final outbound: $finalOutbound")
+                        appendLine("Route rules count: ${rules.size}")
+                        appendLine("App routing rules (package_name): ${pkgRules.size}")
+                        appendLine("Contains app routing rules: ${pkgRules.isNotEmpty()}")
+                        appendLine("Example (package_name -> outbound): $samplePkgs -> $sampleOutbound")
+                        appendLine("Outbound tags contains final: ${outboundTags.contains(finalOutbound)}")
                         appendLine()
-                        appendLine("提示:")
-                        appendLine("- 若应用分流无效且这里显示 package_name=0，则是规则未生成/未启用。")
-                        appendLine("- 若 package_name>0 但仍无效，通常是运行时无法识别连接归属应用 (UID/package)。")
+                        appendLine("Tips:")
+                        appendLine("- If app routing is invalid and package_name=0, rules are not generated/enabled.")
+                        appendLine("- If package_name>0 but still invalid, the runtime might not be able to identify the connection owner application (UID/package).")
                     }
                 }
             } catch (e: Exception) {
@@ -119,16 +120,16 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isRunConfigLoading.value) return
         viewModelScope.launch {
             _isRunConfigLoading.value = true
-            _resultTitle.value = "导出运行配置"
+            _resultTitle.value = getApplication<Application>().getString(R.string.diagnostics_export_config)
             try {
                 val configResult = withContext(Dispatchers.IO) { configRepository.generateConfigFile() }
                 if (configResult?.path.isNullOrBlank()) {
-                    _resultMessage.value = "无法导出：未选择配置或生成失败。"
+                    _resultMessage.value = "Export failed: no profile selected or generation failed."
                 } else {
                     val src = File(configResult!!.path)
                     val outBase = getApplication<Application>().getExternalFilesDir(null)
                     if (outBase == null) {
-                        _resultMessage.value = "无法导出：externalFilesDir 不可用。"
+                        _resultMessage.value = "Export failed: externalFilesDir unavailable."
                     } else {
                         val exportDir = File(outBase, "exports").also { it.mkdirs() }
                         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
@@ -136,11 +137,11 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                         withContext(Dispatchers.IO) {
                             src.copyTo(dst, overwrite = true)
                         }
-                        _resultMessage.value = "已导出运行配置：\n${dst.absolutePath}\n\n说明：该路径位于应用外部存储目录，release 包也可用于自检/分享。"
+                        _resultMessage.value = "Running config exported to:\n${dst.absolutePath}\n\nNote: This path is in the application's external storage directory."
                     }
                 }
             } catch (e: Exception) {
-                _resultMessage.value = "导出失败: ${e.message}"
+                _resultMessage.value = "Export failed: ${e.message}"
             } finally {
                 _isRunConfigLoading.value = false
                 _showResultDialog.value = true
@@ -164,13 +165,13 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 val duration = end - start
                 
                 if (response.isSuccessful || response.code == 204) {
-                    _resultMessage.value = "目标: www.google.com\n状态: 连接成功 (${response.code})\n耗时: ${duration}ms\n\n说明: 如果开启了代理，此测试反映代理连接质量；如果是直连，则反映本地网络质量。"
+                    _resultMessage.value = "Target: www.google.com\nStatus: Success (${response.code})\nDuration: ${duration}ms\n\nNote: If proxy is enabled, this reflects proxy connection quality; otherwise, it reflects local network quality."
                 } else {
-                    _resultMessage.value = "目标: www.google.com\n状态: 连接失败 (${response.code})\n耗时: ${duration}ms"
+                    _resultMessage.value = "Target: www.google.com\nStatus: Failed (${response.code})\nDuration: ${duration}ms"
                 }
                 response.close()
             } catch (e: Exception) {
-                _resultMessage.value = "目标: www.google.com\n状态: 连接异常\n错误: ${e.message}"
+                _resultMessage.value = "Target: www.google.com\nStatus: Error\nError: ${e.message}"
             } finally {
                 _isConnectivityLoading.value = false
                 _showResultDialog.value = true
@@ -182,7 +183,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isPingLoading.value) return
         viewModelScope.launch {
             _isPingLoading.value = true
-            _resultTitle.value = "TCP Ping 测试"
+            _resultTitle.value = "TCP Ping Test"
             val host = "8.8.8.8"
             val port = 53
             try {
@@ -203,15 +204,15 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     val avg = results.average().toInt()
                     val loss = ((count - results.size).toDouble() / count * 100).toInt()
                     
-                    "发送: $count, 接收: ${results.size}, 丢失: $loss%\n" +
-                    "最短: ${min}ms, 平均: ${avg}ms, 最长: ${max}ms"
+                    "Sent: $count, Received: ${results.size}, Loss: $loss%\n" +
+                    "Min: ${min}ms, Avg: ${avg}ms, Max: ${max}ms"
                 } else {
-                    "发送: $count, 接收: 0, 丢失: 100%"
+                    "Sent: $count, Received: 0, Loss: 100%"
                 }
                 
-                _resultMessage.value = "目标: $host:$port (Google DNS)\n方式: TCP Ping (Java Socket)\n\n$summary"
+                _resultMessage.value = "Target: $host:$port (Google DNS)\nMethod: TCP Ping (Java Socket)\n\n$summary"
             } catch (e: Exception) {
-                _resultMessage.value = "TCP Ping 执行失败: ${e.message}"
+                _resultMessage.value = "TCP Ping failed: ${e.message}"
             } finally {
                 _isPingLoading.value = false
                 _showResultDialog.value = true
@@ -223,7 +224,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isDnsLoading.value) return
         viewModelScope.launch {
             _isDnsLoading.value = true
-            _resultTitle.value = "DNS 查询"
+            _resultTitle.value = "DNS Query"
             val host = "www.google.com"
             try {
                 // Use Java's built-in DNS resolver (which uses system/VPN DNS)
@@ -231,9 +232,9 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     InetAddress.getAllByName(host)
                 }
                 val ipList = ips.joinToString("\n") { it.hostAddress }
-                _resultMessage.value = "域名: $host\n\n解析结果:\n$ipList\n\n说明: 此结果受当前 DNS 设置及 VPN 状态影响。"
+                _resultMessage.value = "Domain: $host\n\nResult:\n$ipList\n\nNote: This result is affected by current DNS settings and VPN status."
             } catch (e: Exception) {
-                _resultMessage.value = "域名: $host\n\n解析失败: ${e.message}"
+                _resultMessage.value = "Domain: $host\n\nFailed: ${e.message}"
             } finally {
                 _isDnsLoading.value = false
                 _showResultDialog.value = true
@@ -245,15 +246,15 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isRoutingLoading.value) return
         viewModelScope.launch {
             _isRoutingLoading.value = true
-            _resultTitle.value = "路由测试"
+            _resultTitle.value = "Routing Test"
             val testDomain = "baidu.com"
             
             val config = configRepository.getActiveConfig()
             if (config == null) {
-                _resultMessage.value = "无法执行测试: 未加载活跃配置。"
+                _resultMessage.value = "Cannot execute test: active configuration not loaded."
             } else {
                 val match = findMatch(config, testDomain)
-                _resultMessage.value = "测试域名: $testDomain\n\n匹配结果:\n规则: ${match.rule}\n出站: ${match.outbound}\n\n说明: 此测试模拟 sing-box 路由匹配逻辑，不代表实际流量走向。"
+                _resultMessage.value = "Test Domain: $testDomain\n\nResult:\nRule: ${match.rule}\nOutbound: ${match.outbound}\n\nNote: This test simulates sing-box routing logic and does not represent actual traffic flow."
             }
             _isRoutingLoading.value = false
             _showResultDialog.value = true
@@ -276,32 +277,32 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 val procReport = buildString {
                     appendLine("Android API: ${Build.VERSION.SDK_INT}")
                     appendLine()
-                    appendLine("ProcFS 可读性：")
+                    appendLine("ProcFS Readability:")
                     procPaths.forEach { path ->
                         val file = File(path)
                         val status = try {
                             if (!file.exists()) {
-                                "不存在"
+                                "Not exist"
                             } else if (!file.canRead()) {
-                                "存在但不可读"
+                                "Exist but not readable"
                             } else {
                                 val firstLine = runCatching { file.bufferedReader().use { it.readLine() } }.getOrNull()
-                                "可读 (首行: ${firstLine ?: "null"})"
+                                "Readable (First line: ${firstLine ?: "null"})"
                             }
                         } catch (e: Exception) {
-                            "读取异常: ${e.message}"
+                            "Error: ${e.message}"
                         }
                         appendLine("- $path: $status")
                     }
                     appendLine()
-                    appendLine("说明：")
-                    appendLine("- 若 /proc/net/* 不可读，libbox 即使启用 ProcFS（useProcFS=true）也可能无法通过 package_name 匹配应用流量。")
-                    appendLine("- 若运行配置里 package_name>0 但实际不生效，通常需要实现连接归属查询（findConnectionOwner）作为替代。")
+                    appendLine("Note:")
+                    appendLine("- If /proc/net/* is not readable, libbox may not be able to match app traffic via package_name even if ProcFS is enabled.")
+                    appendLine("- If package_name rules exist but are ineffective, connection owner resolution (findConnectionOwner) is likely required.")
                 }
 
                 _resultMessage.value = procReport
             } catch (e: Exception) {
-                _resultMessage.value = "诊断失败: ${e.message}"
+                _resultMessage.value = "Diagnostics failed: ${e.message}"
             } finally {
                 _isAppRoutingDiagLoading.value = false
                 _showResultDialog.value = true
@@ -313,7 +314,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         if (_isConnOwnerStatsLoading.value) return
         viewModelScope.launch {
             _isConnOwnerStatsLoading.value = true
-            _resultTitle.value = "连接归属统计 (findConnectionOwner)"
+            _resultTitle.value = "Connection Owner Stats (findConnectionOwner)"
             try {
                 val s = SingBoxService.getConnectionOwnerStatsSnapshot()
                 _resultMessage.value = buildString {
@@ -325,13 +326,13 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     appendLine("lastUid: ${s.lastUid}")
                     appendLine("lastEvent: ${s.lastEvent}")
                     appendLine()
-                    appendLine("判读：")
-                    appendLine("- 若 uidResolved=0 且 securityDenied>0：ROM/系统拒绝 getConnectionOwnerUid；package_name 无法生效。")
-                    appendLine("- 若 uidResolved=0 且 invalidArgs 很高：可能 libbox 传入地址/端口不完整（或未走此回调）。")
-                    appendLine("- 若 calls≈0：说明当前流量未触发 owner 查询（可能未启用相关功能或走了其他路径）。")
+                    appendLine("Interpretation:")
+                    appendLine("- If uidResolved=0 and securityDenied>0: System denied getConnectionOwnerUid; package_name will not work.")
+                    appendLine("- If uidResolved=0 and invalidArgs is high: addresses/ports may be incomplete.")
+                    appendLine("- If calls ≈ 0: traffic didn't trigger owner lookup (feature disabled or different path taken).")
                 }
             } catch (e: Exception) {
-                _resultMessage.value = "读取统计失败: ${e.message}"
+                _resultMessage.value = "Failed to read stats: ${e.message}"
             } finally {
                 _isConnOwnerStatsLoading.value = false
                 _showResultDialog.value = true
@@ -341,15 +342,15 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     fun resetConnectionOwnerStats() {
         SingBoxService.resetConnectionOwnerStats()
-        _resultTitle.value = "连接归属统计"
-        _resultMessage.value = "已重置 findConnectionOwner 统计计数。"
+        _resultTitle.value = "Connection Owner Stats"
+        _resultMessage.value = "findConnectionOwner stats reset."
         _showResultDialog.value = true
     }
 
     private data class MatchResult(val rule: String, val outbound: String)
 
     private fun findMatch(config: SingBoxConfig, domain: String): MatchResult {
-        val rules = config.route?.rules ?: return MatchResult("默认 (无规则)", config.route?.finalOutbound ?: "direct")
+        val rules = config.route?.rules ?: return MatchResult("Default (no rules)", config.route?.finalOutbound ?: "direct")
         
         for (rule in rules) {
             // Domain match
@@ -385,6 +386,6 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
         
-        return MatchResult("Final (漏网之鱼)", config.route?.finalOutbound ?: "direct")
+        return MatchResult("Final (No match)", config.route?.finalOutbound ?: "direct")
     }
 }

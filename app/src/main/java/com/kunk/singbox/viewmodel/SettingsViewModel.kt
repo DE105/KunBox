@@ -1,5 +1,6 @@
 package com.kunk.singbox.viewmodel
 
+import com.kunk.singbox.R
 import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
@@ -9,6 +10,7 @@ import com.kunk.singbox.model.CustomRule
 import com.kunk.singbox.model.DefaultRule
 import com.kunk.singbox.model.DnsStrategy
 import com.kunk.singbox.model.AppThemeMode
+import com.kunk.singbox.model.AppLanguage
 import com.kunk.singbox.model.ExportData
 import com.kunk.singbox.model.ExportDataSummary
 import com.kunk.singbox.model.ImportOptions
@@ -73,6 +75,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     
     fun setAppTheme(value: AppThemeMode) {
         viewModelScope.launch { repository.setAppTheme(value) }
+    }
+    
+    fun setAppLanguage(value: AppLanguage) {
+        viewModelScope.launch { repository.setAppLanguage(value) }
     }
 
     // TUN/VPN 设置
@@ -314,7 +320,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val currentSets = repository.getRuleSets().toMutableList()
             val exists = currentSets.any { it.tag == normalizedRuleSet.tag }
             if (exists) {
-                onResult(false, "规则集 \"${normalizedRuleSet.tag}\" 已存在")
+                onResult(false, getApplication<Application>().getString(R.string.rulesets_exists, normalizedRuleSet.tag))
             } else {
                 currentSets.add(normalizedRuleSet)
                 repository.setRuleSets(currentSets)
@@ -332,9 +338,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 }
                 
                 if (downloadOk) {
-                    onResult(true, "已添加规则集 \"${normalizedRuleSet.tag}\"，并完成下载")
+                    onResult(true, getApplication<Application>().getString(R.string.rulesets_added_downloaded, normalizedRuleSet.tag))
                 } else {
-                    onResult(true, "已添加规则集 \"${normalizedRuleSet.tag}\"，但下载失败（稍后可手动更新）")
+                    onResult(true, getApplication<Application>().getString(R.string.rulesets_added_failed, normalizedRuleSet.tag))
                 }
             }
         }
@@ -605,7 +611,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _exportState.value = if (result.isSuccess) {
                 ExportState.Success
             } else {
-                ExportState.Error(result.exceptionOrNull()?.message ?: "导出失败")
+                ExportState.Error(result.exceptionOrNull()?.message ?: getApplication<Application>().getString(R.string.export_failed))
             }
         }
     }
@@ -624,7 +630,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 val summary = dataExportRepository.getExportDataSummary(exportData)
                 ImportState.Preview(uri, exportData, summary)
             } else {
-                ImportState.Error(result.exceptionOrNull()?.message ?: "数据验证失败")
+                ImportState.Error(result.exceptionOrNull()?.message ?: getApplication<Application>().getString(R.string.data_validation_failed))
             }
         }
     }
@@ -653,7 +659,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     is ImportResult.Failed -> ImportState.Error(importResult.error)
                 }
             } else {
-                ImportState.Error(result.exceptionOrNull()?.message ?: "导入失败")
+                ImportState.Error(result.exceptionOrNull()?.message ?: getApplication<Application>().getString(R.string.import_failed))
             }
         }
     }

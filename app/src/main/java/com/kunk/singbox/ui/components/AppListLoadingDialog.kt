@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.components
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +13,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,7 +64,7 @@ fun AppListLoadingDialog(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "正在加载应用列表...",
+                text = stringResource(R.string.app_list_loading),
                 style = MaterialTheme.typography.titleMedium,
                 color = TextPrimary
             )
@@ -70,7 +72,7 @@ fun AppListLoadingDialog(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "已加载 ${loadingState.current} / ${loadingState.total} 个应用",
+                text = stringResource(R.string.app_list_loaded, loadingState.current, loadingState.total),
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
@@ -96,7 +98,7 @@ fun AppListLoadingDialog(
 @Composable
 fun SimpleLoadingDialog(
     show: Boolean,
-    message: String = "正在加载..."
+    message: String = stringResource(R.string.common_loading)
 ) {
     if (!show) return
 

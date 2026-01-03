@@ -1,5 +1,6 @@
 package com.kunk.singbox.repository
 
+import com.kunk.singbox.R
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -98,7 +99,7 @@ class InstalledAppsRepository private constructor(private val context: Context) 
                 _loadingState.value = LoadingState.Loaded
             }
         } catch (e: Exception) {
-            _loadingState.value = LoadingState.Error(e.message ?: "加载失败")
+            _loadingState.value = LoadingState.Error(e.message ?: context.getString(R.string.common_loading)) // TODO: Better error string
         }
     }
 

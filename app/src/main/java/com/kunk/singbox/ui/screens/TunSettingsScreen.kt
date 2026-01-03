@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -58,11 +60,11 @@ fun TunSettingsScreen(
     var showBlocklistDialog by remember { mutableStateOf(false) }
 
     if (showStackDialog) {
-        val options = TunStack.entries.map { it.displayName }
+        val options = TunStack.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "堆栈",
+            title = stringResource(R.string.tun_settings_stack),
             options = options,
-            selectedIndex = options.indexOf(settings.tunStack.displayName).coerceAtLeast(0),
+            selectedIndex = TunStack.entries.indexOf(settings.tunStack).coerceAtLeast(0),
             onSelect = { index ->
                 settingsViewModel.setTunStack(TunStack.entries[index])
                 showStackDialog = false
@@ -73,7 +75,7 @@ fun TunSettingsScreen(
     
     if (showMtuDialog) {
         InputDialog(
-            title = "MTU",
+            title = stringResource(R.string.tun_settings_mtu),
             initialValue = settings.tunMtu.toString(),
             onConfirm = { 
                 it.toIntOrNull()?.let { mtu -> settingsViewModel.setTunMtu(mtu) }
@@ -85,7 +87,7 @@ fun TunSettingsScreen(
     
     if (showInterfaceDialog) {
         InputDialog(
-            title = "接口名称",
+            title = stringResource(R.string.tun_settings_interface_name),
             initialValue = settings.tunInterfaceName,
             onConfirm = { 
                 settingsViewModel.setTunInterfaceName(it)
@@ -96,11 +98,11 @@ fun TunSettingsScreen(
     }
 
     if (showRouteModeDialog) {
-        val options = VpnRouteMode.entries.map { it.displayName }
+        val options = VpnRouteMode.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "接管模式",
+            title = stringResource(R.string.tun_settings_route_mode),
             options = options,
-            selectedIndex = options.indexOf(settings.vpnRouteMode.displayName).coerceAtLeast(0),
+            selectedIndex = VpnRouteMode.entries.indexOf(settings.vpnRouteMode).coerceAtLeast(0),
             onSelect = { index ->
                 settingsViewModel.setVpnRouteMode(VpnRouteMode.entries[index])
                 showRouteModeDialog = false
@@ -111,9 +113,9 @@ fun TunSettingsScreen(
 
     if (showRouteCidrsDialog) {
         InputDialog(
-            title = "接管网段 (CIDR)",
+            title = stringResource(R.string.tun_settings_route_cidrs),
             initialValue = settings.vpnRouteIncludeCidrs,
-            placeholder = "每行一个，例如\n0.0.0.0/0\n10.0.0.0/8",
+            placeholder = "e.g.\n0.0.0.0/0\n10.0.0.0/8",
             singleLine = false,
             minLines = 4,
             maxLines = 8,
@@ -126,11 +128,11 @@ fun TunSettingsScreen(
     }
 
     if (showAppModeDialog) {
-        val options = VpnAppMode.entries.map { it.displayName }
+        val options = VpnAppMode.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "分应用模式",
+            title = stringResource(R.string.tun_settings_app_mode),
             options = options,
-            selectedIndex = options.indexOf(settings.vpnAppMode.displayName).coerceAtLeast(0),
+            selectedIndex = VpnAppMode.entries.indexOf(settings.vpnAppMode).coerceAtLeast(0),
             onSelect = { index ->
                 settingsViewModel.setVpnAppMode(VpnAppMode.entries[index])
                 showAppModeDialog = false
@@ -147,7 +149,7 @@ fun TunSettingsScreen(
             .toSet()
 
         AppMultiSelectDialog(
-            title = "选择仅允许走 VPN 的应用",
+            title = stringResource(R.string.tun_settings_select_vpn_apps),
             selectedPackages = selected,
             enableQuickSelectCommonApps = true,
             onConfirm = { packages ->
@@ -166,7 +168,7 @@ fun TunSettingsScreen(
             .toSet()
 
         AppMultiSelectDialog(
-            title = "选择不走 VPN 的应用",
+            title = stringResource(R.string.tun_settings_select_bypass_apps),
             selectedPackages = selected,
             onConfirm = { packages ->
                 settingsViewModel.setVpnBlocklist(packages.joinToString("\n"))
@@ -180,62 +182,62 @@ fun TunSettingsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("TUN / VPN 设置", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.tun_settings_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(scrollState)
-        ) {
-            StandardCard {
-                SettingSwitchItem(
-                    title = "启用 TUN",
-                    subtitle = "创建 VPN 接口以接管系统流量",
-                    checked = settings.tunEnabled,
-                    onCheckedChange = { settingsViewModel.setTunEnabled(it) }
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            StandardCard {
-                SettingItem(title = "堆栈", value = settings.tunStack.displayName, onClick = { showStackDialog = true })
-                SettingItem(title = "MTU", value = settings.tunMtu.toString(), onClick = { showMtuDialog = true })
-                SettingItem(title = "接口名称", value = settings.tunInterfaceName, onClick = { showInterfaceDialog = true })
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            StandardCard {
-                SettingSwitchItem(
-                    title = "自动路由",
-                    subtitle = "自动配置系统路由表",
-                    checked = settings.autoRoute,
-                    onCheckedChange = { settingsViewModel.setAutoRoute(it) }
-                )
-                SettingSwitchItem(
-                    title = "独立 NAT",
-                    subtitle = "改善 P2P 连接 (Full Cone)",
-                    checked = settings.endpointIndependentNat,
-                    onCheckedChange = { settingsViewModel.setEndpointIndependentNat(it) }
-                )
-                SettingSwitchItem(
-                    title = "严格路由",
-                    subtitle = "防止 DNS 泄露",
-                    checked = settings.strictRoute,
-                    onCheckedChange = { settingsViewModel.setStrictRoute(it) }
-                )
-            }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .padding(16.dp)
+            .verticalScroll(scrollState)
+    ) {
+        StandardCard {
+            SettingSwitchItem(
+                title = stringResource(R.string.tun_settings_enable),
+                subtitle = stringResource(R.string.tun_settings_enable_subtitle),
+                checked = settings.tunEnabled,
+                onCheckedChange = { settingsViewModel.setTunEnabled(it) }
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        StandardCard {
+            SettingItem(title = stringResource(R.string.tun_settings_stack), value = stringResource(settings.tunStack.displayNameRes), onClick = { showStackDialog = true })
+            SettingItem(title = stringResource(R.string.tun_settings_mtu), value = settings.tunMtu.toString(), onClick = { showMtuDialog = true })
+            SettingItem(title = stringResource(R.string.tun_settings_interface_name), value = settings.tunInterfaceName, onClick = { showInterfaceDialog = true })
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        StandardCard {
+            SettingSwitchItem(
+                title = stringResource(R.string.tun_settings_auto_route),
+                subtitle = stringResource(R.string.tun_settings_auto_route_subtitle),
+                checked = settings.autoRoute,
+                onCheckedChange = { settingsViewModel.setAutoRoute(it) }
+            )
+            SettingSwitchItem(
+                title = stringResource(R.string.tun_settings_endpoint_independent_nat),
+                subtitle = stringResource(R.string.tun_settings_endpoint_independent_nat_subtitle),
+                checked = settings.endpointIndependentNat,
+                onCheckedChange = { settingsViewModel.setEndpointIndependentNat(it) }
+            )
+            SettingSwitchItem(
+                title = stringResource(R.string.tun_settings_strict_route),
+                subtitle = stringResource(R.string.tun_settings_strict_route_subtitle),
+                checked = settings.strictRoute,
+                onCheckedChange = { settingsViewModel.setStrictRoute(it) }
+            )
+        }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -254,28 +256,28 @@ fun TunSettingsScreen(
 
             StandardCard {
                 SettingItem(
-                    title = "接管模式",
-                    value = settings.vpnRouteMode.displayName,
+                    title = stringResource(R.string.tun_settings_route_mode),
+                    value = stringResource(settings.vpnRouteMode.displayNameRes),
                     onClick = { showRouteModeDialog = true }
                 )
                 SettingItem(
-                    title = "接管网段",
-                    value = if (settings.vpnRouteMode == VpnRouteMode.CUSTOM) "已设置 $cidrCount 条" else "-",
+                    title = stringResource(R.string.tun_settings_route_cidrs),
+                    value = if (settings.vpnRouteMode == VpnRouteMode.CUSTOM) stringResource(R.string.tun_settings_route_cidrs_configured, cidrCount) else "-",
                     onClick = { if (settings.vpnRouteMode == VpnRouteMode.CUSTOM) showRouteCidrsDialog = true }
                 )
                 SettingItem(
-                    title = "分应用模式",
-                    value = settings.vpnAppMode.displayName,
+                    title = stringResource(R.string.tun_settings_app_mode),
+                    value = stringResource(settings.vpnAppMode.displayNameRes),
                     onClick = { showAppModeDialog = true }
                 )
                 SettingItem(
-                    title = "仅允许列表",
-                    value = if (settings.vpnAppMode == VpnAppMode.ALLOWLIST) "已设置 $allowCount 个" else "-",
+                    title = stringResource(R.string.tun_settings_allowlist),
+                    value = if (settings.vpnAppMode == VpnAppMode.ALLOWLIST) stringResource(R.string.tun_settings_allowlist_configured, allowCount) else "-",
                     onClick = { if (settings.vpnAppMode == VpnAppMode.ALLOWLIST) showAllowlistDialog = true }
                 )
                 SettingItem(
-                    title = "排除列表",
-                    value = if (settings.vpnAppMode == VpnAppMode.BLOCKLIST) "已设置 $blockCount 个" else "-",
+                    title = stringResource(R.string.tun_settings_blocklist),
+                    value = if (settings.vpnAppMode == VpnAppMode.BLOCKLIST) stringResource(R.string.tun_settings_blocklist_configured, blockCount) else "-",
                     onClick = { if (settings.vpnAppMode == VpnAppMode.BLOCKLIST) showBlocklistDialog = true }
                 )
             }

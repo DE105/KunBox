@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import com.kunk.singbox.R
 import com.kunk.singbox.ui.components.InputDialog
 import com.kunk.singbox.ui.components.SingleSelectDialog
 
@@ -21,10 +23,10 @@ fun EditableTextItem(
 
     if (showDialog) {
         InputDialog(
-            title = "修改 $title",
+            title = stringResource(R.string.common_edit_title, title),
             initialValue = value,
-            confirmText = "确定",
-            onConfirm = { 
+            confirmText = stringResource(R.string.common_ok),
+            onConfirm = {
                 onValueChange(it)
                 showDialog = false 
             },
@@ -54,7 +56,7 @@ fun EditableSelectionItem(
 
     if (showDialog) {
         SingleSelectDialog(
-            title = "选择 $title",
+            title = stringResource(R.string.common_select_title, title),
             options = options,
             selectedIndex = options.indexOf(value).coerceAtLeast(0),
             onSelect = { index ->

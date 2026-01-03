@@ -1,5 +1,7 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -143,7 +145,7 @@ fun SplashScreen(
             
             // Tagline
             Text(
-                text = "安全 · 快速 · 稳定",
+                text = stringResource(R.string.splash_tagline),
                 fontSize = 14.sp,
                 color = Neutral500,
                 modifier = Modifier.alpha(textAlpha.value),

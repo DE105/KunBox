@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,7 +40,7 @@ fun AppRoutingScreen(
 ) {
     val settings by settingsViewModel.settings.collectAsState()
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("应用分组", "独立规则")
+    val tabs = listOf(stringResource(R.string.app_rules_tabs_groups), stringResource(R.string.app_rules_tabs_individual))
 
     var showAddGroupDialog by remember { mutableStateOf(false) }
     var editingGroup by remember { mutableStateOf<AppGroup?>(null) }
@@ -106,9 +108,9 @@ fun AppRoutingScreen(
 
     if (showDeleteGroupConfirm != null) {
         ConfirmDialog(
-            title = "删除分组",
-            message = "确定要删除 \"${showDeleteGroupConfirm?.name}\" 分组吗？",
-            confirmText = "删除",
+            title = stringResource(R.string.app_groups_delete_title),
+            message = stringResource(R.string.app_rules_delete_confirm, showDeleteGroupConfirm?.name ?: ""), // TODO: check string
+            confirmText = stringResource(R.string.common_delete),
             onConfirm = {
                 settingsViewModel.deleteAppGroup(showDeleteGroupConfirm!!.id)
                 showDeleteGroupConfirm = null
@@ -152,9 +154,9 @@ fun AppRoutingScreen(
 
     if (showDeleteRuleConfirm != null) {
         ConfirmDialog(
-            title = "删除规则",
-            message = "确定要删除 \"${showDeleteRuleConfirm?.appName}\" 的规则吗？",
-            confirmText = "删除",
+            title = stringResource(R.string.app_rules_delete_title),
+            message = stringResource(R.string.app_rules_delete_confirm, showDeleteRuleConfirm?.appName ?: ""),
+            confirmText = stringResource(R.string.common_delete),
             onConfirm = {
                 settingsViewModel.deleteAppRule(showDeleteRuleConfirm!!.id)
                 showDeleteRuleConfirm = null
@@ -168,10 +170,10 @@ fun AppRoutingScreen(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("应用分流", color = MaterialTheme.colorScheme.onBackground) },
+                    title = { Text(stringResource(R.string.app_rules_title), color = MaterialTheme.colorScheme.onBackground) },
                     navigationIcon = {
                         IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                            Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                         }
                     },
                     actions = {
@@ -179,7 +181,7 @@ fun AppRoutingScreen(
                             if (selectedTab == 0) showAddGroupDialog = true
                             else showAddRuleDialog = true
                         }) {
-                            Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
+                            Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.common_add), tint = MaterialTheme.colorScheme.onBackground)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -228,7 +230,7 @@ fun AppRoutingScreen(
                 if (selectedTab == 0) {
                     if (settings.appGroups.isEmpty()) {
                         item {
-                            EmptyState(Icons.Rounded.Folder, "暂无应用分组", "点击右上角 + 创建分组")
+                            EmptyState(Icons.Rounded.Folder, stringResource(R.string.app_rules_empty_groups), stringResource(R.string.app_rules_empty_groups_hint))
                         }
                     } else {
                         items(settings.appGroups) { group ->
@@ -236,7 +238,7 @@ fun AppRoutingScreen(
                             val outboundText = resolveOutboundText(mode, group.outboundValue, allNodes, profiles)
                             AppGroupCard(
                                 group = group,
-                                outboundText = outboundText,
+                                outboundText = "${stringResource(mode.displayNameRes)} → $outboundText",
                                 onClick = { editingGroup = group },
                                 onToggle = { settingsViewModel.toggleAppGroupEnabled(group.id) },
                                 onDelete = { showDeleteGroupConfirm = group }
@@ -246,7 +248,7 @@ fun AppRoutingScreen(
                 } else {
                     if (settings.appRules.isEmpty()) {
                         item {
-                            EmptyState(Icons.Rounded.Apps, "暂无独立应用规则", "点击右上角 + 添加规则")
+                            EmptyState(Icons.Rounded.Apps, stringResource(R.string.app_rules_empty_individual), stringResource(R.string.app_rules_empty_individual_hint))
                         }
                     } else {
                         items(settings.appRules) { rule ->
@@ -254,7 +256,7 @@ fun AppRoutingScreen(
                             val outboundText = resolveOutboundText(mode, rule.outboundValue, allNodes, profiles)
                             AppRuleItem(
                                 rule = rule,
-                                outboundText = outboundText,
+                                outboundText = "${stringResource(mode.displayNameRes)} → $outboundText",
                                 onClick = { editingRule = rule },
                                 onToggle = { settingsViewModel.toggleAppRuleEnabled(rule.id) },
                                 onDelete = { showDeleteRuleConfirm = rule }
@@ -283,6 +285,7 @@ fun EmptyState(icon: ImageVector, title: String, subtitle: String) {
     }
 }
 
+@Composable
 private fun resolveOutboundText(
     mode: RuleSetOutboundMode,
     value: String?,
@@ -290,9 +293,9 @@ private fun resolveOutboundText(
     profiles: List<ProfileUi>
 ): String {
     return when (mode) {
-        RuleSetOutboundMode.DIRECT -> "直连"
-        RuleSetOutboundMode.BLOCK -> "拦截"
-        RuleSetOutboundMode.PROXY -> "代理"
+        RuleSetOutboundMode.DIRECT -> stringResource(R.string.outbound_tag_direct)
+        RuleSetOutboundMode.BLOCK -> stringResource(R.string.outbound_tag_block)
+        RuleSetOutboundMode.PROXY -> stringResource(R.string.outbound_tag_proxy)
         RuleSetOutboundMode.NODE -> {
             val parts = value?.split("::", limit = 2)
             val node = if (!value.isNullOrBlank() && parts != null && parts.size == 2) {
@@ -303,9 +306,9 @@ private fun resolveOutboundText(
                 nodes.find { it.id == value } ?: nodes.find { it.name == value }
             }
             val profileName = profiles.find { p -> p.id == node?.sourceProfileId }?.name
-            if (node != null && profileName != null) "${node.name} ($profileName)" else "未选择"
+            if (node != null && profileName != null) "${node.name} ($profileName)" else stringResource(R.string.app_rules_not_selected)
         }
-        RuleSetOutboundMode.PROFILE -> profiles.find { it.id == value }?.name ?: "未知配置"
-        RuleSetOutboundMode.GROUP -> value ?: "未知组"
+        RuleSetOutboundMode.PROFILE -> profiles.find { it.id == value }?.name ?: stringResource(R.string.app_rules_unknown_profile)
+        RuleSetOutboundMode.GROUP -> value ?: stringResource(R.string.app_rules_unknown_group)
     }
 }

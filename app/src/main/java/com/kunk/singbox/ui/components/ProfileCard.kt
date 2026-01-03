@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.components
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,8 +80,9 @@ fun ProfileCard(
         return String.format(Locale.US, "%.2f %s", value, units[unitIndex])
     }
 
+    val noExpiryMsg = stringResource(R.string.profile_card_no_expiry)
     fun formatDate(timestamp: Long): String {
-        if (timestamp <= 0) return "无限期"
+        if (timestamp <= 0) return noExpiryMsg
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         return sdf.format(Date(timestamp * 1000)) // Subscription usually returns unix timestamp in seconds
     }
@@ -141,8 +144,9 @@ fun ProfileCard(
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
+                val disabledSuffix = if (!isEnabled) " (" + stringResource(R.string.common_disabled) + ")" else ""
                 Text(
-                    text = type + if (!isEnabled) " (已禁用)" else "",
+                    text = type + disabledSuffix,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -209,7 +213,7 @@ fun ProfileCard(
                     DropdownMenuItem(
                         text = {
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text("更新", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.common_update), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         },
                         onClick = {
@@ -220,7 +224,7 @@ fun ProfileCard(
                     DropdownMenuItem(
                         text = {
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text(if (isEnabled) "禁用" else "启用", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(if (isEnabled) stringResource(R.string.common_disable) else stringResource(R.string.common_enable), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         },
                         onClick = {
@@ -231,7 +235,7 @@ fun ProfileCard(
                     DropdownMenuItem(
                         text = {
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text("编辑", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.common_edit), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         },
                         onClick = {
@@ -242,7 +246,7 @@ fun ProfileCard(
                     DropdownMenuItem(
                         text = {
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text("删除", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         },
                         onClick = {

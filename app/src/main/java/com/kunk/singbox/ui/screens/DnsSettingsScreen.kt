@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -56,7 +58,7 @@ fun DnsSettingsScreen(
 
     if (showLocalDnsDialog) {
         InputDialog(
-            title = "本地 DNS",
+            title = stringResource(R.string.settings_local_dns),
             initialValue = settings.localDns,
             onConfirm = { 
                 settingsViewModel.setLocalDns(it)
@@ -68,7 +70,7 @@ fun DnsSettingsScreen(
     
     if (showRemoteDnsDialog) {
         InputDialog(
-            title = "远程 DNS",
+            title = stringResource(R.string.settings_remote_dns),
             initialValue = settings.remoteDns,
             onConfirm = { 
                 settingsViewModel.setRemoteDns(it)
@@ -80,7 +82,7 @@ fun DnsSettingsScreen(
     
     if (showFakeIpDialog) {
         InputDialog(
-            title = "虚假 IP 段",
+            title = stringResource(R.string.dns_settings_fake_ip_range),
             initialValue = settings.fakeIpRange,
             onConfirm = { 
                 settingsViewModel.setFakeIpRange(it)
@@ -91,11 +93,11 @@ fun DnsSettingsScreen(
     }
     
     if (showStrategyDialog) {
-        val options = DnsStrategy.entries.map { it.displayName }
+        val options = DnsStrategy.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "解析策略",
+            title = stringResource(R.string.dns_settings_strategy),
             options = options,
-            selectedIndex = options.indexOf(settings.dnsStrategy.displayName).coerceAtLeast(0),
+            selectedIndex = DnsStrategy.entries.indexOf(settings.dnsStrategy).coerceAtLeast(0),
             onSelect = { index ->
                 settingsViewModel.setDnsStrategy(DnsStrategy.entries[index])
                 showStrategyDialog = false
@@ -105,11 +107,11 @@ fun DnsSettingsScreen(
     }
 
     if (showRemoteStrategyDialog) {
-        val options = DnsStrategy.entries.map { it.displayName }
+        val options = DnsStrategy.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "远程域名策略",
+            title = stringResource(R.string.dns_settings_remote_strategy),
             options = options,
-            selectedIndex = options.indexOf(settings.remoteDnsStrategy.displayName).coerceAtLeast(0),
+            selectedIndex = DnsStrategy.entries.indexOf(settings.remoteDnsStrategy).coerceAtLeast(0),
             onSelect = { index ->
                 settingsViewModel.setRemoteDnsStrategy(DnsStrategy.entries[index])
                 showRemoteStrategyDialog = false
@@ -119,11 +121,11 @@ fun DnsSettingsScreen(
     }
 
     if (showDirectStrategyDialog) {
-        val options = DnsStrategy.entries.map { it.displayName }
+        val options = DnsStrategy.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "直连域名策略",
+            title = stringResource(R.string.dns_settings_direct_strategy),
             options = options,
-            selectedIndex = options.indexOf(settings.directDnsStrategy.displayName).coerceAtLeast(0),
+            selectedIndex = DnsStrategy.entries.indexOf(settings.directDnsStrategy).coerceAtLeast(0),
             onSelect = { index ->
                 settingsViewModel.setDirectDnsStrategy(DnsStrategy.entries[index])
                 showDirectStrategyDialog = false
@@ -133,11 +135,11 @@ fun DnsSettingsScreen(
     }
 
     if (showServerStrategyDialog) {
-        val options = DnsStrategy.entries.map { it.displayName }
+        val options = DnsStrategy.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "服务器地址策略",
+            title = stringResource(R.string.dns_settings_server_strategy),
             options = options,
-            selectedIndex = options.indexOf(settings.serverAddressStrategy.displayName).coerceAtLeast(0),
+            selectedIndex = DnsStrategy.entries.indexOf(settings.serverAddressStrategy).coerceAtLeast(0),
             onSelect = { index ->
                 settingsViewModel.setServerAddressStrategy(DnsStrategy.entries[index])
                 showServerStrategyDialog = false
@@ -147,10 +149,10 @@ fun DnsSettingsScreen(
     }
     
     if (showCacheDialog) {
-        val options = listOf("已启用", "已禁用")
+        val options = listOf(stringResource(R.string.common_enabled), stringResource(R.string.common_disabled))
         val currentIndex = if (settings.dnsCacheEnabled) 0 else 1
         SingleSelectDialog(
-            title = "DNS 缓存",
+            title = stringResource(R.string.dns_settings_cache),
             options = options,
             selectedIndex = currentIndex,
             onSelect = { index ->
@@ -165,49 +167,49 @@ fun DnsSettingsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("DNS 设置", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.dns_settings_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(scrollState)
-        ) {
-            StandardCard {
-                SettingItem(title = "本地 DNS", value = settings.localDns, onClick = { showLocalDnsDialog = true })
-                SettingItem(title = "远程 DNS", value = settings.remoteDns, onClick = { showRemoteDnsDialog = true })
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            StandardCard {
-                SettingSwitchItem(
-                    title = "Fake DNS",
-                    subtitle = "返回虚假 IP 以加速域名解析",
-                    checked = settings.fakeDnsEnabled,
-                    onCheckedChange = { settingsViewModel.setFakeDnsEnabled(it) }
-                )
-                SettingItem(title = "虚假 IP 段", value = settings.fakeIpRange, onClick = { showFakeIpDialog = true })
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            StandardCard {
-                SettingItem(title = "解析策略", value = settings.dnsStrategy.displayName, onClick = { showStrategyDialog = true })
-                SettingItem(title = "远程域名策略", value = settings.remoteDnsStrategy.displayName, onClick = { showRemoteStrategyDialog = true })
-                SettingItem(title = "直连域名策略", value = settings.directDnsStrategy.displayName, onClick = { showDirectStrategyDialog = true })
-                SettingItem(title = "服务器地址策略", value = settings.serverAddressStrategy.displayName, onClick = { showServerStrategyDialog = true })
-                SettingItem(title = "缓存", value = if (settings.dnsCacheEnabled) "已启用" else "已禁用", onClick = { showCacheDialog = true })
-            }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .padding(16.dp)
+            .verticalScroll(scrollState)
+    ) {
+        StandardCard {
+            SettingItem(title = stringResource(R.string.settings_local_dns), value = settings.localDns, onClick = { showLocalDnsDialog = true })
+            SettingItem(title = stringResource(R.string.settings_remote_dns), value = settings.remoteDns, onClick = { showRemoteDnsDialog = true })
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        StandardCard {
+            SettingSwitchItem(
+                title = "Fake DNS",
+                subtitle = stringResource(R.string.dns_settings_fake_dns_subtitle),
+                checked = settings.fakeDnsEnabled,
+                onCheckedChange = { settingsViewModel.setFakeDnsEnabled(it) }
+            )
+            SettingItem(title = stringResource(R.string.dns_settings_fake_ip_range), value = settings.fakeIpRange, onClick = { showFakeIpDialog = true })
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        StandardCard {
+            SettingItem(title = stringResource(R.string.dns_settings_strategy), value = stringResource(settings.dnsStrategy.displayNameRes), onClick = { showStrategyDialog = true })
+            SettingItem(title = stringResource(R.string.dns_settings_remote_strategy), value = stringResource(settings.remoteDnsStrategy.displayNameRes), onClick = { showRemoteStrategyDialog = true })
+            SettingItem(title = stringResource(R.string.dns_settings_direct_strategy), value = stringResource(settings.directDnsStrategy.displayNameRes), onClick = { showDirectStrategyDialog = true })
+            SettingItem(title = stringResource(R.string.dns_settings_server_strategy), value = stringResource(settings.serverAddressStrategy.displayNameRes), onClick = { showServerStrategyDialog = true })
+            SettingItem(title = stringResource(R.string.dns_settings_cache), value = if (settings.dnsCacheEnabled) stringResource(R.string.common_enabled) else stringResource(R.string.common_disabled), onClick = { showCacheDialog = true })
+        }
         }
     }
 }

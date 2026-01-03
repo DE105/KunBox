@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import android.content.pm.PackageManager
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -15,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,10 +83,10 @@ fun AppRuleItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = rule.appName, style = MaterialTheme.typography.titleMedium, color = if (rule.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(text = "${mode.displayName} → $outboundText", style = MaterialTheme.typography.bodySmall, color = color, maxLines = 1)
+                Text(text = "${stringResource(mode.displayNameRes)} → $outboundText", style = MaterialTheme.typography.bodySmall, color = color, maxLines = 1)
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Rounded.Delete, contentDescription = "删除", tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
+                Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.common_delete), tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
             }
             Switch(checked = rule.enabled, onCheckedChange = { onToggle() }, colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.onPrimary, checkedTrackColor = color, uncheckedThumbColor = Neutral500, uncheckedTrackColor = Neutral700))
         }
@@ -113,6 +115,7 @@ fun AppRuleEditorDialog(
     var showNodeSelectionDialog by remember { mutableStateOf(false) }
     var targetSelectionTitle by remember { mutableStateOf("") }
     var targetOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    val context = LocalContext.current
 
     val selectionNodes = nodesForSelection ?: nodes
 
@@ -134,8 +137,8 @@ fun AppRuleEditorDialog(
     }
 
     if (showOutboundModeDialog) {
-        val options = RuleSetOutboundMode.entries.map { it.displayName }
-        SingleSelectDialog(title = "选择出站模式", options = options, selectedIndex = RuleSetOutboundMode.entries.indexOf(outboundMode), onSelect = { index ->
+        val options = RuleSetOutboundMode.entries.map { stringResource(it.displayNameRes) }
+        SingleSelectDialog(title = stringResource(R.string.rulesets_select_outbound), options = options, selectedIndex = RuleSetOutboundMode.entries.indexOf(outboundMode), onSelect = { index ->
             val selectedMode = RuleSetOutboundMode.entries[index]
             outboundMode = selectedMode
             if (selectedMode != initialRule?.outboundMode) outboundValue = null
@@ -159,7 +162,7 @@ fun AppRuleEditorDialog(
     if (showNodeSelectionDialog) {
         val currentRef = resolveNodeByStoredValue(outboundValue)?.let { toNodeRef(it) } ?: outboundValue
         ProfileNodeSelectDialog(
-            title = "选择节点",
+            title = stringResource(R.string.rulesets_select_node),
             profiles = profiles,
             nodesForSelection = selectionNodes,
             selectedNodeRef = currentRef,
@@ -177,11 +180,11 @@ fun AppRuleEditorDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(24.dp),
         containerColor = MaterialTheme.colorScheme.surface,
-        title = { Text(text = if (initialRule == null) "添加应用规则" else "编辑应用规则", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
+        title = { Text(text = if (initialRule == null) stringResource(R.string.app_rules_add) else stringResource(R.string.app_rules_edit), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
         text = {
             Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                ClickableDropdownField(label = "选择应用", value = selectedApp?.appName ?: "点击选择...", onClick = { showAppPicker = true })
-                ClickableDropdownField(label = "出站模式", value = outboundMode.displayName, onClick = { showOutboundModeDialog = true })
+                ClickableDropdownField(label = stringResource(R.string.app_rules_select_app), value = selectedApp?.appName ?: stringResource(R.string.app_rules_click_to_select), onClick = { showAppPicker = true })
+                ClickableDropdownField(label = stringResource(R.string.common_outbound), value = stringResource(outboundMode.displayNameRes), onClick = { showOutboundModeDialog = true })
                 if (outboundMode == RuleSetOutboundMode.NODE || outboundMode == RuleSetOutboundMode.PROFILE || outboundMode == RuleSetOutboundMode.GROUP) {
                     val targetName = when (outboundMode) {
                         RuleSetOutboundMode.NODE -> {
@@ -198,8 +201,8 @@ fun AppRuleEditorDialog(
                             RuleSetOutboundMode.NODE -> {
                                 showNodeSelectionDialog = true
                             }
-                            RuleSetOutboundMode.PROFILE -> { targetSelectionTitle = "选择配置"; targetOptions = profiles.map { it.name to it.id } }
-                            RuleSetOutboundMode.GROUP -> { targetSelectionTitle = "选择节点组"; targetOptions = groups.map { it to it } }
+                            RuleSetOutboundMode.PROFILE -> { targetSelectionTitle = context.getString(R.string.rulesets_select_profile); targetOptions = profiles.map { it.name to it.id } }
+                            RuleSetOutboundMode.GROUP -> { targetSelectionTitle = context.getString(R.string.rulesets_select_group); targetOptions = groups.map { it to it } }
                             else -> {}
                         }
                         if (outboundMode != RuleSetOutboundMode.NODE) {
@@ -210,9 +213,9 @@ fun AppRuleEditorDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { selectedApp?.let { app -> val rule = initialRule?.copy(packageName = app.packageName, appName = app.appName, outboundMode = outboundMode, outboundValue = outboundValue) ?: AppRule(packageName = app.packageName, appName = app.appName, outboundMode = outboundMode, outboundValue = outboundValue); onConfirm(rule) } }, enabled = selectedApp != null) { Text("保存", color = if (selectedApp != null) MaterialTheme.colorScheme.primary else Neutral500) }
+            TextButton(onClick = { selectedApp?.let { app -> val rule = initialRule?.copy(packageName = app.packageName, appName = app.appName, outboundMode = outboundMode, outboundValue = outboundValue) ?: AppRule(packageName = app.packageName, appName = app.appName, outboundMode = outboundMode, outboundValue = outboundValue); onConfirm(rule) } }, enabled = selectedApp != null) { Text(stringResource(R.string.common_save), color = if (selectedApp != null) MaterialTheme.colorScheme.primary else Neutral500) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant) } }
     )
 }
 
@@ -221,19 +224,19 @@ fun AppRuleEditorDialog(
 fun AppPickerDialog(apps: List<InstalledApp>, existingPackages: Set<String>, onSelect: (InstalledApp) -> Unit, onDismiss: () -> Unit) {
     var searchQuery by remember { mutableStateOf("") }; var showSystemApps by remember { mutableStateOf(false) }
     val filteredApps = remember(apps, searchQuery, showSystemApps, existingPackages) { apps.filter { app -> val matchesSearch = searchQuery.isBlank() || app.appName.contains(searchQuery, ignoreCase = true) || app.packageName.contains(searchQuery, ignoreCase = true); val matchesFilter = showSystemApps || !app.isSystemApp; val notExisting = app.packageName !in existingPackages; matchesSearch && matchesFilter && notExisting } }
-    AlertDialog(onDismissRequest = onDismiss, shape = RoundedCornerShape(24.dp), containerColor = MaterialTheme.colorScheme.surface, title = { Text(text = "选择应用", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) }, text = {
+    AlertDialog(onDismissRequest = onDismiss, shape = RoundedCornerShape(24.dp), containerColor = MaterialTheme.colorScheme.surface, title = { Text(text = stringResource(R.string.app_rules_select_app), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) }, text = {
         Column(modifier = Modifier.fillMaxWidth().height(400.dp)) {
-            OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("搜索应用...", color = Neutral500) }, leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Neutral500) }, singleLine = true, shape = RoundedCornerShape(16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = MaterialTheme.colorScheme.onSurface, unfocusedTextColor = MaterialTheme.colorScheme.onSurface, focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), unfocusedBorderColor = MaterialTheme.colorScheme.outline, cursorColor = MaterialTheme.colorScheme.primary))
-            Spacer(modifier = Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("显示系统应用", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant); Switch(checked = showSystemApps, onCheckedChange = { showSystemApps = it }, colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.onPrimary, checkedTrackColor = Color(0xFF4CAF50), uncheckedThumbColor = Neutral500, uncheckedTrackColor = Neutral700)) }
+            OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text(stringResource(R.string.common_search), color = Neutral500) }, leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.common_search), tint = Neutral500) }, singleLine = true, shape = RoundedCornerShape(16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = MaterialTheme.colorScheme.onSurface, unfocusedTextColor = MaterialTheme.colorScheme.onSurface, focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), unfocusedBorderColor = MaterialTheme.colorScheme.outline, cursorColor = MaterialTheme.colorScheme.primary))
+            Spacer(modifier = Modifier.height(8.dp)); Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(stringResource(R.string.app_list_show_system), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant); Switch(checked = showSystemApps, onCheckedChange = { showSystemApps = it }, colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.onPrimary, checkedTrackColor = Color(0xFF4CAF50), uncheckedThumbColor = Neutral500, uncheckedTrackColor = Neutral700)) }
             Spacer(modifier = Modifier.height(8.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) { items(filteredApps) { app -> AppListItem(app = app, onClick = { onSelect(app) }) } }
         }
-    }, confirmButton = {}, dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) } })
+    }, confirmButton = {}, dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant) } })
 }
 
 @Composable
 fun AppListItem(app: InstalledApp, onClick: () -> Unit) {
     val context = LocalContext.current; val appIcon = remember(app.packageName) { try { context.packageManager.getApplicationIcon(app.packageName).toBitmap(144, 144).asImageBitmap() } catch (e: Exception) { null } }
-    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) { if (appIcon != null) Image(bitmap = appIcon, contentDescription = app.appName, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))) else Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(36.dp)); Spacer(modifier = Modifier.width(12.dp)); Column(modifier = Modifier.weight(1f)) { Text(text = app.appName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium); Text(text = app.packageName, fontSize = 11.sp, color = Neutral500, maxLines = 1) }; if (app.isSystemApp) Text("系统", fontSize = 10.sp, color = Neutral500) }
+    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) { if (appIcon != null) Image(bitmap = appIcon, contentDescription = app.appName, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))) else Icon(Icons.Rounded.Apps, contentDescription = null, tint = Neutral500, modifier = Modifier.size(36.dp)); Spacer(modifier = Modifier.width(12.dp)); Column(modifier = Modifier.weight(1f)) { Text(text = app.appName, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium); Text(text = app.packageName, fontSize = 11.sp, color = Neutral500, maxLines = 1) }; if (app.isSystemApp) Text(stringResource(R.string.common_system), fontSize = 10.sp, color = Neutral500) }
 }
 
 @Composable
@@ -302,13 +305,13 @@ fun AppGroupCard(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "${mode.displayName} → $outboundText • ${group.apps.size} 个应用",
+                        text = "${stringResource(mode.displayNameRes)} → $outboundText • " + stringResource(R.string.import_count_items, group.apps.size),
                         style = MaterialTheme.typography.bodySmall,
                         color = color
                     )
                 }
                 IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Rounded.Delete, contentDescription = "删除", tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.common_delete), tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
                 }
                 Switch(
                     checked = group.enabled,
@@ -373,7 +376,7 @@ fun SelectedAppChip(app: AppInfo, onRemove: () -> Unit) {
         Spacer(modifier = Modifier.width(4.dp))
         Icon(
             Icons.Rounded.Close,
-            contentDescription = "移除",
+            contentDescription = stringResource(R.string.app_groups_remove),
             tint = Neutral500,
             modifier = Modifier.size(16.dp).clickable(onClick = onRemove)
         )
@@ -427,7 +430,7 @@ fun SelectableAppItem(
             Text(app.packageName, fontSize = 11.sp, color = Neutral500, maxLines = 1)
         }
         if (app.isSystemApp) {
-            Text("系统", fontSize = 10.sp, color = Neutral500)
+            Text(stringResource(R.string.common_system), fontSize = 10.sp, color = Neutral500)
         }
     }
 }
@@ -460,9 +463,9 @@ fun MultiAppSelectorDialog(
         containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Column {
-                Text("选择应用", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(stringResource(R.string.app_rules_select_app), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("已选择 ${tempSelected.size} 个应用", fontSize = 12.sp, color = Neutral500)
+                Text(stringResource(R.string.import_count_items, tempSelected.size), fontSize = 12.sp, color = Neutral500)
             }
         },
         text = {
@@ -471,7 +474,7 @@ fun MultiAppSelectorDialog(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("搜索应用...", color = Neutral500) },
+                    placeholder = { Text(stringResource(R.string.common_search), color = Neutral500) },
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Neutral500) },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
@@ -491,7 +494,7 @@ fun MultiAppSelectorDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("显示系统应用", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.app_list_show_system), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Switch(
                         checked = showSystemApps,
                         onCheckedChange = { showSystemApps = it },
@@ -531,11 +534,11 @@ fun MultiAppSelectorDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50), contentColor = MaterialTheme.colorScheme.onPrimary),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("确定 (${tempSelected.size})", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.common_ok) + " (${tempSelected.size})", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     )
 }
@@ -564,6 +567,7 @@ fun AppGroupEditorDialog(
     
     var targetSelectionTitle by remember { mutableStateOf("") }
     var targetOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    val context = LocalContext.current
 
     val selectionNodes = nodesForSelection ?: nodes
 
@@ -593,9 +597,9 @@ fun AppGroupEditorDialog(
     }
     
     if (showOutboundModeDialog) {
-        val options = RuleSetOutboundMode.entries.map { it.displayName }
+        val options = RuleSetOutboundMode.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "选择出站模式",
+            title = stringResource(R.string.rulesets_select_outbound),
             options = options,
             selectedIndex = RuleSetOutboundMode.entries.indexOf(outboundMode),
             onSelect = { index ->
@@ -615,11 +619,11 @@ fun AppGroupEditorDialog(
                             showNodeSelectionDialog = true
                         }
                         RuleSetOutboundMode.PROFILE -> {
-                            targetSelectionTitle = "选择配置"
+                            targetSelectionTitle = context.getString(R.string.rulesets_select_profile)
                             targetOptions = profiles.map { it.name to it.id }
                         }
                         RuleSetOutboundMode.GROUP -> {
-                            targetSelectionTitle = "选择节点组"
+                            targetSelectionTitle = context.getString(R.string.rulesets_select_group)
                             targetOptions = groups.map { it to it }
                         }
                         else -> {}
@@ -636,7 +640,7 @@ fun AppGroupEditorDialog(
     if (showNodeSelectionDialog) {
         val currentRef = resolveNodeByStoredValue(outboundValue)?.let { toNodeRef(it) } ?: outboundValue
         ProfileNodeSelectDialog(
-            title = "选择节点",
+            title = stringResource(R.string.rulesets_select_node),
             profiles = profiles,
             nodesForSelection = selectionNodes,
             selectedNodeRef = currentRef,
@@ -665,7 +669,7 @@ fun AppGroupEditorDialog(
         containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Text(
-                text = if (initialGroup == null) "创建分组" else "编辑分组",
+                text = if (initialGroup == null) stringResource(R.string.app_groups_create) else stringResource(R.string.app_groups_edit),
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -676,15 +680,15 @@ fun AppGroupEditorDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 StyledTextField(
-                    label = "分组名称",
+                    label = stringResource(R.string.app_groups_name),
                     value = groupName,
                     onValueChange = { groupName = it },
-                    placeholder = "例如：社交应用、游戏"
+                    placeholder = "e.g. Social, Games" // TODO: add to strings.xml
                 )
 
                 ClickableDropdownField(
-                    label = "出站模式",
-                    value = outboundMode.displayName,
+                    label = stringResource(R.string.common_outbound),
+                    value = stringResource(outboundMode.displayNameRes),
                     onClick = { showOutboundModeDialog = true }
                 )
 
@@ -701,10 +705,10 @@ fun AppGroupEditorDialog(
                         RuleSetOutboundMode.PROFILE -> profiles.find { it.id == outboundValue }?.name
                         RuleSetOutboundMode.GROUP -> outboundValue
                         else -> null
-                    } ?: "点击选择..."
+                    } ?: stringResource(R.string.app_rules_click_to_select)
                     
                     ClickableDropdownField(
-                        label = "选择目标",
+                        label = stringResource(R.string.app_rules_select_target),
                         value = targetName,
                         onClick = {
                             when (outboundMode) {
@@ -712,11 +716,11 @@ fun AppGroupEditorDialog(
                                     showNodeSelectionDialog = true
                                 }
                                 RuleSetOutboundMode.PROFILE -> {
-                                    targetSelectionTitle = "选择配置"
+                                    targetSelectionTitle = context.getString(R.string.rulesets_select_profile)
                                     targetOptions = profiles.map { it.name to it.id }
                                 }
                                 RuleSetOutboundMode.GROUP -> {
-                                    targetSelectionTitle = "选择节点组"
+                                    targetSelectionTitle = context.getString(R.string.rulesets_select_group)
                                     targetOptions = groups.map { it to it }
                                 }
                                 else -> {}
@@ -734,11 +738,11 @@ fun AppGroupEditorDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("应用 (${selectedApps.size})", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.app_rules_tabs_individual) + " (${selectedApps.size})", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
                         TextButton(onClick = { showAppSelector = true }) {
                             Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("选择应用")
+                            Text(stringResource(R.string.app_groups_select_apps))
                         }
                     }
                     
@@ -751,7 +755,7 @@ fun AppGroupEditorDialog(
                                 .background(Neutral700.copy(alpha = 0.3f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("点击上方按钮选择应用", color = Neutral500, fontSize = 13.sp)
+                            Text(stringResource(R.string.app_groups_click_to_add), color = Neutral500, fontSize = 13.sp)
                         }
                     } else {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -783,12 +787,12 @@ fun AppGroupEditorDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50), contentColor = MaterialTheme.colorScheme.onPrimary),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("保存", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.common_save), fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     )

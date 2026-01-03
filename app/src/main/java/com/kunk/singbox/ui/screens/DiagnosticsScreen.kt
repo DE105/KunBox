@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -62,7 +64,7 @@ fun DiagnosticsScreen(
         ConfirmDialog(
             title = resultTitle,
             message = resultMessage,
-            confirmText = "确定",
+            confirmText = stringResource(R.string.common_ok),
             onConfirm = { viewModel.dismissDialog() },
             onDismiss = { viewModel.dismissDialog() }
         )
@@ -72,10 +74,10 @@ fun DiagnosticsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("网络诊断", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.diagnostics_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -91,36 +93,36 @@ fun DiagnosticsScreen(
         ) {
             StandardCard {
                 SettingItem(
-                    title = "查看运行配置摘要",
-                    subtitle = if (isRunConfigLoading) "正在生成..." else "检查 package_name 规则是否生成",
+                    title = stringResource(R.string.diagnostics_view_config),
+                    subtitle = if (isRunConfigLoading) stringResource(R.string.diagnostics_view_config_loading) else stringResource(R.string.diagnostics_view_config_subtitle),
                     icon = Icons.Rounded.InsertDriveFile,
                     onClick = { viewModel.showRunningConfigSummary() },
                     enabled = !isRunConfigLoading
                 )
                 SettingItem(
-                    title = "导出运行配置",
-                    subtitle = if (isRunConfigLoading) "正在导出..." else "导出 running_config.json 到外部存储目录",
+                    title = stringResource(R.string.diagnostics_export_config),
+                    subtitle = if (isRunConfigLoading) stringResource(R.string.diagnostics_export_config_loading) else stringResource(R.string.diagnostics_export_config_subtitle),
                     icon = Icons.Rounded.FileDownload,
                     onClick = { viewModel.exportRunningConfigToExternalFiles() },
                     enabled = !isRunConfigLoading
                 )
                 SettingItem(
-                    title = "应用分流诊断",
-                    subtitle = if (isAppRoutingDiagLoading) "正在检测..." else "检查 /proc/net 可读性（影响 package_name 生效）",
+                    title = stringResource(R.string.diagnostics_app_routing),
+                    subtitle = if (isAppRoutingDiagLoading) stringResource(R.string.diagnostics_app_routing_loading) else stringResource(R.string.diagnostics_app_routing_subtitle),
                     icon = Icons.Rounded.Storage,
                     onClick = { viewModel.runAppRoutingDiagnostics() },
                     enabled = !isAppRoutingDiagLoading
                 )
                 SettingItem(
-                    title = "连接归属统计",
-                    subtitle = if (isConnOwnerStatsLoading) "正在读取..." else "查看 findConnectionOwner 成功/失败计数",
+                    title = stringResource(R.string.diagnostics_conn_owner),
+                    subtitle = if (isConnOwnerStatsLoading) stringResource(R.string.diagnostics_conn_owner_loading) else stringResource(R.string.diagnostics_conn_owner_subtitle),
                     icon = Icons.Rounded.Analytics,
                     onClick = { viewModel.showConnectionOwnerStats() },
                     enabled = !isConnOwnerStatsLoading
                 )
                 SettingItem(
-                    title = "重置连接归属统计",
-                    subtitle = "清零计数器（便于复现问题）",
+                    title = stringResource(R.string.diagnostics_reset_conn_owner),
+                    subtitle = stringResource(R.string.diagnostics_reset_conn_owner_subtitle),
                     icon = Icons.Rounded.Refresh,
                     onClick = { viewModel.resetConnectionOwnerStats() },
                     enabled = true
@@ -129,29 +131,29 @@ fun DiagnosticsScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 SettingItem(
-                    title = "连通性检查",
-                    subtitle = if (isConnectivityLoading) "正在检查..." else "连接测试 (www.google.com)",
+                    title = stringResource(R.string.diagnostics_connectivity),
+                    subtitle = if (isConnectivityLoading) stringResource(R.string.diagnostics_connectivity_loading) else stringResource(R.string.diagnostics_connectivity_subtitle),
                     icon = Icons.Rounded.NetworkCheck,
                     onClick = { viewModel.runConnectivityCheck() },
                     enabled = !isConnectivityLoading
                 )
                 SettingItem(
-                    title = "Ping 测试",
-                    subtitle = if (isPingLoading) "正在测试..." else "ICMP Ping (8.8.8.8)",
+                    title = stringResource(R.string.diagnostics_ping_test),
+                    subtitle = if (isPingLoading) stringResource(R.string.diagnostics_routing_test_loading) else stringResource(R.string.diagnostics_ping_test_subtitle),
                     icon = Icons.Rounded.Speed,
                     onClick = { viewModel.runPingTest() },
                     enabled = !isPingLoading
                 )
                 SettingItem(
-                    title = "DNS 查询",
-                    subtitle = if (isDnsLoading) "正在查询..." else "域名解析 (www.google.com)",
+                    title = stringResource(R.string.diagnostics_dns_query),
+                    subtitle = if (isDnsLoading) stringResource(R.string.common_loading) else stringResource(R.string.diagnostics_dns_query_subtitle),
                     icon = Icons.Rounded.Dns,
                     onClick = { viewModel.runDnsQuery() },
                     enabled = !isDnsLoading
                 )
                 SettingItem(
-                    title = "路由测试",
-                    subtitle = if (isRoutingLoading) "正在测试..." else "规则匹配模拟 (baidu.com)",
+                    title = stringResource(R.string.diagnostics_routing_test),
+                    subtitle = if (isRoutingLoading) stringResource(R.string.diagnostics_routing_test_loading) else stringResource(R.string.diagnostics_routing_test_subtitle),
                     icon = Icons.Rounded.Route,
                     onClick = { viewModel.runRoutingTest() },
                     enabled = !isRoutingLoading

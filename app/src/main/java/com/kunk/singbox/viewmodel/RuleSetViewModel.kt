@@ -1,5 +1,6 @@
 package com.kunk.singbox.viewmodel
 
+import com.kunk.singbox.R
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -102,18 +103,18 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
                 Log.d(TAG, "<<< SagerNet 获取到 ${sagerNetRules.size} 个规则集")
                 
                 if (sagerNetRules.isEmpty()) {
-                    Log.w(TAG, "在线获取结果为空，使用预置规则集")
+                    Log.w(TAG, "Online results empty, using built-in rule sets")
                     // 确保一定有数据
                     val builtIn = getBuiltInRuleSets().sortedBy { it.name }
                     _ruleSets.value = builtIn
-                    Log.d(TAG, "已加载内置规则集: ${builtIn.size} 个")
+                    Log.d(TAG, "Loaded built-in rule sets: ${builtIn.size}")
                 } else {
                     _ruleSets.value = sagerNetRules.sortedBy { it.name }
                 }
-                Log.d(TAG, "========== 规则集加载完成 ==========")
+                Log.d(TAG, "========== Rule sets loading complete ==========")
             } catch (e: Exception) {
-                Log.e(TAG, "获取规则集失败", e)
-                _error.value = "加载失败，请检查网络"
+                Log.e(TAG, "Failed to fetch rule sets", e)
+                _error.value = getApplication<Application>().getString(R.string.settings_update_failed) + ", please check your network" // TODO: better string
                 // 即使失败，也加载内置规则集，保证页面不为空
                 val current = _ruleSets.value
                 if (current.isEmpty()) {
@@ -142,8 +143,8 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
             HubRuleSet(
                 name = fullName,
                 ruleCount = 0,
-                tags = listOf("预置", "geosite"),
-                description = "常用规则集",
+                tags = listOf("Built-in", "geosite"),
+                description = "Commonly used rule sets",
                 sourceUrl = "$baseUrl/$fullName.json",
                 binaryUrl = "$baseUrl/$fullName.srs"
             )
@@ -196,8 +197,8 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
                     HubRuleSet(
                         name = nameWithoutExt,
                         ruleCount = 0,
-                        tags = listOf("官方", "geosite"),
-                        description = "SagerNet 官方规则集",
+                        tags = listOf("Official", "geosite"),
+                        description = "SagerNet Official Rule Set",
                         sourceUrl = "https://ghp.ci/$rawUrl/${file.name.replace(".srs", ".json")}",
                         binaryUrl = "https://ghp.ci/$rawUrl/${file.name}"
                     )

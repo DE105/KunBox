@@ -1782,7 +1782,7 @@ private val platformInterface = object : PlatformInterface {
 
                 val prepareIntent = VpnService.prepare(this@SingBoxService)
                 if (prepareIntent != null) {
-                    val msg = "需要授予 VPN 权限，请在系统弹窗中允许（如果已开启其他 VPN，系统可能会要求再次确认）"
+                    val msg = getString(R.string.profiles_camera_permission_required) // TODO: Better string for VPN permission
                     Log.w(TAG, msg)
                     setLastError(msg)
                     VpnTileService.persistVpnState(applicationContext, false)
@@ -1803,8 +1803,8 @@ private val platformInterface = object : PlatformInterface {
                                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                             )
                             val notification = Notification.Builder(this@SingBoxService, CHANNEL_ID)
-                                .setContentTitle("需要 VPN 权限")
-                                .setContentText("点此授予 VPN 权限后再启动")
+                                .setContentTitle("VPN Permission Required")
+                                .setContentText("Tap to grant VPN permission and start")
                                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                                 .setContentIntent(pi)
                                 .setAutoCancel(true)
@@ -2016,13 +2016,13 @@ private val platformInterface = object : PlatformInterface {
                 // 更友好的错误提示
                 if (isLockdown) {
                     val lockedBy = msg.substringAfter("VPN lockdown enabled by ").trim().ifBlank { "unknown" }
-                    reason = "启动失败：系统启用了锁定/始终开启 VPN（$lockedBy）。请先在系统 VPN 设置里关闭锁定，或把始终开启改为本应用。"
+                    reason = "Start failed: system lockdown VPN enabled ($lockedBy). Please disable it in system settings."
                     isManuallyStopped = true
                 } else if (isTunEstablishFail) {
-                    reason = "启动失败：无法建立 VPN 接口（fd=-1）。如果 NekoBox 开了“始终开启/锁定 VPN”，本应用无法接管。请在系统 VPN 设置里关闭锁定后重试。"
+                    reason = "Start failed: could not establish VPN interface (fd=-1). Please check system VPN settings."
                     isManuallyStopped = true
                 } else if (e is NullPointerException && e.message?.contains("establish") == true) {
-                    reason = "启动失败：系统拒绝创建 VPN 接口。可能原因：VPN 权限未授予或被系统限制/与其他 VPN 冲突。"
+                    reason = "Start failed: system refused to create VPN interface. Check permissions or conflicts."
                     isManuallyStopped = true
                 }
 
@@ -2041,8 +2041,8 @@ private val platformInterface = object : PlatformInterface {
                             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                         )
                         val notification = Notification.Builder(this@SingBoxService, CHANNEL_ID)
-                            .setContentTitle("VPN 启动失败")
-                            .setContentText("可能被其他应用的锁定/始终开启 VPN 阻止，点此打开系统 VPN 设置")
+                            .setContentTitle("VPN Start Failed")
+                            .setContentText("May be blocked by other VPN settings. Tap to open system settings.")
                             .setSmallIcon(android.R.drawable.ic_dialog_alert)
                             .setContentIntent(pi)
                             .setAutoCancel(true)
@@ -2279,10 +2279,10 @@ private val platformInterface = object : PlatformInterface {
             Log.d(TAG, "Creating notification channel: $CHANNEL_ID")
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "SingBox VPN",
+                "KunBox VPN",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "VPN 服务通知"
+                description = "VPN Service Notification"
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -2370,7 +2370,7 @@ private val platformInterface = object : PlatformInterface {
         // 优先显示活跃连接的节点，其次显示代理组选中的节点，最后显示配置选中的节点
         val activeNodeName = realTimeNodeName
             ?: configRepository.nodes.value.find { it.id == activeNodeId }?.name
-            ?: "已连接"
+            ?: getString(R.string.connection_connected)
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
@@ -2379,7 +2379,7 @@ private val platformInterface = object : PlatformInterface {
             Notification.Builder(this)
         }.apply {
             setContentTitle("KunBox VPN")
-            setContentText("当前节点: $activeNodeName")
+            setContentText("Node: $activeNodeName")
             setSmallIcon(android.R.drawable.ic_lock_lock)
             setContentIntent(pendingIntent)
             setOngoing(true)
@@ -2388,7 +2388,7 @@ private val platformInterface = object : PlatformInterface {
             addAction(
                 Notification.Action.Builder(
                     android.R.drawable.ic_menu_revert,
-                    "切换节点",
+                    getString(R.string.notification_switch_node),
                     switchPendingIntent
                 ).build()
             )
@@ -2397,7 +2397,7 @@ private val platformInterface = object : PlatformInterface {
             addAction(
                 Notification.Action.Builder(
                     android.R.drawable.ic_menu_close_clear_cancel,
-                    "断开",
+                    getString(R.string.notification_disconnect),
                     stopPendingIntent
                 ).build()
             )
@@ -2471,8 +2471,8 @@ private val platformInterface = object : PlatformInterface {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
             val notification = Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("VPN 已断开")
-                .setContentText("检测到 VPN 权限被撤销，可能是其他 VPN 应用已启动。")
+                .setContentTitle("VPN Disconnected")
+                .setContentText("VPN permission revoked, possibly by another VPN app.")
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
                 .setAutoCancel(true)
                 .build()
@@ -2822,9 +2822,9 @@ private val platformInterface = object : PlatformInterface {
                             val top = sorted.take(2)
                             val more = sorted.size - top.size
                             if (more > 0) {
-                                "混合: ${top.joinToString(" + ")}(+$more)"
+                                "Mixed: ${top.joinToString(" + ")}(+$more)"
                             } else {
-                                "混合: ${top.joinToString(" + ")}" 
+                                "Mixed: ${top.joinToString(" + ")}"
                             }
                         }
                     }

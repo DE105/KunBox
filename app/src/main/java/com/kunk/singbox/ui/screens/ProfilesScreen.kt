@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -46,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -109,15 +111,18 @@ fun ProfilesScreen(
         }
     }
 
+    val importSuccessMsg = stringResource(R.string.profiles_import_success)
+    val importFailedMsg = stringResource(R.string.profiles_import_failed)
+
     // Handle import state feedback
     androidx.compose.runtime.LaunchedEffect(importState) {
         when (val state = importState) {
             is com.kunk.singbox.viewmodel.ProfilesViewModel.ImportState.Success -> {
-                Toast.makeText(context, "导入成功: ${state.profile.name}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.profiles_import_success, state.profile.name), Toast.LENGTH_SHORT).show()
                 viewModel.resetImportState()
             }
             is com.kunk.singbox.viewmodel.ProfilesViewModel.ImportState.Error -> {
-                Toast.makeText(context, "导入失败: ${state.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, context.getString(R.string.profiles_import_failed, state.message), Toast.LENGTH_LONG).show()
                 viewModel.resetImportState()
             }
             // Loading state is now handled by ImportLoadingDialog
@@ -156,14 +161,14 @@ fun ProfilesScreen(
                                 .substringAfterLast(":")
                                 .substringBeforeLast(".")
                                 .takeIf { it.isNotBlank() }
-                        } ?: "文件导入"
+                        } ?: context.getString(R.string.profiles_file_import)
                         
                         viewModel.importFromContent(fileName, content)
                     } else {
-                        Toast.makeText(context, "文件内容为空", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.profiles_file_empty), Toast.LENGTH_SHORT).show()
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(context, "读取文件失败: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, context.getString(R.string.profiles_read_file_failed, e.message), Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -191,19 +196,19 @@ fun ProfilesScreen(
             when {
                 isNodeLink -> {
                     // 单节点链接，使用剪贴板导入方式
-                    viewModel.importFromContent("扫码导入", scannedContent)
+                    viewModel.importFromContent(context.getString(R.string.profiles_qrcode_import), scannedContent)
                 }
                 isSubscriptionUrl -> {
                     // 订阅链接，导入为订阅
-                    viewModel.importSubscription("扫码订阅", scannedContent, 0)
+                    viewModel.importSubscription(context.getString(R.string.profiles_qrcode_subscription), scannedContent, 0)
                 }
                 scannedContent.trim().startsWith("{") || scannedContent.trim().startsWith("proxies:") -> {
                     // 看起来像 JSON 或 YAML 配置
-                    viewModel.importFromContent("扫码导入", scannedContent)
+                    viewModel.importFromContent(context.getString(R.string.profiles_qrcode_import), scannedContent)
                 }
                 else -> {
                     // 尝试作为节点链接列表处理（可能是 base64 编码的）
-                    viewModel.importFromContent("扫码导入", scannedContent)
+                    viewModel.importFromContent(context.getString(R.string.profiles_qrcode_import), scannedContent)
                 }
             }
         }
@@ -230,7 +235,7 @@ fun ProfilesScreen(
             // 权限已授予，启动扫描
             qrCodeLauncher.launch(createScanOptions())
         } else {
-            Toast.makeText(context, "需要相机权限才能扫描二维码", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.profiles_camera_permission_required), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -284,23 +289,27 @@ fun ProfilesScreen(
     }
 
     if (showClipboardInput) {
+        val clipboardEmptyMsg = stringResource(R.string.profiles_clipboard_empty)
+        val nameInvalidMsg = stringResource(R.string.profiles_name_invalid)
+        val defaultClipboardName = stringResource(R.string.profiles_clipboard_import)
+
         InputDialog(
-            title = "导入剪贴板",
-            placeholder = "配置名称",
+            title = stringResource(R.string.profiles_import_clipboard),
+            placeholder = stringResource(R.string.profiles_import_clipboard_hint),
             initialValue = "",
-            confirmText = "导入",
+            confirmText = stringResource(R.string.common_import),
             onConfirm = { name ->
                 if (name.contains("://")) {
-                    Toast.makeText(context, "配置名称不能包含链接", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, nameInvalidMsg, Toast.LENGTH_SHORT).show()
                     return@InputDialog
                 }
 
                 val content = clipboardManager.getText()?.text ?: ""
                 if (content.isNotBlank()) {
-                    viewModel.importFromContent(if (name.isBlank()) "剪贴板导入" else name, content)
+                    viewModel.importFromContent(if (name.isBlank()) defaultClipboardName else name, content)
                     showClipboardInput = false
                 } else {
-                    Toast.makeText(context, "剪贴板为空", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, clipboardEmptyMsg, Toast.LENGTH_SHORT).show()
                 }
             },
             onDismiss = { showClipboardInput = false }
@@ -309,9 +318,9 @@ fun ProfilesScreen(
 
     if (showSearchDialog) {
         InputDialog(
-            title = "搜索配置",
-            placeholder = "输入关键词...",
-            confirmText = "搜索",
+            title = stringResource(R.string.profiles_search),
+            placeholder = stringResource(R.string.profiles_search_hint),
+            confirmText = stringResource(R.string.common_search),
             onConfirm = { showSearchDialog = false },
             onDismiss = { showSearchDialog = false }
         )
@@ -323,7 +332,7 @@ fun ProfilesScreen(
             initialName = profile.name,
             initialUrl = profile.url ?: "",
             initialAutoUpdateInterval = profile.autoUpdateInterval,
-            title = "编辑配置",
+            title = stringResource(R.string.profiles_edit_profile),
             onDismiss = { editingProfile = null },
             onConfirm = { name, url, autoUpdateInterval ->
                 viewModel.updateProfileMetadata(profile.id, name, url, autoUpdateInterval)
@@ -361,7 +370,7 @@ fun ProfilesScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "配置管理",
+                    text = stringResource(R.string.profiles_title),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
@@ -448,26 +457,26 @@ private fun ImportSelectionDialog(
         ) {
             ImportOptionCard(
                 icon = Icons.Rounded.Link,
-                title = "订阅链接",
-                subtitle = "从 URL 导入",
+                title = stringResource(R.string.profiles_subscription_link),
+                subtitle = stringResource(R.string.common_import),
                 onClick = { onTypeSelected(ProfileImportType.Subscription) }
             )
             ImportOptionCard(
                 icon = Icons.Rounded.Description,
-                title = "本地文件",
-                subtitle = "从 JSON/YAML 文件导入",
+                title = stringResource(R.string.profiles_local_file),
+                subtitle = stringResource(R.string.profiles_local_file_subtitle),
                 onClick = { onTypeSelected(ProfileImportType.File) }
             )
             ImportOptionCard(
                 icon = Icons.Rounded.ContentPaste,
-                title = "剪贴板",
-                subtitle = "从剪贴板内容导入",
+                title = stringResource(R.string.profiles_clipboard),
+                subtitle = stringResource(R.string.profiles_clipboard_subtitle),
                 onClick = { onTypeSelected(ProfileImportType.Clipboard) }
             )
             ImportOptionCard(
                 icon = Icons.Rounded.QrCodeScanner,
-                title = "扫描二维码",
-                subtitle = "使用相机扫描",
+                title = stringResource(R.string.profiles_scan_qrcode),
+                subtitle = stringResource(R.string.profiles_scan_qrcode_subtitle),
                 onClick = { onTypeSelected(ProfileImportType.QRCode) }
             )
         }
@@ -477,11 +486,14 @@ private fun ImportSelectionDialog(
 @Composable
 private fun ImportLoadingDialog(message: String) {
     // 尝试解析进度信息 (例如 "正在提取节点 (50/1000)...")
+    var displayMessage = message
     val progress = remember(message) {
-        val regex = Regex("\\((\\d+)/(\\d+)\\)")
+        val regex = Regex(".*?\\((\\d+)/(\\d+)\\).*")
         val match = regex.find(message)
         if (match != null) {
             val (current, total) = match.destructured
+            // Extracting nodes msg is also in strings.xml
+            // We could try to replace the message with localized one if it matches
             current.toFloat() / total.toFloat()
         } else {
             null
@@ -563,7 +575,7 @@ private fun SubscriptionInputDialog(
     initialName: String = "",
     initialUrl: String = "",
     initialAutoUpdateInterval: Int = 0,
-    title: String = "添加订阅",
+    title: String = stringResource(R.string.profiles_add_subscription),
     onDismiss: () -> Unit,
     onConfirm: (String, String, Int) -> Unit
 ) {
@@ -590,8 +602,9 @@ private fun SubscriptionInputDialog(
             androidx.compose.material3.OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("名称") },
+                label = { Text(stringResource(R.string.profiles_name_label)) },
                 modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
                 shape = RoundedCornerShape(16.dp),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -608,8 +621,9 @@ private fun SubscriptionInputDialog(
             androidx.compose.material3.OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
-                label = { Text("订阅链接") },
+                label = { Text(stringResource(R.string.profiles_url_label)) },
                 modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
                 shape = RoundedCornerShape(16.dp),
                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -630,7 +644,7 @@ private fun SubscriptionInputDialog(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "自动更新",
+                    text = stringResource(R.string.profiles_auto_update),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -669,7 +683,7 @@ private fun SubscriptionInputDialog(
                                 autoUpdateMinutes = newValue
                             }
                         },
-                        label = { Text("更新间隔（分钟）") },
+                        label = { Text(stringResource(R.string.profiles_auto_update_interval)) },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         singleLine = true,
@@ -678,7 +692,7 @@ private fun SubscriptionInputDialog(
                         ),
                         supportingText = {
                             Text(
-                                text = "建议设置 30 分钟以上",
+                                text = stringResource(R.string.profiles_auto_update_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -713,14 +727,14 @@ private fun SubscriptionInputDialog(
                     
                     if (isNodeLink) {
                         Toast.makeText(context,
-                            "禁止在订阅链接中填入单节点，请使用'剪贴板'导入或'添加节点'功能",
+                            context.getString(R.string.profiles_subscription_node_warning),
                             Toast.LENGTH_LONG).show()
                         return@Button
                     }
                     
                     // 校验名称是否非法（看起来像链接）
                     if (name.contains("://")) {
-                        Toast.makeText(context, "配置名称不能包含链接", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.profiles_name_invalid), Toast.LENGTH_SHORT).show()
                         return@Button
                     }
                     
@@ -728,7 +742,7 @@ private fun SubscriptionInputDialog(
                     val finalInterval = if (autoUpdateEnabled) {
                         val minutes = autoUpdateMinutes.toIntOrNull() ?: 0
                         if (minutes < 15) {
-                            Toast.makeText(context, "更新间隔至少为 15 分钟", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.settings_update_interval_min), Toast.LENGTH_SHORT).show()
                             return@Button
                         }
                         minutes
@@ -742,7 +756,7 @@ private fun SubscriptionInputDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                 shape = RoundedCornerShape(25.dp)
             ) {
-                Text("确定", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                Text(stringResource(R.string.common_ok), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
             }
             
             Spacer(modifier = Modifier.height(8.dp))
@@ -752,7 +766,7 @@ private fun SubscriptionInputDialog(
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
             ) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     }

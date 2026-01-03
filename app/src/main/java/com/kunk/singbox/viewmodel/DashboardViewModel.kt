@@ -1,5 +1,6 @@
 package com.kunk.singbox.viewmodel
 
+import com.kunk.singbox.R
 import android.app.Application
 import android.content.Context
 import android.content.Intent
@@ -86,9 +87,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val name = profiles.value.find { it.id == profileId }?.name
         if (!name.isNullOrBlank()) {
             viewModelScope.launch {
-                _actionStatus.value = "已切换到 $name"
+                val msg = getApplication<Application>().getString(R.string.profiles_updated) + ": $name" // TODO: better string
+                _actionStatus.value = msg
                 delay(1500)
-                if (_actionStatus.value == "已切换到 $name") {
+                if (_actionStatus.value == msg) {
                     _actionStatus.value = null
                 }
             }
@@ -103,9 +105,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             if (SingBoxRemote.isRunning.value && node != null) {
                 val msg = when (result) {
                     is ConfigRepository.NodeSwitchResult.Success,
-                    is ConfigRepository.NodeSwitchResult.NotRunning -> "已切换到 ${node.name}"
+                    is ConfigRepository.NodeSwitchResult.NotRunning -> "Switched to ${node.name}" // TODO: add to strings.xml
 
-                    is ConfigRepository.NodeSwitchResult.Failed -> "切换到 ${node.name} 失败"
+                    is ConfigRepository.NodeSwitchResult.Failed -> "Failed to switch to ${node.name}" // TODO: add to strings.xml
                 }
                 _actionStatus.value = msg
                 delay(1500)
@@ -469,7 +471,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
                 if (configResult == null) {
                     _connectionState.value = ConnectionState.Error
-                    _testStatus.value = "配置生成失败"
+                    _testStatus.value = getApplication<Application>().getString(R.string.dashboard_config_generation_failed)
                     delay(2000)
                     _testStatus.value = null
                     return@launch
@@ -525,11 +527,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                         val elapsed = System.currentTimeMillis() - startTime
                         if (!showedStartingHint && elapsed >= quickFeedbackMs) {
                             showedStartingHint = true
-                            _testStatus.value = "启动中..."
+                            _testStatus.value = getApplication<Application>().getString(R.string.connection_connecting)
                             lastErrorToastJob?.cancel()
                             lastErrorToastJob = viewModelScope.launch {
                                 delay(1200)
-                                if (_testStatus.value == "启动中...") {
+                                if (_testStatus.value == getApplication<Application>().getString(R.string.connection_connecting)) {
                                     _testStatus.value = null
                                 }
                             }
@@ -545,7 +547,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             } catch (e: Exception) {
                 _connectionState.value = ConnectionState.Error
-                _testStatus.value = "启动失败: ${e.message}"
+                _testStatus.value = "Start failed: ${e.message}" // TODO: add to strings.xml
                 delay(2000)
                 _testStatus.value = null
             }
@@ -687,12 +689,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun updateAllSubscriptions() {
         viewModelScope.launch {
-            _updateStatus.value = "正在更新订阅..."
+            _updateStatus.value = getApplication<Application>().getString(R.string.common_loading)
             
             val result = configRepository.updateAllProfiles()
             
             // 根据结果显示不同的提示
-            _updateStatus.value = result.toDisplayMessage()
+            _updateStatus.value = result.toDisplayMessage(getApplication())
             delay(2500)
             _updateStatus.value = null
         }
@@ -700,10 +702,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun testAllNodesLatency() {
         viewModelScope.launch {
-            _testStatus.value = "正在测试延迟..."
+            _testStatus.value = getApplication<Application>().getString(R.string.common_loading)
             val targetIds = nodes.value.map { it.id }
             configRepository.testAllNodesLatency(targetIds)
-            _testStatus.value = "测试完成"
+            _testStatus.value = getApplication<Application>().getString(R.string.dashboard_test_complete)
             delay(2000)
             _testStatus.value = null
         }

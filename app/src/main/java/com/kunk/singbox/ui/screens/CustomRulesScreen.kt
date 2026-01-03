@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.*
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,15 +73,15 @@ fun CustomRulesScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("自定义规则", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.custom_rules_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.common_add), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -102,7 +104,7 @@ fun CustomRulesScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "暂无自定义规则",
+                            text = stringResource(R.string.custom_rules_empty),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyLarge
                         )
@@ -142,13 +144,13 @@ fun CustomRuleItem(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "${rule.type.displayName}: ${rule.value}",
+                    text = "${stringResource(rule.type.displayNameRes)}: ${rule.value}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
                 Text(
-                    text = "-> ${rule.outbound.displayName}",
+                    text = "-> ${stringResource(rule.outbound.displayNameRes)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
@@ -156,7 +158,7 @@ fun CustomRuleItem(
             }
             Icon(
                 imageVector = Icons.Rounded.Edit,
-                contentDescription = "编辑",
+                contentDescription = stringResource(R.string.common_edit),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -180,9 +182,9 @@ fun CustomRuleEditorDialog(
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     if (showTypeDialog) {
-        val options = RuleType.entries.map { it.displayName }
+        val options = RuleType.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "规则类型",
+            title = stringResource(R.string.custom_rules_type),
             options = options,
             selectedIndex = RuleType.entries.indexOf(type),
             onSelect = { index ->
@@ -194,9 +196,9 @@ fun CustomRuleEditorDialog(
     }
 
     if (showOutboundDialog) {
-        val options = OutboundTag.entries.map { it.displayName }
+        val options = OutboundTag.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "出站",
+            title = stringResource(R.string.common_outbound),
             options = options,
             selectedIndex = OutboundTag.entries.indexOf(outbound),
             onSelect = { index ->
@@ -209,9 +211,9 @@ fun CustomRuleEditorDialog(
     
     if (showDeleteConfirm) {
         ConfirmDialog(
-            title = "删除规则",
-            message = "确定要删除规则 \"$name\" 吗？",
-            confirmText = "删除",
+            title = stringResource(R.string.custom_rules_delete_title),
+            message = stringResource(R.string.custom_rules_delete_confirm, name),
+            confirmText = stringResource(R.string.common_delete),
             onConfirm = {
                 onDelete?.invoke()
                 showDeleteConfirm = false
@@ -226,7 +228,7 @@ fun CustomRuleEditorDialog(
         containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Text(
-                text = if (initialRule == null) "添加规则" else "编辑规则",
+                text = if (initialRule == null) stringResource(R.string.custom_rules_add) else stringResource(R.string.custom_rules_edit),
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -239,33 +241,33 @@ fun CustomRuleEditorDialog(
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 StyledTextField(
-                    label = "名称",
+                    label = stringResource(R.string.custom_rules_name),
                     value = name,
                     onValueChange = { name = it },
-                    placeholder = "我的规则"
+                    placeholder = stringResource(R.string.custom_rules_name_hint)
                 )
 
                 ClickableDropdownField(
-                    label = "类型",
-                    value = type.displayName,
+                    label = stringResource(R.string.custom_rules_type),
+                    value = stringResource(type.displayNameRes),
                     onClick = { showTypeDialog = true }
                 )
 
                 StyledTextField(
-                    label = "规则内容",
+                    label = stringResource(R.string.custom_rules_content),
                     value = value,
                     onValueChange = { value = it },
                     placeholder = when(type) {
                         RuleType.DOMAIN -> "example.com"
                         RuleType.DOMAIN_SUFFIX -> "example.com"
                         RuleType.IP_CIDR -> "192.168.0.0/16"
-                        else -> "内容"
+                        else -> stringResource(R.string.custom_rules_content_hint)
                     }
                 )
 
                 ClickableDropdownField(
-                    label = "出站",
-                    value = outbound.displayName,
+                    label = stringResource(R.string.common_outbound),
+                    value = stringResource(outbound.displayNameRes),
                     onClick = { showOutboundDialog = true }
                 )
             }
@@ -288,18 +290,18 @@ fun CustomRuleEditorDialog(
                 },
                 enabled = name.isNotBlank() && value.isNotBlank()
             ) {
-                Text("保存")
+                Text(stringResource(R.string.common_save))
             }
         },
         dismissButton = {
             Row {
                 if (initialRule != null && onDelete != null) {
                     TextButton(onClick = { showDeleteConfirm = true }) {
-                        Text("删除", color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
                     }
                 }
                 TextButton(onClick = onDismiss) {
-                    Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.common_cancel), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

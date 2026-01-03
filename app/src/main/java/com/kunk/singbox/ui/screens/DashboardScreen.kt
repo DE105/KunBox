@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import com.kunk.singbox.model.ConnectionState
 import com.kunk.singbox.model.RoutingMode
@@ -104,7 +105,7 @@ fun DashboardScreen(
     val activeNodeName = viewModel.getActiveNodeName()
     
     var showModeDialog by remember { mutableStateOf(false) }
-    val currentMode = settings.routingMode.displayName
+    val currentMode = stringResource(settings.routingMode.displayNameRes)
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showTestDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
@@ -136,10 +137,14 @@ fun DashboardScreen(
         }
     }
 
+    val connectionFailedMsg = stringResource(R.string.connection_failed_check_config)
+    val connectedMsg = stringResource(R.string.connection_connected)
+    val disconnectedMsg = stringResource(R.string.connection_idle)
+
     // Monitor connection errors
     LaunchedEffect(connectionState, testStatus) {
         if (connectionState == ConnectionState.Error && testStatus.isNullOrBlank()) {
-            Toast.makeText(context, "连接失败，请检查配置", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, connectionFailedMsg, Toast.LENGTH_SHORT).show()
         }
     }
     
@@ -147,9 +152,9 @@ fun DashboardScreen(
         val prev = lastConnectionState
         if (prev != null && prev != connectionState) {
             if (connectionState == ConnectionState.Connected) {
-                Toast.makeText(context, "已连接", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, connectedMsg, Toast.LENGTH_SHORT).show()
             } else if (connectionState == ConnectionState.Idle && (prev == ConnectionState.Connected || prev == ConnectionState.Disconnecting)) {
-                Toast.makeText(context, "已断开", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, disconnectedMsg, Toast.LENGTH_SHORT).show()
             }
         }
         lastConnectionState = connectionState
@@ -176,9 +181,9 @@ fun DashboardScreen(
     }
 
     if (showModeDialog) {
-        val options = RoutingMode.entries.map { it.displayName }
+        val options = RoutingMode.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "路由模式",
+            title = stringResource(R.string.dashboard_routing_mode),
             options = options,
             selectedIndex = RoutingMode.entries.indexOf(settings.routingMode).coerceAtLeast(0),
             onSelect = { index ->
@@ -197,9 +202,9 @@ fun DashboardScreen(
     
     if (showUpdateDialog) {
         ConfirmDialog(
-            title = "更新订阅",
-            message = "确定要更新所有订阅吗？",
-            confirmText = "更新",
+            title = stringResource(R.string.dashboard_update_subscription),
+            message = stringResource(R.string.dashboard_update_subscription_confirm),
+            confirmText = stringResource(R.string.common_update),
             onConfirm = {
                 viewModel.updateAllSubscriptions()
                 showUpdateDialog = false
@@ -210,9 +215,9 @@ fun DashboardScreen(
     
     if (showTestDialog) {
         ConfirmDialog(
-            title = "延迟测试",
-            message = "确定要测试所有节点延迟吗？",
-            confirmText = "开始测试",
+            title = stringResource(R.string.dashboard_latency_test),
+            message = stringResource(R.string.dashboard_latency_test_confirm),
+            confirmText = stringResource(R.string.dashboard_start_test),
             onConfirm = {
                 viewModel.testAllNodesLatency()
                 showTestDialog = false
@@ -224,7 +229,7 @@ fun DashboardScreen(
     if (showProfileDialog) {
         val options = profiles.map { it.name }
         SingleSelectDialog(
-            title = "选择配置",
+            title = stringResource(R.string.dashboard_select_profile),
             options = options,
             selectedIndex = profiles.indexOfFirst { it.id == activeProfileId }.let { idx ->
                 when {
@@ -244,7 +249,7 @@ fun DashboardScreen(
     if (showNodeDialog) {
         val options = nodes.map { it.displayName }
         SingleSelectDialog(
-            title = "选择节点",
+            title = stringResource(R.string.dashboard_select_node),
             options = options,
             selectedIndex = nodes.indexOfFirst { it.id == activeNodeId }.let { idx ->
                 when {
@@ -390,13 +395,7 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     StatusChip(
-                        label = when (connectionState) {
-                            ConnectionState.Idle -> "未连接"
-                            ConnectionState.Connecting -> "连接中..."
-                            ConnectionState.Connected -> "已连接"
-                            ConnectionState.Disconnecting -> "断开中..."
-                            ConnectionState.Error -> "错误"
-                        },
+                        label = stringResource(connectionState.displayNameRes),
                         isActive = connectionState == ConnectionState.Connected
                     )
                     
@@ -412,28 +411,31 @@ fun DashboardScreen(
                     ) { showModeDialog = true }
                 }
                 
+                val noProfileMsg = stringResource(R.string.dashboard_no_profiles_available)
+                val noNodeMsg = stringResource(R.string.dashboard_no_nodes_available)
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Start
                 ) {
                     StatusChip(
-                        label = activeProfileName ?: "未选择配置",
+                        label = activeProfileName ?: stringResource(R.string.dashboard_no_profile_selected),
                         onClick = {
                             if (profiles.isNotEmpty()) {
                                  showProfileDialog = true
                             } else {
-                                Toast.makeText(context, "暂无可用配置", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, noProfileMsg, Toast.LENGTH_SHORT).show()
                             }
                         }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     StatusChip(
-                        label = activeNodeName ?: "未选择节点",
+                        label = activeNodeName ?: stringResource(R.string.dashboard_no_node_selected),
                         onClick = {
                             if (nodes.isNotEmpty()) {
                                 showNodeDialog = true
                             } else {
-                                Toast.makeText(context, "暂无可用节点", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, noNodeMsg, Toast.LENGTH_SHORT).show()
                             }
                         }
                     )
@@ -470,10 +472,11 @@ fun DashboardScreen(
                 // 使用明确的 isPingTesting 状态来控制加载动画
                 val isPingLoading = isConnected && isPingTesting
                 // 格式化延迟显示：超时显示"超时"，未测试显示"-"
+                val timeoutMsg = stringResource(R.string.common_timeout)
                 val pingText = when {
                     !isConnected -> "-"
                     displayPing != null && displayPing > 0 -> "${displayPing} ms"
-                    displayPing == -1L -> "超时"
+                    displayPing == -1L -> timeoutMsg
                     else -> "-"
                 }
                 InfoCard(
@@ -495,10 +498,10 @@ fun DashboardScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    QuickActionButton(Icons.Rounded.Refresh, "更新订阅") { showUpdateDialog = true }
-                    QuickActionButton(Icons.Rounded.Bolt, "延迟测试") { showTestDialog = true }
-                    QuickActionButton(Icons.Rounded.Terminal, "运行日志") { navController.navigate(Screen.Logs.route) }
-                    QuickActionButton(Icons.Rounded.BugReport, "网络诊断") { navController.navigate(Screen.Diagnostics.route) }
+                    QuickActionButton(Icons.Rounded.Refresh, stringResource(R.string.dashboard_update_subscription)) { showUpdateDialog = true }
+                    QuickActionButton(Icons.Rounded.Bolt, stringResource(R.string.dashboard_latency_test)) { showTestDialog = true }
+                    QuickActionButton(Icons.Rounded.Terminal, stringResource(R.string.dashboard_logs)) { navController.navigate(Screen.Logs.route) }
+                    QuickActionButton(Icons.Rounded.BugReport, stringResource(R.string.dashboard_diagnostics)) { navController.navigate(Screen.Diagnostics.route) }
                 }
             }
         }

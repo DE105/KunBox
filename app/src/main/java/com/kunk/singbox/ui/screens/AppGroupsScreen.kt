@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -7,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,9 +99,9 @@ fun AppGroupsScreen(
 
     if (showDeleteConfirm != null) {
         ConfirmDialog(
-            title = "删除分组",
-            message = "确定要删除 \"${showDeleteConfirm?.name}\" 分组吗？包含 ${showDeleteConfirm?.apps?.size ?: 0} 个应用。",
-            confirmText = "删除",
+            title = stringResource(R.string.app_groups_delete_title),
+            message = stringResource(R.string.app_groups_delete_confirm, showDeleteConfirm?.name ?: "", showDeleteConfirm?.apps?.size ?: 0),
+            confirmText = stringResource(R.string.common_delete),
             onConfirm = {
                 settingsViewModel.deleteAppGroup(showDeleteConfirm!!.id)
                 showDeleteConfirm = null
@@ -112,15 +114,15 @@ fun AppGroupsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("应用分流", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.app_rules_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "添加分组", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.app_groups_add), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -146,7 +148,7 @@ fun AppGroupsScreen(
                     StandardCard {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = "创建分组，将多个应用归类，统一设置代理规则",
+                                text = "Create groups to categorize multiple apps and set proxy rules collectively", // TODO: add to strings.xml
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -168,9 +170,9 @@ fun AppGroupsScreen(
                                     modifier = Modifier.size(48.dp)
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Text("暂无分组", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.app_groups_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("点击右上角 + 创建分组", color = Neutral500, fontSize = 12.sp)
+                                Text(stringResource(R.string.app_rules_empty_groups_hint), color = Neutral500, fontSize = 12.sp)
                             }
                         }
                     }
@@ -195,15 +197,15 @@ fun AppGroupsScreen(
                                 if (node != null && profileName != null) {
                                     "${node.name} ($profileName)"
                                 } else {
-                                    "未选择"
+                                    stringResource(R.string.app_rules_not_selected)
                                 }
                             }
-                            RuleSetOutboundMode.PROFILE -> profiles.find { it.id == group.outboundValue }?.name ?: "未知配置"
-                            RuleSetOutboundMode.GROUP -> group.outboundValue ?: "未知组"
+                            RuleSetOutboundMode.PROFILE -> profiles.find { it.id == group.outboundValue }?.name ?: stringResource(R.string.app_rules_unknown_profile)
+                            RuleSetOutboundMode.GROUP -> group.outboundValue ?: stringResource(R.string.app_rules_unknown_group)
                         }
                         AppGroupCard(
                             group = group,
-                            outboundText = outboundText,
+                            outboundText = "${stringResource(mode.displayNameRes)} → $outboundText",
                             onClick = { editingGroup = group },
                             onToggle = { settingsViewModel.toggleAppGroupEnabled(group.id) },
                             onDelete = { showDeleteConfirm = group }

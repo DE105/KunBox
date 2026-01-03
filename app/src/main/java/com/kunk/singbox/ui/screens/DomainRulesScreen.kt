@@ -1,6 +1,8 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -54,6 +57,7 @@ import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.viewmodel.ProfilesViewModel
 import com.kunk.singbox.viewmodel.SettingsViewModel
 
+@Composable
 private fun resolveOutboundText(
     mode: RuleSetOutboundMode,
     value: String?,
@@ -61,11 +65,11 @@ private fun resolveOutboundText(
     profiles: List<com.kunk.singbox.model.ProfileUi>
 ): String {
     return when (mode) {
-        RuleSetOutboundMode.DIRECT -> "直连"
-        RuleSetOutboundMode.BLOCK -> "拦截"
-        RuleSetOutboundMode.PROXY -> "代理"
+        RuleSetOutboundMode.DIRECT -> stringResource(R.string.outbound_tag_direct)
+        RuleSetOutboundMode.BLOCK -> stringResource(R.string.outbound_tag_block)
+        RuleSetOutboundMode.PROXY -> stringResource(R.string.outbound_tag_proxy)
         RuleSetOutboundMode.NODE -> {
-            if (value.isNullOrBlank()) return "未选择"
+            if (value.isNullOrBlank()) return stringResource(R.string.app_rules_not_selected)
             val parts = value.split("::", limit = 2)
             val node = if (parts.size == 2) {
                 val profileId = parts[0]
@@ -75,10 +79,10 @@ private fun resolveOutboundText(
                 nodes.find { it.id == value } ?: nodes.find { it.name == value }
             }
             val profileName = profiles.find { p -> p.id == node?.sourceProfileId }?.name
-            if (node != null && profileName != null) "${node.name} ($profileName)" else "未选择"
+            if (node != null && profileName != null) "${node.name} ($profileName)" else stringResource(R.string.app_rules_not_selected)
         }
-        RuleSetOutboundMode.PROFILE -> profiles.find { it.id == value }?.name ?: "未知配置"
-        RuleSetOutboundMode.GROUP -> value ?: "未知组"
+        RuleSetOutboundMode.PROFILE -> profiles.find { it.id == value }?.name ?: stringResource(R.string.app_rules_unknown_profile)
+        RuleSetOutboundMode.GROUP -> value ?: stringResource(R.string.app_rules_unknown_group)
     }
 }
 
@@ -101,7 +105,7 @@ private fun DomainRuleItem(rule: CustomRule, outboundText: String, onClick: () -
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "${rule.type.displayName}: ${rule.value}",
+                    text = "${stringResource(rule.type.displayNameRes)}: ${rule.value}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
@@ -190,15 +194,15 @@ fun DomainRulesScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("域名分流", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.domain_rules_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 actions = {
                     IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.common_add), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -221,7 +225,7 @@ fun DomainRulesScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "暂无域名分流规则",
+                            text = stringResource(R.string.domain_rules_empty),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyLarge
                         )
@@ -235,7 +239,7 @@ fun DomainRulesScreen(
                         OutboundTag.PROXY -> RuleSetOutboundMode.PROXY
                     }
                     val outboundText = resolveOutboundText(mode, rule.outboundValue, allNodes, profiles)
-                    DomainRuleItem(rule = rule, outboundText = "${mode.displayName} → $outboundText", onClick = { editingRule = rule })
+                    DomainRuleItem(rule = rule, outboundText = "${stringResource(mode.displayNameRes)} → $outboundText", onClick = { editingRule = rule })
                 }
             }
         }
@@ -282,6 +286,7 @@ private fun DomainRuleEditorDialog(
 
     var targetSelectionTitle by remember { mutableStateOf("") }
     var targetOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    val context = LocalContext.current
 
     val selectionNodes = nodesForSelection ?: nodes
 
@@ -301,9 +306,9 @@ private fun DomainRuleEditorDialog(
     val allowedTypes = listOf(RuleType.DOMAIN, RuleType.DOMAIN_SUFFIX, RuleType.DOMAIN_KEYWORD)
 
     if (showTypeDialog) {
-        val options = allowedTypes.map { it.displayName }
+        val options = allowedTypes.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "规则类型",
+            title = stringResource(R.string.custom_rules_type),
             options = options,
             selectedIndex = allowedTypes.indexOf(type).coerceAtLeast(0),
             onSelect = { index ->
@@ -315,9 +320,9 @@ private fun DomainRuleEditorDialog(
     }
 
     if (showOutboundDialog) {
-        val options = RuleSetOutboundMode.entries.map { it.displayName }
+        val options = RuleSetOutboundMode.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "出站",
+            title = stringResource(R.string.common_outbound),
             options = options,
             selectedIndex = RuleSetOutboundMode.entries.indexOf(outboundMode),
             onSelect = { index ->
@@ -336,11 +341,11 @@ private fun DomainRuleEditorDialog(
                             showNodeSelectionDialog = true
                         }
                         RuleSetOutboundMode.PROFILE -> {
-                            targetSelectionTitle = "选择配置"
+                            targetSelectionTitle = context.getString(R.string.rulesets_select_profile)
                             targetOptions = profiles.map { it.name to it.id }
                         }
                         RuleSetOutboundMode.GROUP -> {
-                            targetSelectionTitle = "选择节点组"
+                            targetSelectionTitle = context.getString(R.string.rulesets_select_group)
                             targetOptions = groups.map { it to it }
                         }
                         else -> {}
@@ -357,7 +362,7 @@ private fun DomainRuleEditorDialog(
     if (showNodeSelectionDialog) {
         val currentRef = resolveNodeByStoredValue(outboundValue)?.let { toNodeRef(it) } ?: outboundValue
         ProfileNodeSelectDialog(
-            title = "选择节点",
+            title = stringResource(R.string.rulesets_select_node),
             profiles = profiles,
             nodesForSelection = selectionNodes,
             selectedNodeRef = currentRef,
@@ -383,9 +388,9 @@ private fun DomainRuleEditorDialog(
     if (showDeleteConfirm) {
         val displayName = initialRule?.name?.takeIf { it.isNotBlank() } ?: generateRuleNameFromValue(value)
         ConfirmDialog(
-            title = "删除规则",
-            message = "确定要删除规则 \"$displayName\" 吗？",
-            confirmText = "删除",
+            title = stringResource(R.string.domain_rules_delete_title),
+            message = stringResource(R.string.domain_rules_delete_confirm, displayName),
+            confirmText = stringResource(R.string.common_delete),
             onConfirm = {
                 onDelete?.invoke()
                 showDeleteConfirm = false
@@ -399,7 +404,7 @@ private fun DomainRuleEditorDialog(
         containerColor = MaterialTheme.colorScheme.surface,
         title = {
             Text(
-                text = if (initialRule == null) "添加规则" else "编辑规则",
+                text = if (initialRule == null) stringResource(R.string.domain_rules_add) else stringResource(R.string.domain_rules_edit),
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -414,15 +419,15 @@ private fun DomainRuleEditorDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("类型", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(type.displayName, color = MaterialTheme.colorScheme.onSurface)
+                    Text(stringResource(R.string.custom_rules_type), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(type.displayNameRes), color = MaterialTheme.colorScheme.onSurface)
                 }
 
                 StyledTextField(
-                    label = "域名/内容",
+                    label = stringResource(R.string.custom_rules_content),
                     value = value,
                     onValueChange = { value = it },
-                    placeholder = "支持多条：用换行或逗号分隔"
+                    placeholder = "Separate with newlines or commas" // TODO: add to strings.xml if needed
                 )
 
                 Row(
@@ -433,8 +438,8 @@ private fun DomainRuleEditorDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("出站", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(outboundMode.displayName, color = MaterialTheme.colorScheme.onSurface)
+                    Text(stringResource(R.string.common_outbound), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(outboundMode.displayNameRes), color = MaterialTheme.colorScheme.onSurface)
                 }
 
                 if (outboundMode == RuleSetOutboundMode.NODE ||
@@ -459,11 +464,11 @@ private fun DomainRuleEditorDialog(
                                         showNodeSelectionDialog = true
                                     }
                                     RuleSetOutboundMode.PROFILE -> {
-                                        targetSelectionTitle = "选择配置"
+                                        targetSelectionTitle = context.getString(R.string.rulesets_select_profile)
                                         targetOptions = profiles.map { it.name to it.id }
                                     }
                                     RuleSetOutboundMode.GROUP -> {
-                                        targetSelectionTitle = "选择节点组"
+                                        targetSelectionTitle = context.getString(R.string.rulesets_select_group)
                                         targetOptions = groups.map { it to it }
                                     }
                                     else -> {}
@@ -476,14 +481,14 @@ private fun DomainRuleEditorDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("选择目标", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.app_rules_select_target), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(targetName, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
                 if (onDelete != null) {
                     TextButton(onClick = { showDeleteConfirm = true }) {
-                        Text("删除")
+                        Text(stringResource(R.string.common_delete))
                     }
                 }
             }
@@ -522,12 +527,12 @@ private fun DomainRuleEditorDialog(
                     onConfirm(rule)
                 }
             ) {
-                Text("确定")
+                Text(stringResource(R.string.common_ok))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )

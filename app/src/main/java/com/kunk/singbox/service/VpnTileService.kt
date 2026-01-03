@@ -152,7 +152,7 @@ class VpnTileService : TileService() {
             // 用户想开启
             // 立即更新 UI 为开启状态
             tile.state = Tile.STATE_ACTIVE
-            tile.label = "启动中..."
+            tile.label = getString(R.string.connection_connecting)
             tile.updateTile()
             
             // 异步执行开启逻辑
@@ -267,7 +267,7 @@ class VpnTileService : TileService() {
             } catch (e: Exception) {
                 e.printStackTrace()
                 // 如果停止失败，恢复 UI 状态（虽然概率很低）
-                handleStartFailure("停止服务失败: ${e.message}")
+                handleStartFailure("Stop service failed: ${e.message}") // TODO: add to strings.xml
             }
         }
     }
@@ -312,7 +312,6 @@ class VpnTileService : TileService() {
                 val configResult = configRepository.generateConfigFile()
                 
                 if (configResult != null) {
-                    // 停止冲突的服务
                     if (settings.tunEnabled) {
                         runCatching {
                             startService(Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
@@ -351,10 +350,10 @@ class VpnTileService : TileService() {
                     // 启动成功后，Service 的回调会触发 updateTile，
                     // 此时 pending 仍为 "starting"，updateTile 会保持 Active 状态
                 } else {
-                    handleStartFailure("生成配置失败")
+                    handleStartFailure(getString(R.string.dashboard_config_generation_failed))
                 }
             } catch (e: Exception) {
-                handleStartFailure("启动失败: ${e.message}")
+                handleStartFailure("Start failed: ${e.message}") // TODO: add to strings.xml
             } finally {
                 // 无论成功失败，结束启动序列标记
                 // 注意：成功时，Service 应该是 RUNNING 状态，

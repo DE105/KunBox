@@ -1,5 +1,6 @@
 package com.kunk.singbox.ui.screens
 
+import com.kunk.singbox.R
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.MaterialTheme
@@ -65,9 +67,9 @@ fun RoutingSettingsScreen(
     var showLatencyUrlDialog by remember { mutableStateOf(false) }
 
     if (showLatencyMethodDialog) {
-        val options = LatencyTestMethod.entries.map { it.displayName }
+        val options = LatencyTestMethod.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "延迟测试方式",
+            title = stringResource(R.string.routing_settings_latency_test_method),
             options = options,
             selectedIndex = LatencyTestMethod.entries.indexOf(settings.latencyTestMethod).coerceAtLeast(0),
             onSelect = { index ->
@@ -80,9 +82,9 @@ fun RoutingSettingsScreen(
 
     if (showLatencyUrlDialog) {
         InputDialog(
-            title = "延迟测试地址",
+            title = stringResource(R.string.routing_settings_latency_test_url),
             initialValue = settings.latencyTestUrl,
-            placeholder = "例如：https://cp.cloudflare.com/generate_204",
+            placeholder = "e.g. https://cp.cloudflare.com/generate_204",
             onConfirm = { url ->
                 settingsViewModel.setLatencyTestUrl(url.trim())
                 showLatencyUrlDialog = false
@@ -92,11 +94,11 @@ fun RoutingSettingsScreen(
     }
 
     if (showModeDialog) {
-        val options = RoutingMode.entries.map { it.displayName }
+        val options = RoutingMode.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "路由模式",
+            title = stringResource(R.string.routing_settings_mode),
             options = options,
-            selectedIndex = options.indexOf(settings.routingMode.displayName).coerceAtLeast(0),
+            selectedIndex = RoutingMode.entries.indexOf(settings.routingMode).coerceAtLeast(0),
             onSelect = { index ->
                 settingsViewModel.setRoutingMode(RoutingMode.entries[index])
                 showModeDialog = false
@@ -106,11 +108,11 @@ fun RoutingSettingsScreen(
     }
     
     if (showDefaultRuleDialog) {
-        val options = DefaultRule.entries.map { it.displayName }
+        val options = DefaultRule.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "默认规则",
+            title = stringResource(R.string.routing_settings_default_rule),
             options = options,
-            selectedIndex = options.indexOf(settings.defaultRule.displayName).coerceAtLeast(0),
+            selectedIndex = DefaultRule.entries.indexOf(settings.defaultRule).coerceAtLeast(0),
             onSelect = { index ->
                 settingsViewModel.setDefaultRule(DefaultRule.entries[index])
                 showDefaultRuleDialog = false
@@ -120,11 +122,11 @@ fun RoutingSettingsScreen(
     }
 
     if (showMirrorDialog) {
-        val options = GhProxyMirror.entries.map { it.displayName }
+        val options = GhProxyMirror.entries.map { stringResource(it.displayNameRes) }
         SingleSelectDialog(
-            title = "GitHub 镜像加速",
+            title = stringResource(R.string.routing_settings_github_mirror),
             options = options,
-            selectedIndex = options.indexOf(settings.ghProxyMirror.displayName).coerceAtLeast(0),
+            selectedIndex = GhProxyMirror.entries.indexOf(settings.ghProxyMirror).coerceAtLeast(0),
             onSelect = { index ->
                 settingsViewModel.setGhProxyMirror(GhProxyMirror.entries[index])
                 showMirrorDialog = false
@@ -137,29 +139,29 @@ fun RoutingSettingsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("路由设置", color = MaterialTheme.colorScheme.onBackground) },
+                title = { Text(stringResource(R.string.routing_settings_title), color = MaterialTheme.colorScheme.onBackground) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(scrollState)
-        ) {
-            StandardCard {
-                SettingItem(title = "路由模式", value = settings.routingMode.displayName, onClick = { showModeDialog = true })
-                SettingItem(title = "默认规则", value = settings.defaultRule.displayName, onClick = { showDefaultRuleDialog = true })
-                SettingItem(title = "延迟测试方式", value = settings.latencyTestMethod.displayName, onClick = { showLatencyMethodDialog = true })
-                SettingItem(
-                    title = "延迟测试地址",
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .padding(16.dp)
+            .verticalScroll(scrollState)
+    ) {
+        StandardCard {
+            SettingItem(title = stringResource(R.string.routing_settings_mode), value = stringResource(settings.routingMode.displayNameRes), onClick = { showModeDialog = true })
+            SettingItem(title = stringResource(R.string.routing_settings_default_rule), value = stringResource(settings.defaultRule.displayNameRes), onClick = { showDefaultRuleDialog = true })
+            SettingItem(title = stringResource(R.string.routing_settings_latency_test_method), value = stringResource(settings.latencyTestMethod.displayNameRes), onClick = { showLatencyMethodDialog = true })
+            SettingItem(
+                title = stringResource(R.string.routing_settings_latency_test_url),
                     onClick = { showLatencyUrlDialog = true },
                     trailing = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -180,27 +182,27 @@ fun RoutingSettingsScreen(
                         }
                     }
                 )
-                SettingItem(title = "GitHub 镜像", value = settings.ghProxyMirror.displayName, onClick = { showMirrorDialog = true })
+                SettingItem(title = stringResource(R.string.routing_settings_github_mirror), value = stringResource(settings.ghProxyMirror.displayNameRes), onClick = { showMirrorDialog = true })
             }
             
             Spacer(modifier = Modifier.height(16.dp))
             
             StandardCard {
                 SettingSwitchItem(
-                    title = "拦截广告",
-                    subtitle = "拦截常见广告域名",
+                    title = stringResource(R.string.routing_settings_block_ads),
+                    subtitle = stringResource(R.string.routing_settings_block_ads_subtitle),
                     checked = settings.blockAds,
                     onCheckedChange = { settingsViewModel.setBlockAds(it) }
                 )
                 SettingSwitchItem(
-                    title = "屏蔽 QUIC",
-                    subtitle = "屏蔽 UDP 443 以减少初始加载延迟",
+                    title = stringResource(R.string.routing_settings_block_quic),
+                    subtitle = stringResource(R.string.routing_settings_block_quic_subtitle),
                     checked = settings.blockQuic,
                     onCheckedChange = { settingsViewModel.setBlockQuic(it) }
                 )
                 SettingSwitchItem(
-                    title = "绕过局域网",
-                    subtitle = "局域网流量不经过代理",
+                    title = stringResource(R.string.routing_settings_bypass_lan),
+                    subtitle = stringResource(R.string.routing_settings_bypass_lan_subtitle),
                     checked = settings.bypassLan,
                     onCheckedChange = { settingsViewModel.setBypassLan(it) }
                 )
@@ -210,8 +212,8 @@ fun RoutingSettingsScreen(
             
             StandardCard {
                 SettingItem(
-                    title = "应用分流",
-                    value = "${settings.appRules.size + settings.appGroups.size} 条规则",
+                    title = stringResource(R.string.routing_settings_app_routing),
+                    value = stringResource(R.string.routing_settings_app_routing_rules, settings.appRules.size + settings.appGroups.size),
                     onClick = { navController.navigate(Screen.AppRules.route) }
                 )
                 val domainRuleCount = settings.customRules.count {
@@ -222,11 +224,11 @@ fun RoutingSettingsScreen(
                     )
                 }
                 SettingItem(
-                    title = "域名分流",
-                    value = "$domainRuleCount 条规则",
+                    title = stringResource(R.string.routing_settings_domain_routing),
+                    value = stringResource(R.string.routing_settings_app_routing_rules, domainRuleCount),
                     onClick = { navController.navigate(Screen.DomainRules.route) }
                 )
-                SettingItem(title = "管理规则集", onClick = { navController.navigate(Screen.RuleSets.route) })
+                SettingItem(title = stringResource(R.string.routing_settings_manage_rulesets), onClick = { navController.navigate(Screen.RuleSets.route) })
             }
         }
     }
