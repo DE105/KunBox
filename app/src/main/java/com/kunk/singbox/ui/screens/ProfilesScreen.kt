@@ -1,7 +1,9 @@
 package com.kunk.singbox.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,11 +25,14 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import kotlinx.coroutines.delay
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Link
@@ -35,6 +40,8 @@ import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -143,8 +150,8 @@ fun ProfilesScreen(
     if (showSubscriptionInput) {
         SubscriptionInputDialog(
             onDismiss = { showSubscriptionInput = false },
-            onConfirm = { name, url ->
-                viewModel.importSubscription(name, url)
+            onConfirm = { name, url, autoUpdateInterval ->
+                viewModel.importSubscription(name, url, autoUpdateInterval)
                 showSubscriptionInput = false
             }
         )
@@ -189,10 +196,11 @@ fun ProfilesScreen(
         SubscriptionInputDialog(
             initialName = profile.name,
             initialUrl = profile.url ?: "",
+            initialAutoUpdateInterval = profile.autoUpdateInterval,
             title = "编辑配置",
             onDismiss = { editingProfile = null },
-            onConfirm = { name, url ->
-                viewModel.updateProfileMetadata(profile.id, name, url)
+            onConfirm = { name, url, autoUpdateInterval ->
+                viewModel.updateProfileMetadata(profile.id, name, url, autoUpdateInterval)
                 editingProfile = null
             }
         )
@@ -428,12 +436,15 @@ private fun ImportOptionCard(
 private fun SubscriptionInputDialog(
     initialName: String = "",
     initialUrl: String = "",
+    initialAutoUpdateInterval: Int = 0,
     title: String = "添加订阅",
     onDismiss: () -> Unit,
-    onConfirm: (String, String) -> Unit
+    onConfirm: (String, String, Int) -> Unit
 ) {
     var name by remember { mutableStateOf(initialName) }
     var url by remember { mutableStateOf(initialUrl) }
+    var autoUpdateEnabled by remember { mutableStateOf(initialAutoUpdateInterval > 0) }
+    var autoUpdateMinutes by remember { mutableStateOf(if (initialAutoUpdateInterval > 0) initialAutoUpdateInterval.toString() else "60") }
 
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -484,6 +495,80 @@ private fun SubscriptionInputDialog(
                 )
             )
             
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // 自动更新开关
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "自动更新",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                androidx.compose.material3.Switch(
+                    checked = autoUpdateEnabled,
+                    onCheckedChange = { autoUpdateEnabled = it },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.primary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                )
+            }
+            
+            // 自动更新间隔输入框（带动画显示/隐藏）
+            AnimatedVisibility(
+                visible = autoUpdateEnabled,
+                enter = expandVertically(
+                    animationSpec = tween(durationMillis = 300)
+                ) + fadeIn(
+                    animationSpec = tween(durationMillis = 300)
+                ),
+                exit = shrinkVertically(
+                    animationSpec = tween(durationMillis = 300)
+                ) + fadeOut(
+                    animationSpec = tween(durationMillis = 300)
+                )
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    androidx.compose.material3.OutlinedTextField(
+                        value = autoUpdateMinutes,
+                        onValueChange = { newValue ->
+                            // 只允许输入数字
+                            if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
+                                autoUpdateMinutes = newValue
+                            }
+                        },
+                        label = { Text("更新间隔（分钟）") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        supportingText = {
+                            Text(
+                                text = "建议设置 30 分钟以上",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                            focusedLabelColor = MaterialTheme.colorScheme.primary,
+                            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                }
+            }
+            
             Spacer(modifier = Modifier.height(24.dp))
             
             val context = LocalContext.current
@@ -512,8 +597,20 @@ private fun SubscriptionInputDialog(
                         Toast.makeText(context, "配置名称不能包含链接", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
+                    
+                    // 计算最终的自动更新间隔
+                    val finalInterval = if (autoUpdateEnabled) {
+                        val minutes = autoUpdateMinutes.toIntOrNull() ?: 0
+                        if (minutes < 15) {
+                            Toast.makeText(context, "更新间隔至少为 15 分钟", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        minutes
+                    } else {
+                        0
+                    }
 
-                    onConfirm(name, url)
+                    onConfirm(name, url, finalInterval)
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),

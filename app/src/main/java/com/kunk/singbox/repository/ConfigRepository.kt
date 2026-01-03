@@ -590,6 +590,7 @@ class ConfigRepository(private val context: Context) {
     suspend fun importFromSubscription(
         name: String,
         url: String,
+        autoUpdateInterval: Int = 0,
         onProgress: (String) -> Unit = {}
     ): Result<ProfileUi> = withContext(Dispatchers.IO) {
         try {
@@ -632,6 +633,7 @@ class ConfigRepository(private val context: Context) {
                 url = url,
                 lastUpdated = System.currentTimeMillis(),
                 enabled = true,
+                autoUpdateInterval = autoUpdateInterval,
                 updateStatus = UpdateStatus.Idle,
                 expireDate = userInfo?.expire ?: 0,
                 totalTraffic = userInfo?.total ?: 0,
@@ -650,6 +652,11 @@ class ConfigRepository(private val context: Context) {
             // 如果是第一个配置，自动激活
             if (_activeProfileId.value == null) {
                 setActiveProfile(profileId)
+            }
+            
+            // 调度自动更新任务
+            if (autoUpdateInterval > 0) {
+                com.kunk.singbox.service.SubscriptionAutoUpdateWorker.schedule(context, profileId, autoUpdateInterval)
             }
             
             onProgress("导入成功，共 ${nodes.size} 个节点")
@@ -1817,6 +1824,9 @@ class ConfigRepository(private val context: Context) {
     }
     
     fun deleteProfile(profileId: String) {
+        // 取消自动更新任务
+        com.kunk.singbox.service.SubscriptionAutoUpdateWorker.cancel(context, profileId)
+        
         _profiles.update { list -> list.filter { it.id != profileId } }
         removeCachedConfig(profileId)
         profileNodes.remove(profileId)
@@ -1848,17 +1858,20 @@ class ConfigRepository(private val context: Context) {
         saveProfiles()
     }
 
-    fun updateProfileMetadata(profileId: String, newName: String, newUrl: String?) {
+    fun updateProfileMetadata(profileId: String, newName: String, newUrl: String?, autoUpdateInterval: Int = 0) {
         _profiles.update { list ->
             list.map {
                 if (it.id == profileId) {
-                    it.copy(name = newName, url = newUrl)
+                    it.copy(name = newName, url = newUrl, autoUpdateInterval = autoUpdateInterval)
                 } else {
                     it
                 }
             }
         }
         saveProfiles()
+        
+        // 调度或取消自动更新任务
+        com.kunk.singbox.service.SubscriptionAutoUpdateWorker.schedule(context, profileId, autoUpdateInterval)
     }
 
     /**
