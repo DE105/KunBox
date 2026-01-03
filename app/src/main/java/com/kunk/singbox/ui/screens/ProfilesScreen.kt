@@ -1,38 +1,38 @@
 package com.kunk.singbox.ui.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.icons.Icons
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import kotlinx.coroutines.delay
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Link
@@ -40,8 +40,6 @@ import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,28 +49,33 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
-import com.kunk.singbox.repository.FakeRepository
-import com.kunk.singbox.ui.components.ConfirmDialog
-import com.kunk.singbox.ui.components.InputDialog
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import com.kunk.singbox.model.UpdateStatus
+import com.kunk.singbox.ui.scanner.QrScannerActivity
+import com.kunk.singbox.ui.components.InputDialog
 import com.kunk.singbox.ui.components.ProfileCard
 import com.kunk.singbox.ui.components.StandardCard
 import com.kunk.singbox.ui.navigation.Screen
-import com.kunk.singbox.ui.theme.Neutral500
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 @Composable
 fun ProfilesScreen(
@@ -128,6 +131,109 @@ fun ProfilesScreen(
         )
     }
 
+    val scope = rememberCoroutineScope()
+    
+    // 文件选择器 Launcher
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val content = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                            BufferedReader(InputStreamReader(inputStream)).use { reader ->
+                                reader.readText()
+                            }
+                        } ?: ""
+                    }
+                    
+                    if (content.isNotBlank()) {
+                        // 从 URI 中提取文件名作为配置名称
+                        val fileName = uri.lastPathSegment?.let { segment ->
+                            // 清理文件名，移除路径和扩展名
+                            segment.substringAfterLast("/")
+                                .substringAfterLast(":")
+                                .substringBeforeLast(".")
+                                .takeIf { it.isNotBlank() }
+                        } ?: "文件导入"
+                        
+                        viewModel.importFromContent(fileName, content)
+                    } else {
+                        Toast.makeText(context, "文件内容为空", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "读取文件失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+    
+    // 二维码扫描 Launcher
+    val qrCodeLauncher = rememberLauncherForActivityResult(
+        contract = ScanContract()
+    ) { result ->
+        if (result.contents != null) {
+            val scannedContent = result.contents
+            // 检查扫描结果是否为有效的节点链接或配置
+            val isNodeLink = scannedContent.let {
+                it.startsWith("vmess://") || it.startsWith("vless://") ||
+                it.startsWith("ss://") || it.startsWith("ssr://") ||
+                it.startsWith("trojan://") || it.startsWith("hysteria://") ||
+                it.startsWith("hysteria2://") || it.startsWith("hy2://") ||
+                it.startsWith("tuic://") || it.startsWith("wireguard://") ||
+                it.startsWith("ssh://") || it.startsWith("anytls://")
+            }
+            
+            val isSubscriptionUrl = scannedContent.startsWith("http://") ||
+                                    scannedContent.startsWith("https://")
+            
+            when {
+                isNodeLink -> {
+                    // 单节点链接，使用剪贴板导入方式
+                    viewModel.importFromContent("扫码导入", scannedContent)
+                }
+                isSubscriptionUrl -> {
+                    // 订阅链接，导入为订阅
+                    viewModel.importSubscription("扫码订阅", scannedContent, 0)
+                }
+                scannedContent.trim().startsWith("{") || scannedContent.trim().startsWith("proxies:") -> {
+                    // 看起来像 JSON 或 YAML 配置
+                    viewModel.importFromContent("扫码导入", scannedContent)
+                }
+                else -> {
+                    // 尝试作为节点链接列表处理（可能是 base64 编码的）
+                    viewModel.importFromContent("扫码导入", scannedContent)
+                }
+            }
+        }
+    }
+    
+    // 创建扫描选项的辅助函数
+    fun createScanOptions(): ScanOptions {
+        return ScanOptions().apply {
+            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            setPrompt("")  // 我们在自定义布局中显示提示
+            setCameraId(0)
+            setBeepEnabled(true)
+            setBarcodeImageEnabled(false)
+            setOrientationLocked(false)
+            setCaptureActivity(QrScannerActivity::class.java)  // 使用自定义正方形扫描框
+        }
+    }
+    
+    // 相机权限请求 Launcher
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            // 权限已授予，启动扫描
+            qrCodeLauncher.launch(createScanOptions())
+        } else {
+            Toast.makeText(context, "需要相机权限才能扫描二维码", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     if (showImportSelection) {
         ImportSelectionDialog(
             onDismiss = { showImportSelection = false },
@@ -137,10 +243,30 @@ fun ProfilesScreen(
                     ProfileImportType.Subscription -> showSubscriptionInput = true
                     ProfileImportType.Clipboard -> showClipboardInput = true
                     ProfileImportType.File -> {
-                        Toast.makeText(context, "暂不支持文件导入", Toast.LENGTH_SHORT).show()
+                        // 启动文件选择器
+                        filePickerLauncher.launch(arrayOf(
+                            "application/json",
+                            "text/plain",
+                            "application/x-yaml",
+                            "text/yaml",
+                            "*/*"  // 允许选择任意文件类型
+                        ))
                     }
                     ProfileImportType.QRCode -> {
-                        Toast.makeText(context, "暂不支持二维码扫描", Toast.LENGTH_SHORT).show()
+                        // 检查相机权限
+                        when {
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA
+                            ) == PackageManager.PERMISSION_GRANTED -> {
+                                // 已有权限，直接启动扫描
+                                qrCodeLauncher.launch(createScanOptions())
+                            }
+                            else -> {
+                                // 请求权限
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        }
                     }
                 }
             }
