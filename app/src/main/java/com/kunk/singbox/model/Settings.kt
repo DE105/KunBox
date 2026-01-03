@@ -55,7 +55,7 @@ data class AppSettings(
     @SerializedName("latencyTestUrl") val latencyTestUrl: String = "https://cp.cloudflare.com/generate_204",
     
     // 镜像设置
-    @SerializedName("ghProxyMirror") val ghProxyMirror: GhProxyMirror = GhProxyMirror.GHFAST_TOP,
+    @SerializedName("ghProxyMirror") val ghProxyMirror: GhProxyMirror = GhProxyMirror.SAGERNET_ORIGIN,
     
     // 高级路由
     @SerializedName("customRules") val customRules: List<CustomRule> = emptyList(),
@@ -166,17 +166,16 @@ enum class AppThemeMode(val displayName: String) {
 }
 
 enum class GhProxyMirror(val url: String, val displayName: String) {
-    @SerializedName("GHFAST_TOP") GHFAST_TOP("https://ghfast.top/", "ghfast.top"),
-    @SerializedName("GH_PROXY_COM") GH_PROXY_COM("https://gh-proxy.com/", "gh-proxy.com"),
-    @SerializedName("GHPROXY_LINK") GHPROXY_LINK("https://ghproxy.link/", "ghproxy.link");
+    @SerializedName("SAGERNET_ORIGIN") SAGERNET_ORIGIN("https://raw.githubusercontent.com/", "SagerNet (官方)"),
+    @SerializedName("JSDELIVR_CDN") JSDELIVR_CDN("https://cdn.jsdelivr.net/gh/", "jsDelivr (CDN)");
     
     companion object {
         fun fromUrl(url: String): GhProxyMirror {
-            return entries.find { url.startsWith(it.url) } ?: GHFAST_TOP
+            return entries.find { url.startsWith(it.url) } ?: SAGERNET_ORIGIN
         }
         
         fun fromDisplayName(name: String): GhProxyMirror {
-            return entries.find { it.displayName == name } ?: GHFAST_TOP
+            return entries.find { it.displayName == name } ?: SAGERNET_ORIGIN
         }
     }
 }

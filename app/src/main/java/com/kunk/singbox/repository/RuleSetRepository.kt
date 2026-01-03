@@ -82,8 +82,11 @@ class RuleSetRepository(private val context: Context) {
                 onProgress("正在更新广告规则集...")
                 val success = downloadAdBlockRuleSet(settings)
                 if (!success && !adBlockFile.exists()) {
-                    allReady = false
-                    Log.e(TAG, "Failed to download ad block rule set and no cache available")
+                    // 如果下载失败但本地有缓存，不视为整体失败
+                    if (!adBlockFile.exists()) {
+                        allReady = false
+                    }
+                    Log.e(TAG, "Failed to download ad block rule set. Cache available: ${adBlockFile.exists()}")
                 }
             } else if (!adBlockFile.exists()) {
                 allReady = false
@@ -187,13 +190,99 @@ class RuleSetRepository(private val context: Context) {
 
     private suspend fun downloadAdBlockRuleSet(settings: AppSettings): Boolean {
         val mirrorUrl = settings.ghProxyMirror.url
-        val url = "$mirrorUrl$AD_BLOCK_URL_SUFFIX"
+        // AD_BLOCK_URL_SUFFIX 是完整 URL，需要规范化
+        val url = normalizeRuleSetUrl(AD_BLOCK_URL_SUFFIX, mirrorUrl)
         return downloadFile(url, getRuleSetFile(AD_BLOCK_TAG))
     }
 
     private suspend fun downloadCustomRuleSet(ruleSet: RuleSet): Boolean {
         if (ruleSet.url.isBlank()) return false
-        return downloadFile(ruleSet.url, getRuleSetFile(ruleSet.tag))
+        
+        val settings = settingsRepository.settings.first()
+        val mirrorUrl = settings.ghProxyMirror.url
+        
+        // 1. 尝试使用镜像下载
+        val mirrorUrlString = normalizeRuleSetUrl(ruleSet.url, mirrorUrl)
+        val success = downloadFile(mirrorUrlString, getRuleSetFile(ruleSet.tag))
+        
+        if (success) return true
+        
+        // 2. 如果镜像下载失败，且 URL 被修改过（即使用了镜像），则尝试原始 URL
+        if (mirrorUrlString != ruleSet.url) {
+            Log.w(TAG, "Mirror download failed, trying original URL: ${ruleSet.url}")
+            return downloadFile(ruleSet.url, getRuleSetFile(ruleSet.tag))
+        }
+        
+        return false
+    }
+
+    private fun normalizeRuleSetUrl(url: String, mirrorUrl: String): String {
+        val rawPrefix = "https://raw.githubusercontent.com/"
+        val cdnPrefix = "https://cdn.jsdelivr.net/gh/"
+        
+        // 先还原到原始 URL (raw.githubusercontent.com)
+        var rawUrl = url
+        
+        // 1. 如果是 jsDelivr 格式，还原为 raw 格式
+        // 示例: https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs
+        if (rawUrl.startsWith(cdnPrefix)) {
+             val path = rawUrl.removePrefix(cdnPrefix)
+             // 提取 user/repo
+             val parts = path.split("@", limit = 2)
+             if (parts.size == 2) {
+                 val userRepo = parts[0]
+                 val branchPath = parts[1]
+                 rawUrl = "$rawPrefix$userRepo/$branchPath"
+             }
+        }
+        
+        // 2. 如果包含 raw.githubusercontent.com，无论是否有其他前缀，都提取出原始路径
+        // 示例: https://ghproxy.com/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs
+        // 或者: https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs
+        if (rawUrl.contains("raw.githubusercontent.com")) {
+             // 关键修复: 这里不应该只看 substringAfter，还要看 path 是否已经是完整的 URL
+             // rawUrl: https://raw.githubusercontent.com/https://raw.githubusercontent.com/... 这种错误情况
+             var path = rawUrl.substringAfter("raw.githubusercontent.com/")
+             
+             // 如果 path 本身又以 https://raw.githubusercontent.com/ 开头（之前的错误叠加），需要递归清理
+             while (path.contains("raw.githubusercontent.com/")) {
+                 path = path.substringAfter("raw.githubusercontent.com/")
+             }
+             
+             // 如果 path 以 http 开头，说明截取错了位置，这里假设正常路径不包含协议头
+             if (path.startsWith("https://") || path.startsWith("http://")) {
+                 // 这通常意味着 substringAfter 取到了参数或者错误的部分，尝试更严格的清洗
+                 path = path.replace("https://", "").replace("http://", "")
+             }
+             
+             rawUrl = rawPrefix + path
+        }
+
+        var updatedUrl = rawUrl
+        
+        // 应用当前选择的镜像
+        if (mirrorUrl.contains("cdn.jsdelivr.net")) {
+            // 转换为 jsDelivr 格式: https://cdn.jsdelivr.net/gh/user/repo@branch/path
+            if (rawUrl.startsWith(rawPrefix)) {
+                val path = rawUrl.removePrefix(rawPrefix)
+                // path 格式: user/repo/branch/path
+                val parts = path.split("/", limit = 4)
+                if (parts.size >= 4) {
+                    val user = parts[0]
+                    val repo = parts[1]
+                    val branch = parts[2]
+                    val filePath = parts[3]
+                    updatedUrl = "$cdnPrefix$user/$repo@$branch/$filePath"
+                }
+            }
+        } else if (mirrorUrl != rawPrefix) {
+             // 其他镜像通常直接拼接
+             if (rawUrl.startsWith(rawPrefix)) {
+                 updatedUrl = rawUrl.replace(rawPrefix, mirrorUrl)
+             }
+        }
+        
+        return updatedUrl
     }
 
     private suspend fun downloadFile(url: String, targetFile: File): Boolean {
@@ -215,12 +304,44 @@ class RuleSetRepository(private val context: Context) {
                     }
                 }
 
-                if (targetFile.exists()) {
-                    targetFile.delete()
+                // 校验文件内容是否有效 (不能是 HTML)
+                val isValid = try {
+                    val header = tempFile.inputStream().use { input ->
+                        val buffer = ByteArray(64)
+                        val read = input.read(buffer)
+                        if (read > 0) String(buffer, 0, read) else ""
+                    }
+                    val trimmedHeader = header.trim()
+                    val isInvalid = trimmedHeader.startsWith("<!DOCTYPE html", ignoreCase = true) ||
+                                 trimmedHeader.startsWith("<html", ignoreCase = true) ||
+                                 trimmedHeader.startsWith("{") // JSON error
+                    
+                    if (isInvalid) {
+                        Log.e(TAG, "Downloaded file is invalid (HTML/JSON), discarding: ${targetFile.name}")
+                        false
+                    } else if (tempFile.length() < 10) {
+                        Log.e(TAG, "Downloaded file is too small, discarding: ${targetFile.name}")
+                        false
+                    } else {
+                        true
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to verify downloaded file", e)
+                    // 如果无法读取，保守起见认为是坏的，但这里可能是IO错误
+                    false
                 }
-                tempFile.renameTo(targetFile)
-                Log.i(TAG, "Rule set downloaded successfully: ${targetFile.name}")
-                return true
+
+                if (isValid) {
+                    if (targetFile.exists()) {
+                        targetFile.delete()
+                    }
+                    tempFile.renameTo(targetFile)
+                    Log.i(TAG, "Rule set downloaded and verified successfully: ${targetFile.name}")
+                    return true
+                } else {
+                    tempFile.delete()
+                    return false
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Download error: ${e.message}", e)

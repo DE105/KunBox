@@ -1,6 +1,7 @@
 package com.kunk.singbox.viewmodel
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.model.AppSettings
@@ -8,6 +9,10 @@ import com.kunk.singbox.model.CustomRule
 import com.kunk.singbox.model.DefaultRule
 import com.kunk.singbox.model.DnsStrategy
 import com.kunk.singbox.model.AppThemeMode
+import com.kunk.singbox.model.ExportData
+import com.kunk.singbox.model.ExportDataSummary
+import com.kunk.singbox.model.ImportOptions
+import com.kunk.singbox.model.ImportResult
 import com.kunk.singbox.model.RoutingMode
 import com.kunk.singbox.model.AppRule
 import com.kunk.singbox.model.AppGroup
@@ -18,6 +23,7 @@ import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
+import com.kunk.singbox.repository.DataExportRepository
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.service.RuleSetAutoUpdateWorker
@@ -33,9 +39,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     
     private val repository = SettingsRepository.getInstance(application)
     private val ruleSetRepository = RuleSetRepository.getInstance(application)
+    private val dataExportRepository = DataExportRepository.getInstance(application)
     
     private val _downloadingRuleSets = MutableStateFlow<Set<String>>(emptySet())
     val downloadingRuleSets: StateFlow<Set<String>> = _downloadingRuleSets.asStateFlow()
+    
+    // 导入导出状态
+    private val _exportState = MutableStateFlow<ExportState>(ExportState.Idle)
+    val exportState: StateFlow<ExportState> = _exportState.asStateFlow()
+    
+    private val _importState = MutableStateFlow<ImportState>(ImportState.Idle)
+    val importState: StateFlow<ImportState> = _importState.asStateFlow()
 
     val settings: StateFlow<AppSettings> = repository.settings
         .stateIn(
@@ -228,31 +242,65 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun addRuleSet(ruleSet: RuleSet, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         viewModelScope.launch {
             fun normalizeRuleSetUrl(url: String, mirrorUrl: String): String {
-                var updatedUrl = url
-                if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains(mirrorUrl)) {
-                    val rawUrl = if (updatedUrl.contains("https://")) {
-                        "https://raw.githubusercontent.com/" + updatedUrl.substringAfter("raw.githubusercontent.com/")
-                    } else {
-                        updatedUrl
+                val rawPrefix = "https://raw.githubusercontent.com/"
+                val cdnPrefix = "https://cdn.jsdelivr.net/gh/"
+                
+                // 先还原到原始 URL
+                var rawUrl = url
+                
+                // 1. 如果是 jsDelivr 格式，还原为 raw 格式
+                if (rawUrl.startsWith(cdnPrefix)) {
+                     val path = rawUrl.removePrefix(cdnPrefix)
+                     val parts = path.split("@", limit = 2)
+                     if (parts.size == 2) {
+                         val userRepo = parts[0]
+                         val branchPath = parts[1]
+                         rawUrl = "$rawPrefix$userRepo/$branchPath"
+                     }
+                } else {
+                    // 2. 如果是其他前缀代理，移除前缀
+                    val oldMirrors = listOf(
+                        "https://ghp.ci/",
+                        "https://mirror.ghproxy.com/",
+                        "https://ghproxy.com/",
+                        "https://ghproxy.net/",
+                        "https://ghfast.top/",
+                        "https://gh-proxy.com/"
+                    )
+                    
+                    for (mirror in oldMirrors) {
+                        if (rawUrl.startsWith(mirror)) {
+                            rawUrl = rawUrl.replace(mirror, rawPrefix)
+                        }
                     }
-                    updatedUrl = mirrorUrl + rawUrl
+                    // 3. 处理已有的 raw 链接被代理的情况
+                    if (rawUrl.contains("raw.githubusercontent.com") && !rawUrl.startsWith(rawPrefix)) {
+                        val path = rawUrl.substringAfter("raw.githubusercontent.com/")
+                        rawUrl = rawPrefix + path
+                    }
                 }
 
-                val oldMirrors = listOf(
-                    "https://ghp.ci/",
-                    "https://mirror.ghproxy.com/",
-                    "https://ghproxy.com/",
-                    "https://ghproxy.net/",
-                    "https://ghfast.top/",
-                    "https://gh-proxy.com/",
-                    "https://ghproxy.link/"
-                )
-
-                for (mirror in oldMirrors) {
-                    if (updatedUrl.startsWith(mirror) && mirror != mirrorUrl) {
-                        updatedUrl = updatedUrl.replace(mirror, mirrorUrl)
+                var updatedUrl = rawUrl
+                
+                // 应用当前选择的镜像
+                if (mirrorUrl.contains("cdn.jsdelivr.net")) {
+                    if (rawUrl.startsWith(rawPrefix)) {
+                        val path = rawUrl.removePrefix(rawPrefix)
+                        val parts = path.split("/", limit = 4)
+                        if (parts.size >= 4) {
+                            val user = parts[0]
+                            val repo = parts[1]
+                            val branch = parts[2]
+                            val filePath = parts[3]
+                            updatedUrl = "$cdnPrefix$user/$repo@$branch/$filePath"
+                        }
                     }
+                } else if (mirrorUrl != rawPrefix) {
+                     if (rawUrl.startsWith(rawPrefix)) {
+                         updatedUrl = rawUrl.replace(rawPrefix, mirrorUrl)
+                     }
                 }
+                
                 return updatedUrl
             }
 
@@ -298,31 +346,65 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val addedRuleSets = mutableListOf<RuleSet>()
 
             fun normalizeRuleSetUrl(url: String, mirrorUrl: String): String {
-                var updatedUrl = url
-                if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains(mirrorUrl)) {
-                    val rawUrl = if (updatedUrl.contains("https://")) {
-                        "https://raw.githubusercontent.com/" + updatedUrl.substringAfter("raw.githubusercontent.com/")
-                    } else {
-                        updatedUrl
+                val rawPrefix = "https://raw.githubusercontent.com/"
+                val cdnPrefix = "https://cdn.jsdelivr.net/gh/"
+                
+                // 先还原到原始 URL
+                var rawUrl = url
+                
+                // 1. 如果是 jsDelivr 格式，还原为 raw 格式
+                if (rawUrl.startsWith(cdnPrefix)) {
+                     val path = rawUrl.removePrefix(cdnPrefix)
+                     val parts = path.split("@", limit = 2)
+                     if (parts.size == 2) {
+                         val userRepo = parts[0]
+                         val branchPath = parts[1]
+                         rawUrl = "$rawPrefix$userRepo/$branchPath"
+                     }
+                } else {
+                    // 2. 如果是其他前缀代理，移除前缀
+                    val oldMirrors = listOf(
+                        "https://ghp.ci/",
+                        "https://mirror.ghproxy.com/",
+                        "https://ghproxy.com/",
+                        "https://ghproxy.net/",
+                        "https://ghfast.top/",
+                        "https://gh-proxy.com/"
+                    )
+                    
+                    for (mirror in oldMirrors) {
+                        if (rawUrl.startsWith(mirror)) {
+                            rawUrl = rawUrl.replace(mirror, rawPrefix)
+                        }
                     }
-                    updatedUrl = mirrorUrl + rawUrl
+                    // 3. 处理已有的 raw 链接被代理的情况
+                    if (rawUrl.contains("raw.githubusercontent.com") && !rawUrl.startsWith(rawPrefix)) {
+                        val path = rawUrl.substringAfter("raw.githubusercontent.com/")
+                        rawUrl = rawPrefix + path
+                    }
                 }
 
-                val oldMirrors = listOf(
-                    "https://ghp.ci/",
-                    "https://mirror.ghproxy.com/",
-                    "https://ghproxy.com/",
-                    "https://ghproxy.net/",
-                    "https://ghfast.top/",
-                    "https://gh-proxy.com/",
-                    "https://ghproxy.link/"
-                )
-
-                for (mirror in oldMirrors) {
-                    if (updatedUrl.startsWith(mirror) && mirror != mirrorUrl) {
-                        updatedUrl = updatedUrl.replace(mirror, mirrorUrl)
+                var updatedUrl = rawUrl
+                
+                // 应用当前选择的镜像
+                if (mirrorUrl.contains("cdn.jsdelivr.net")) {
+                    if (rawUrl.startsWith(rawPrefix)) {
+                        val path = rawUrl.removePrefix(rawPrefix)
+                        val parts = path.split("/", limit = 4)
+                        if (parts.size >= 4) {
+                            val user = parts[0]
+                            val repo = parts[1]
+                            val branch = parts[2]
+                            val filePath = parts[3]
+                            updatedUrl = "$cdnPrefix$user/$repo@$branch/$filePath"
+                        }
                     }
+                } else if (mirrorUrl != rawPrefix) {
+                     if (rawUrl.startsWith(rawPrefix)) {
+                         updatedUrl = rawUrl.replace(rawPrefix, mirrorUrl)
+                     }
                 }
+                
                 return updatedUrl
             }
 
@@ -508,4 +590,120 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             }
         }
     }
+    
+    // ==================== 导入导出功能 ====================
+    
+    /**
+     * 导出数据到文件
+     */
+    fun exportData(uri: Uri) {
+        viewModelScope.launch {
+            _exportState.value = ExportState.Exporting
+            
+            val result = dataExportRepository.exportToFile(uri)
+            
+            _exportState.value = if (result.isSuccess) {
+                ExportState.Success
+            } else {
+                ExportState.Error(result.exceptionOrNull()?.message ?: "导出失败")
+            }
+        }
+    }
+    
+    /**
+     * 验证导入文件（用于预览）
+     */
+    fun validateImportFile(uri: Uri) {
+        viewModelScope.launch {
+            _importState.value = ImportState.Validating
+            
+            val result = dataExportRepository.validateFromFile(uri)
+            
+            _importState.value = if (result.isSuccess) {
+                val exportData = result.getOrThrow()
+                val summary = dataExportRepository.getExportDataSummary(exportData)
+                ImportState.Preview(uri, exportData, summary)
+            } else {
+                ImportState.Error(result.exceptionOrNull()?.message ?: "数据验证失败")
+            }
+        }
+    }
+    
+    /**
+     * 确认导入数据
+     */
+    fun confirmImport(uri: Uri, options: ImportOptions = ImportOptions()) {
+        viewModelScope.launch {
+            _importState.value = ImportState.Importing
+            
+            val result = dataExportRepository.importFromFile(uri, options)
+            
+            _importState.value = if (result.isSuccess) {
+                when (val importResult = result.getOrThrow()) {
+                    is ImportResult.Success -> ImportState.Success(
+                        profilesImported = importResult.profilesImported,
+                        nodesImported = importResult.nodesImported,
+                        settingsImported = importResult.settingsImported
+                    )
+                    is ImportResult.PartialSuccess -> ImportState.PartialSuccess(
+                        profilesImported = importResult.profilesImported,
+                        profilesFailed = importResult.profilesFailed,
+                        errors = importResult.errors
+                    )
+                    is ImportResult.Failed -> ImportState.Error(importResult.error)
+                }
+            } else {
+                ImportState.Error(result.exceptionOrNull()?.message ?: "导入失败")
+            }
+        }
+    }
+    
+    /**
+     * 重置导出状态
+     */
+    fun resetExportState() {
+        _exportState.value = ExportState.Idle
+    }
+    
+    /**
+     * 重置导入状态
+     */
+    fun resetImportState() {
+        _importState.value = ImportState.Idle
+    }
+}
+
+/**
+ * 导出状态
+ */
+sealed class ExportState {
+    object Idle : ExportState()
+    object Exporting : ExportState()
+    object Success : ExportState()
+    data class Error(val message: String) : ExportState()
+}
+
+/**
+ * 导入状态
+ */
+sealed class ImportState {
+    object Idle : ImportState()
+    object Validating : ImportState()
+    data class Preview(
+        val uri: Uri,
+        val data: ExportData,
+        val summary: ExportDataSummary
+    ) : ImportState()
+    object Importing : ImportState()
+    data class Success(
+        val profilesImported: Int,
+        val nodesImported: Int,
+        val settingsImported: Boolean
+    ) : ImportState()
+    data class PartialSuccess(
+        val profilesImported: Int,
+        val profilesFailed: Int,
+        val errors: List<String>
+    ) : ImportState()
+    data class Error(val message: String) : ImportState()
 }

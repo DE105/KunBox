@@ -271,6 +271,14 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
+    /**
+     * 重新加载所有保存的配置
+     * 用于导入数据后刷新内存状态
+     */
+    fun reloadProfiles() {
+        loadSavedProfiles()
+    }
+
     private fun loadSavedProfiles() {
         try {
             if (profilesFile.exists()) {
@@ -2193,10 +2201,14 @@ class ConfigRepository(private val context: Context) {
             val log = buildRunLogConfig()
             val experimental = buildRunExperimentalConfig(settings)
             val inbounds = buildRunInbounds(settings)
-            val dns = buildRunDns(settings)
+            
+            // 先构建有效的规则集列表，供 DNS 和 Route 模块共用
+            val customRuleSets = buildCustomRuleSets(settings)
+            
+            val dns = buildRunDns(settings, customRuleSets)
 
             val outboundsContext = buildRunOutbounds(config, activeNode, settings, allNodesSnapshot)
-            val route = buildRunRoute(settings, outboundsContext.selectorTag, outboundsContext.outbounds, outboundsContext.nodeTagResolver)
+            val route = buildRunRoute(settings, outboundsContext.selectorTag, outboundsContext.outbounds, outboundsContext.nodeTagResolver, customRuleSets)
 
             lastTagToNodeName = outboundsContext.nodeTagMap.mapNotNull { (nodeId, tag) ->
                 val name = allNodesSnapshot.firstOrNull { it.id == nodeId }?.name
@@ -2556,29 +2568,69 @@ class ConfigRepository(private val context: Context) {
             if (ruleSet.type == RuleSetType.REMOTE) {
                 // 远程规则集：使用预下载的本地缓存
                 val localPath = ruleSetRepo.getRuleSetPath(ruleSet.tag)
-                RuleSetConfig(
-                    tag = ruleSet.tag,
-                    type = "local",
-                    format = ruleSet.format,
-                    path = localPath
-                )
+                val file = File(localPath)
+                if (file.exists() && file.length() > 0) {
+                    // 简单的文件头检查 (SRS magic: 0x73, 0x72, 0x73, 0x0A or similar, but sing-box is flexible)
+                    // 如果文件太小或者内容明显不对（比如 HTML 错误页），则跳过
+                    // 这里我们假设小于 100 字节的文件可能是无效的，或者是下载错误
+                    if (file.length() < 10) {
+                        Log.w(TAG, "Rule set file too small, ignoring: ${ruleSet.tag} (${file.length()} bytes)")
+                        return@map null
+                    }
+                    
+                    // 检查文件头是否为 HTML (下载错误常见情况)
+                    try {
+                        val header = file.inputStream().use { input ->
+                            val buffer = ByteArray(64) // 读取更多字节以防前导空格
+                            val read = input.read(buffer)
+                            if (read > 0) String(buffer, 0, read) else ""
+                        }
+                        val trimmedHeader = header.trim()
+                        if (trimmedHeader.startsWith("<!DOCTYPE html", ignoreCase = true) ||
+                            trimmedHeader.startsWith("<html", ignoreCase = true) ||
+                            trimmedHeader.startsWith("{")) { // 也是为了防止 JSON 错误信息
+                            Log.e(TAG, "Rule set file appears to be invalid (HTML/JSON), ignoring: ${ruleSet.tag}")
+                            // 删除无效文件以便下次重新下载
+                            file.delete()
+                            return@map null
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to inspect rule set file header: ${ruleSet.tag}", e)
+                    }
+
+                    RuleSetConfig(
+                        tag = ruleSet.tag,
+                        type = "local",
+                        format = ruleSet.format,
+                        path = localPath
+                    )
+                } else {
+                    Log.w(TAG, "Rule set file not found or empty: ${ruleSet.tag} ($localPath)")
+                    null
+                }
             } else {
                 // 本地规则集：直接使用用户指定的路径
-                RuleSetConfig(
-                    tag = ruleSet.tag,
-                    type = "local",
-                    format = ruleSet.format,
-                    path = ruleSet.path
-                )
+                val file = File(ruleSet.path)
+                if (file.exists() && file.length() > 0) {
+                    RuleSetConfig(
+                        tag = ruleSet.tag,
+                        type = "local",
+                        format = ruleSet.format,
+                        path = ruleSet.path
+                    )
+                } else {
+                    Log.w(TAG, "Local rule set file not found: ${ruleSet.tag} (${ruleSet.path})")
+                    null
+                }
             }
-        }.toMutableList()
+        }.filterNotNull().toMutableList()
 
         if (settings.blockAds) {
             val adBlockTag = "geosite-category-ads-all"
             val adBlockPath = ruleSetRepo.getRuleSetPath(adBlockTag)
             val adBlockFile = File(adBlockPath)
 
-            if (!adBlockFile.exists()) {
+            if (!adBlockFile.exists() || adBlockFile.length() == 0L) {
                 try {
                     context.assets.open("rulesets/$adBlockTag.srs").use { input ->
                         adBlockFile.parentFile?.mkdirs()
@@ -2586,11 +2638,12 @@ class ConfigRepository(private val context: Context) {
                             input.copyTo(output)
                         }
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to copy built-in ad block rule set", e)
                 }
             }
 
-            if (adBlockFile.exists() && rules.none { it.tag == adBlockTag }) {
+            if (adBlockFile.exists() && adBlockFile.length() > 0 && rules.none { it.tag == adBlockTag }) {
                 rules.add(
                     RuleSetConfig(
                         tag = adBlockTag,
@@ -2674,7 +2727,8 @@ class ConfigRepository(private val context: Context) {
         settings: AppSettings,
         defaultProxyTag: String,
         outbounds: List<Outbound>,
-        nodeTagResolver: (String?) -> String?
+        nodeTagResolver: (String?) -> String?,
+        validRuleSets: List<RuleSetConfig>
     ): List<RouteRule> {
         val rules = mutableListOf<RouteRule>()
 
@@ -2682,10 +2736,13 @@ class ConfigRepository(private val context: Context) {
         val availableTags = outbounds.map { it.tag }
         Log.v(TAG, "Available outbound tags for rule matching: $availableTags")
         
+        val validTags = validRuleSets.mapNotNull { it.tag }.toSet()
+        
         // 对规则集进行排序：更具体的规则应该排在前面
         // 优先级：单节点/分组 > 代理 > 直连 > 拦截
         // 同时，特定服务的规则（如 google, youtube）应该优先于泛化规则（如 geolocation-!cn）
-        val sortedRuleSets = settings.ruleSets.filter { it.enabled }.sortedWith(
+        // 并且只处理有效的规则集
+        val sortedRuleSets = settings.ruleSets.filter { it.enabled && it.tag in validTags }.sortedWith(
             compareBy(
                 // 泛化规则排后面（如 geolocation-!cn, geolocation-cn）
                 { ruleSet ->
@@ -2946,7 +3003,7 @@ class ConfigRepository(private val context: Context) {
         return inbounds
     }
 
-    private fun buildRunDns(settings: AppSettings): DnsConfig {
+    private fun buildRunDns(settings: AppSettings, validRuleSets: List<RuleSetConfig>): DnsConfig {
         // 添加 DNS 配置
         val dnsServers = mutableListOf<DnsServer>()
         val dnsRules = mutableListOf<DnsRule>()
@@ -3042,7 +3099,8 @@ class ConfigRepository(private val context: Context) {
             "geosite-disney", "geosite-microsoft", "geosite-amazon"
         )
         possibleProxyTags.forEach { tag ->
-            if (settings.ruleSets.any { it.tag == tag }) proxyRuleSets.add(tag)
+            // 只添加有效且存在的规则集
+            if (validRuleSets.any { it.tag == tag }) proxyRuleSets.add(tag)
         }
 
         if (proxyRuleSets.isNotEmpty()) {
@@ -3067,7 +3125,7 @@ class ConfigRepository(private val context: Context) {
 
         // 优化：直连/绕过类域名的 DNS 强制走 local
         val directRuleSets = mutableListOf<String>()
-        if (settings.ruleSets.any { it.tag == "geosite-cn" }) directRuleSets.add("geosite-cn")
+        if (validRuleSets.any { it.tag == "geosite-cn" }) directRuleSets.add("geosite-cn")
         
         if (directRuleSets.isNotEmpty()) {
             dnsRules.add(
@@ -3423,7 +3481,16 @@ class ConfigRepository(private val context: Context) {
                 if (safeRefs.size != (outbound.outbounds?.size ?: 0)) {
                     Log.w(TAG, "Filtered invalid refs in ${outbound.tag}: ${outbound.outbounds} -> $safeRefs")
                 }
-                outbound.copy(outbounds = safeRefs)
+                
+                // Ensure default is valid
+                val currentDefault = outbound.default
+                val safeDefault = if (currentDefault != null && safeRefs.contains(currentDefault)) {
+                    currentDefault
+                } else {
+                    safeRefs.firstOrNull()
+                }
+                
+                outbound.copy(outbounds = safeRefs, default = safeDefault)
             } else {
                 outbound
             }
@@ -3441,14 +3508,14 @@ class ConfigRepository(private val context: Context) {
         settings: AppSettings,
         selectorTag: String,
         outbounds: List<Outbound>,
-        nodeTagResolver: (String?) -> String?
+        nodeTagResolver: (String?) -> String?,
+        validRuleSets: List<RuleSetConfig>
     ): RouteConfig {
         // 构建应用分流规则
         val appRoutingRules = buildAppRoutingRules(settings, selectorTag, outbounds, nodeTagResolver)
 
-        // 构建自定义规则集配置和路由规则
-        val customRuleSets = buildCustomRuleSets(settings)
-        val customRuleSetRules = buildCustomRuleSetRules(settings, selectorTag, outbounds, nodeTagResolver)
+        // 构建自定义规则集路由规则（只针对有效的规则集）
+        val customRuleSetRules = buildCustomRuleSetRules(settings, selectorTag, outbounds, nodeTagResolver, validRuleSets)
 
         val quicRule = if (settings.blockQuic) {
             listOf(RouteRule(protocolRaw = listOf("quic"), outbound = "block"))
@@ -3477,7 +3544,7 @@ class ConfigRepository(private val context: Context) {
 
         val dnsTrafficRule = listOf(RouteRule(protocolRaw = listOf("dns"), outbound = "dns-out"))
 
-        val adBlockEnabled = settings.blockAds && customRuleSets.any { it.tag == "geosite-category-ads-all" }
+        val adBlockEnabled = settings.blockAds && validRuleSets.any { it.tag == "geosite-category-ads-all" }
         val adBlockRules = if (adBlockEnabled) {
             listOf(RouteRule(ruleSet = listOf("geosite-category-ads-all"), outbound = "block"))
         } else {
@@ -3516,7 +3583,7 @@ class ConfigRepository(private val context: Context) {
         Log.v(TAG, "=== Final outbound: $selectorTag ===")
 
         return RouteConfig(
-            ruleSet = customRuleSets,
+            ruleSet = validRuleSets,
             rules = allRules,
             finalOutbound = selectorTag, // 路由指向 Selector
             findProcess = true,

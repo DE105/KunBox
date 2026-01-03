@@ -1,6 +1,8 @@
 package com.kunk.singbox.ui.screens
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -16,12 +18,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.VpnKey
 import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material.icons.rounded.Schedule
@@ -29,6 +33,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -41,17 +46,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.kunk.singbox.model.AppThemeMode
+import com.kunk.singbox.model.ImportOptions
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.ui.components.AboutDialog
 import com.kunk.singbox.ui.components.EditableTextItem
+import com.kunk.singbox.ui.components.ExportProgressDialog
+import com.kunk.singbox.ui.components.ImportPreviewDialog
+import com.kunk.singbox.ui.components.ImportProgressDialog
 import com.kunk.singbox.ui.components.SettingItem
 import com.kunk.singbox.ui.components.SettingSwitchItem
 import com.kunk.singbox.ui.components.SingleSelectDialog
 import com.kunk.singbox.ui.components.StandardCard
+import com.kunk.singbox.ui.components.ValidatingDialog
 import com.kunk.singbox.ui.navigation.Screen
+import com.kunk.singbox.viewmodel.ExportState
+import com.kunk.singbox.viewmodel.ImportState
 import com.kunk.singbox.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
-import com.kunk.singbox.model.AppThemeMode
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -62,11 +77,33 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
     val settings by viewModel.settings.collectAsState()
+    val exportState by viewModel.exportState.collectAsState()
+    val importState by viewModel.importState.collectAsState()
     
     var showAboutDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var isUpdatingRuleSets by remember { mutableStateOf(false) }
     var updateMessage by remember { mutableStateOf("") }
+    
+    // 文件选择器 - 导出
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let { viewModel.exportData(it) }
+    }
+    
+    // 文件选择器 - 导入
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { viewModel.validateImportFile(it) }
+    }
+    
+    // 生成导出文件名
+    fun generateExportFileName(): String {
+        val dateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+        return "singbox_backup_${dateFormat.format(Date())}.json"
+    }
 
     if (showAboutDialog) {
         AboutDialog(
@@ -85,6 +122,42 @@ fun SettingsScreen(
             },
             onDismiss = { showThemeDialog = false }
         )
+    }
+    
+    // 导出状态对话框
+    ExportProgressDialog(
+        state = exportState,
+        onDismiss = { viewModel.resetExportState() }
+    )
+    
+    // 导入预览对话框
+    if (importState is ImportState.Preview) {
+        val previewState = importState as ImportState.Preview
+        ImportPreviewDialog(
+            summary = previewState.summary,
+            onConfirm = {
+                viewModel.confirmImport(previewState.uri, ImportOptions(overwriteExisting = true))
+            },
+            onDismiss = { viewModel.resetImportState() }
+        )
+    }
+    
+    // 导入进度/结果对话框
+    ImportProgressDialog(
+        state = importState,
+        onDismiss = { viewModel.resetImportState() }
+    )
+    
+    // 验证中对话框
+    if (importState is ImportState.Validating) {
+        ValidatingDialog()
+    }
+    
+    // 导入错误处理（如果在 Preview 之前就出错）
+    LaunchedEffect(importState) {
+        if (importState is ImportState.Error) {
+            // 错误会在 ImportProgressDialog 中显示
+        }
     }
 
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
@@ -242,8 +315,31 @@ fun SettingsScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+        
+        // 4. 数据管理
+        SettingsGroupTitle("数据管理")
+        StandardCard {
+            SettingItem(
+                title = "导出数据",
+                subtitle = "备份所有配置和设置到文件",
+                icon = Icons.Rounded.Upload,
+                onClick = {
+                    exportLauncher.launch(generateExportFileName())
+                }
+            )
+            SettingItem(
+                title = "导入数据",
+                subtitle = "从备份文件恢复配置和设置",
+                icon = Icons.Rounded.Download,
+                onClick = {
+                    importLauncher.launch(arrayOf("application/json", "*/*"))
+                }
+            )
+        }
 
-        // 4. About
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 5. About
         SettingsGroupTitle("关于")
         StandardCard {
             SettingItem(

@@ -116,7 +116,7 @@ class SettingsRepository(private val context: Context) {
     }
     
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
-        val selectedMirror = GhProxyMirror.fromDisplayName(preferences[PreferencesKeys.GH_PROXY_MIRROR] ?: "ghfast.top")
+        val selectedMirror = GhProxyMirror.fromDisplayName(preferences[PreferencesKeys.GH_PROXY_MIRROR] ?: "SagerNet (官方)")
         val currentMirrorUrl = selectedMirror.url
 
         val customRulesJson = preferences[PreferencesKeys.CUSTOM_RULES]
@@ -166,31 +166,60 @@ class SettingsRepository(private val context: Context) {
                     }
                     
                     // 3. 统一使用镜像加速
-                    if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains(currentMirrorUrl)) {
-                        // 移除旧镜像
-                        val rawUrl = if (updatedUrl.contains("https://")) {
-                            "https://raw.githubusercontent.com/" + updatedUrl.substringAfter("raw.githubusercontent.com/")
-                        } else {
-                            updatedUrl
-                        }
-                        updatedUrl = currentMirrorUrl + rawUrl
-                    }
+                    val rawPrefix = "https://raw.githubusercontent.com/"
+                    val cdnPrefix = "https://cdn.jsdelivr.net/gh/"
                     
-                    // 修复之前注入的失效或不稳定的镜像
+                    // 先还原到原始 URL (raw.githubusercontent.com)
+                    var rawUrl = updatedUrl
+                    
+                    // 移除旧镜像
                     val oldMirrors = listOf(
-                        "https://ghp.ci/", 
-                        "https://mirror.ghproxy.com/", 
-                        "https://ghproxy.com/", 
+                        "https://ghp.ci/",
+                        "https://mirror.ghproxy.com/",
+                        "https://ghproxy.com/",
                         "https://ghproxy.net/",
                         "https://ghfast.top/",
                         "https://gh-proxy.com/",
-                        "https://ghproxy.link/"
+                        cdnPrefix
                     )
                     
                     for (mirror in oldMirrors) {
-                        if (updatedUrl.startsWith(mirror) && mirror != currentMirrorUrl) {
-                            updatedUrl = updatedUrl.replace(mirror, currentMirrorUrl)
+                        if (rawUrl.startsWith(mirror)) {
+                            // 对于 jsDelivr，URL 结构不同，需要特殊处理
+                            if (mirror == cdnPrefix) {
+                                // https://cdn.jsdelivr.net/gh/user/repo@version/path -> https://raw.githubusercontent.com/user/repo/version/path
+                                // 这里简化处理，假设是 @rule-set 这种形式
+                                rawUrl = rawUrl.replace(cdnPrefix, rawPrefix).replace("@", "/")
+                            } else {
+                                rawUrl = rawUrl.replace(mirror, rawPrefix)
+                            }
                         }
+                    }
+
+                    // 应用当前选择的镜像
+                    if (currentMirrorUrl.contains("cdn.jsdelivr.net")) {
+                        // 转换为 jsDelivr 格式
+                        // https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs
+                        // -> https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs
+                        if (rawUrl.startsWith(rawPrefix)) {
+                            val path = rawUrl.removePrefix(rawPrefix)
+                            val parts = path.split("/", limit = 4)
+                            if (parts.size >= 4) {
+                                val user = parts[0]
+                                val repo = parts[1]
+                                val branch = parts[2]
+                                val filePath = parts[3]
+                                updatedUrl = "$cdnPrefix$user/$repo@$branch/$filePath"
+                            }
+                        }
+                    } else if (currentMirrorUrl != rawPrefix) {
+                         // 其他镜像通常直接拼接
+                         if (rawUrl.startsWith(rawPrefix)) {
+                             updatedUrl = rawUrl.replace(rawPrefix, currentMirrorUrl)
+                         }
+                    } else {
+                        // 使用官方源 (raw.githubusercontent.com)
+                        updatedUrl = rawUrl
                     }
 
                     if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
@@ -582,29 +611,64 @@ class SettingsRepository(private val context: Context) {
                     updatedUrl = updatedUrl.replace("geosite-ads.srs", "geosite-category-ads-all.srs")
                 }
                 
-                if (updatedUrl.contains("raw.githubusercontent.com") && !updatedUrl.contains(currentMirrorUrl)) {
-                    val rawUrl = if (updatedUrl.contains("https://")) {
-                        "https://raw.githubusercontent.com/" + updatedUrl.substringAfter("raw.githubusercontent.com/")
-                    } else {
-                        updatedUrl
+                val rawPrefix = "https://raw.githubusercontent.com/"
+                val cdnPrefix = "https://cdn.jsdelivr.net/gh/"
+                
+                // 先还原到原始 URL
+                var rawUrl = updatedUrl
+                
+                // 1. 如果是 jsDelivr 格式，还原为 raw 格式
+                if (rawUrl.startsWith(cdnPrefix)) {
+                     // https://cdn.jsdelivr.net/gh/user/repo@branch/path -> user/repo@branch/path
+                     val path = rawUrl.removePrefix(cdnPrefix)
+                     val parts = path.split("@", limit = 2)
+                     if (parts.size == 2) {
+                         val userRepo = parts[0]
+                         val branchPath = parts[1]
+                         rawUrl = "$rawPrefix$userRepo/$branchPath"
+                     }
+                } else {
+                    // 2. 如果是其他前缀代理，移除前缀
+                    val oldMirrors = listOf(
+                        "https://ghp.ci/",
+                        "https://mirror.ghproxy.com/",
+                        "https://ghproxy.com/",
+                        "https://ghproxy.net/",
+                        "https://ghfast.top/",
+                        "https://gh-proxy.com/"
+                    )
+                    
+                    for (mirror in oldMirrors) {
+                        if (rawUrl.startsWith(mirror)) {
+                            rawUrl = rawUrl.replace(mirror, rawPrefix)
+                        }
                     }
-                    updatedUrl = currentMirrorUrl + rawUrl
+                    // 3. 处理已有的 raw 链接被代理的情况
+                    if (rawUrl.contains("raw.githubusercontent.com") && !rawUrl.startsWith(rawPrefix)) {
+                        val path = rawUrl.substringAfter("raw.githubusercontent.com/")
+                        rawUrl = rawPrefix + path
+                    }
                 }
-                
-                val oldMirrors = listOf(
-                    "https://ghp.ci/", 
-                    "https://mirror.ghproxy.com/", 
-                    "https://ghproxy.com/", 
-                    "https://ghproxy.net/",
-                    "https://ghfast.top/",
-                    "https://gh-proxy.com/",
-                    "https://ghproxy.link/"
-                )
-                
-                for (mirror in oldMirrors) {
-                    if (updatedUrl.startsWith(mirror) && mirror != currentMirrorUrl) {
-                        updatedUrl = updatedUrl.replace(mirror, currentMirrorUrl)
+
+                // 应用当前选择的镜像
+                if (currentMirrorUrl.contains("cdn.jsdelivr.net")) {
+                    if (rawUrl.startsWith(rawPrefix)) {
+                        val path = rawUrl.removePrefix(rawPrefix)
+                        val parts = path.split("/", limit = 4)
+                        if (parts.size >= 4) {
+                            val user = parts[0]
+                            val repo = parts[1]
+                            val branch = parts[2]
+                            val filePath = parts[3]
+                            updatedUrl = "$cdnPrefix$user/$repo@$branch/$filePath"
+                        }
                     }
+                } else if (currentMirrorUrl != rawPrefix) {
+                     if (rawUrl.startsWith(rawPrefix)) {
+                         updatedUrl = rawUrl.replace(rawPrefix, currentMirrorUrl)
+                     }
+                } else {
+                    updatedUrl = rawUrl
                 }
 
                 if (updatedUrl != ruleSet.url || updatedTag != ruleSet.tag) {
