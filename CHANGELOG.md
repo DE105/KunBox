@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.1.5](https://github.com/roseforljh/KunBox/compare/v2.1.4...v2.1.5) (2026-01-04)
+
+
+### Bug Fixes
+
+* 优化延迟测试 ([ec969a0](https://github.com/roseforljh/KunBox/commit/ec969a0f02bc3b3bbfccb7ce56a127b720e5a532))
+* 优化延迟测试 ([813c358](https://github.com/roseforljh/KunBox/commit/813c35883c518a8d8dbb6a018560d4cd93b3ee6b))
+* 优化订阅更新逻辑 ([ccae9b1](https://github.com/roseforljh/KunBox/commit/ccae9b1abd5de21a3834d8eb6977c5bb1d4c6824))
+* 可能解决了一些闪退的问题 ([9d67bb8](https://github.com/roseforljh/KunBox/commit/9d67bb808831a7ec225192b615da31efff01b876))
+* 多处优化 ([988b49c](https://github.com/roseforljh/KunBox/commit/988b49c9cc1154a0c7c55090b17b9007fdaa21f8))
+* 实时显示上传和下载速度 ([a312d2e](https://github.com/roseforljh/KunBox/commit/a312d2e4a0895c707c9bf2f18ca92cf2d73ba2c0))
+* 部分订阅节点丢失 ([c766968](https://github.com/roseforljh/KunBox/commit/c7669681064ce9862762552ea19234914f9836e9))
+* 长按功能 ([a5d6c4c](https://github.com/roseforljh/KunBox/commit/a5d6c4cdbb246035abe9b4a24418bb7e5e97a209))
+
 ## [2.1.4](https://github.com/roseforljh/KunBox/compare/v2.1.3...v2.1.4) (2026-01-03)
 
 
