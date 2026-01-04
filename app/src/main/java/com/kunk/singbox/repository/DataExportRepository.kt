@@ -400,6 +400,11 @@ class DataExportRepository(private val context: Context) {
         // 规则集自动更新
         settingsRepository.setRuleSetAutoUpdateEnabled(settings.ruleSetAutoUpdateEnabled)
         settingsRepository.setRuleSetAutoUpdateInterval(settings.ruleSetAutoUpdateInterval)
+        
+        // 节点列表设置
+        settingsRepository.setNodeFilter(settings.nodeFilter)
+        settingsRepository.setNodeSortType(settings.nodeSortType)
+        settingsRepository.setCustomNodeOrder(settings.customNodeOrder)
     }
     
     /**

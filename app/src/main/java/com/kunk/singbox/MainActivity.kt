@@ -199,7 +199,10 @@ fun SingBoxApp() {
     LaunchedEffect(isRunning, isStarting) {
         // 当 VPN 状态发生重大变化（启动、停止、重启）时，底层的网络接口可能已变更
         // 此时必须清理连接池，防止 OkHttp 复用绑定在旧网络接口上的连接导致 "use of closed network connection"
-        com.kunk.singbox.utils.NetworkClient.clearConnectionPool()
+        // 必须在 IO 线程执行，因为 connectionPool.evictAll() 会关闭 SSL socket，涉及网络 I/O
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.kunk.singbox.utils.NetworkClient.clearConnectionPool()
+        }
     }
 
     // 自动连接逻辑

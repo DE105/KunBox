@@ -27,7 +27,7 @@ import com.kunk.singbox.model.GhProxyMirror
 import com.kunk.singbox.model.AppThemeMode
 import com.kunk.singbox.model.AppLanguage
 import com.kunk.singbox.model.NodeSortType
-import com.kunk.singbox.viewmodel.NodeFilter
+import com.kunk.singbox.model.NodeFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -119,6 +119,35 @@ class SettingsRepository(private val context: Context) {
     }
     
     val settings: Flow<AppSettings> = context.dataStore.data.map { preferences ->
+        val nodeFilterJson = preferences[PreferencesKeys.NODE_FILTER]
+        val nodeFilter = if (nodeFilterJson != null) {
+            try {
+                gson.fromJson(nodeFilterJson, NodeFilter::class.java) ?: NodeFilter()
+            } catch (e: Exception) {
+                NodeFilter()
+            }
+        } else {
+            NodeFilter()
+        }
+
+        val nodeSortTypeName = preferences[PreferencesKeys.NODE_SORT_TYPE]
+        val nodeSortType = if (nodeSortTypeName != null) {
+            runCatching { NodeSortType.valueOf(nodeSortTypeName) }.getOrDefault(NodeSortType.DEFAULT)
+        } else {
+            NodeSortType.DEFAULT
+        }
+
+        val customNodeOrderJson = preferences[PreferencesKeys.CUSTOM_NODE_ORDER]
+        val customNodeOrder = if (customNodeOrderJson != null) {
+            try {
+                gson.fromJson<List<String>>(customNodeOrderJson, object : TypeToken<List<String>>() {}.type) ?: emptyList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+
         val rawMirror = preferences[PreferencesKeys.GH_PROXY_MIRROR]
         val selectedMirror = GhProxyMirror.entries.find { it.name == rawMirror }
             ?: GhProxyMirror.entries.find { it.name == "SAGERNET_ORIGIN" }!!
@@ -331,7 +360,12 @@ class SettingsRepository(private val context: Context) {
             ruleSetAutoUpdateInterval = preferences[PreferencesKeys.RULE_SET_AUTO_UPDATE_INTERVAL] ?: 60,
             
             // 订阅更新超时
-            subscriptionUpdateTimeout = preferences[PreferencesKeys.SUBSCRIPTION_UPDATE_TIMEOUT] ?: 30
+            subscriptionUpdateTimeout = preferences[PreferencesKeys.SUBSCRIPTION_UPDATE_TIMEOUT] ?: 30,
+            
+            // 节点列表设置
+            nodeFilter = nodeFilter,
+            nodeSortType = nodeSortType,
+            customNodeOrder = customNodeOrder
         )
     }.flowOn(Dispatchers.Default)
     
@@ -579,6 +613,10 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun getNodeFilter(): NodeFilter {
+        return getNodeFilterFlow().first()
+    }
+
+    fun getNodeFilterFlow(): Flow<NodeFilter> {
         return context.dataStore.data.map { preferences ->
             val json = preferences[PreferencesKeys.NODE_FILTER]
             if (json != null) {
@@ -590,7 +628,7 @@ class SettingsRepository(private val context: Context) {
             } else {
                 NodeFilter()
             }
-        }.first()
+        }
     }
 
     suspend fun setNodeSortType(sortType: NodeSortType) {

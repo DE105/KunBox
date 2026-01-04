@@ -76,8 +76,8 @@ import com.kunk.singbox.model.InstalledApp
 import com.kunk.singbox.repository.InstalledAppsRepository
 import com.kunk.singbox.ui.theme.Destructive
 import com.kunk.singbox.ui.theme.Neutral500
-import com.kunk.singbox.viewmodel.FilterMode
-import com.kunk.singbox.viewmodel.NodeFilter
+import com.kunk.singbox.model.FilterMode
+import com.kunk.singbox.model.NodeFilter
 import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.model.ProfileUi
 

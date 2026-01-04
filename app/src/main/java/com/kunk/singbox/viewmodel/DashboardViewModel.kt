@@ -16,6 +16,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.model.ConnectionState
 import com.kunk.singbox.model.ConnectionStats
+import com.kunk.singbox.model.FilterMode
+import com.kunk.singbox.model.NodeFilter
 import com.kunk.singbox.model.NodeSortType
 import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.model.ProfileUi
@@ -185,16 +187,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _sortType,
         _customNodeOrder,
         configRepository.activeNodeId
-    ) { nodes, filter, sortType, customOrder, currentActiveNodeId ->
+    ) { nodes: List<NodeUi>, filter: NodeFilter, sortType: NodeSortType, customOrder: List<String>, currentActiveNodeId: String? ->
         val filtered = when (filter.filterMode) {
             FilterMode.NONE -> nodes
             FilterMode.INCLUDE -> {
                 if (filter.keywords.isEmpty()) nodes
-                else nodes.filter { node -> filter.keywords.any { node.displayName.contains(it, ignoreCase = true) } }
+                else nodes.filter { node -> filter.keywords.any { keyword -> node.displayName.contains(keyword, ignoreCase = true) } }
             }
             FilterMode.EXCLUDE -> {
                 if (filter.keywords.isEmpty()) nodes
-                else nodes.filter { node -> filter.keywords.none { node.displayName.contains(it, ignoreCase = true) } }
+                else nodes.filter { node -> filter.keywords.none { keyword -> node.displayName.contains(keyword, ignoreCase = true) } }
             }
         }
         
@@ -254,7 +256,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     init {
         viewModelScope.launch {
-            _nodeFilter.value = settingsRepository.getNodeFilter()
+            settingsRepository.getNodeFilterFlow().collect {
+                _nodeFilter.value = it
+            }
         }
         viewModelScope.launch {
             settingsRepository.getNodeSortType().collect {

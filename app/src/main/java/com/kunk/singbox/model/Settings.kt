@@ -74,7 +74,12 @@ data class AppSettings(
     @SerializedName("ruleSetAutoUpdateInterval") val ruleSetAutoUpdateInterval: Int = 60, // 分钟
     
     // 订阅更新超时设置
-    @SerializedName("subscriptionUpdateTimeout") val subscriptionUpdateTimeout: Int = 30 // 秒，默认30秒
+    @SerializedName("subscriptionUpdateTimeout") val subscriptionUpdateTimeout: Int = 30, // 秒，默认30秒
+
+    // 节点列表设置
+    @SerializedName("nodeFilter") val nodeFilter: NodeFilter = NodeFilter(),
+    @SerializedName("nodeSortType") val nodeSortType: NodeSortType = NodeSortType.DEFAULT,
+    @SerializedName("customNodeOrder") val customNodeOrder: List<String> = emptyList()
 )
 
 enum class LatencyTestMethod(@StringRes val displayNameRes: Int) {

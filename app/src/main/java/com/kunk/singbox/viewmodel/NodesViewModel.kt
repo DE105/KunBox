@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.ipc.VpnStateStore
+import com.kunk.singbox.model.FilterMode
+import com.kunk.singbox.model.NodeFilter
 import com.kunk.singbox.model.NodeSortType
 import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.repository.ConfigRepository
@@ -22,19 +24,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-
-// 过滤模式枚举
-enum class FilterMode {
-    NONE,      // 不过滤
-    INCLUDE,   // 只显示包含关键字的节点
-    EXCLUDE    // 排除包含关键字的节点
-}
-
-// 节点过滤配置数据类
-data class NodeFilter(
-    val keywords: List<String> = emptyList(),
-    val filterMode: FilterMode = FilterMode.NONE
-)
 
 class NodesViewModel(application: Application) : AndroidViewModel(application) {
     
@@ -62,7 +51,9 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // 加载保存的过滤配置
         viewModelScope.launch {
-            _nodeFilter.value = settingsRepository.getNodeFilter()
+            settingsRepository.getNodeFilterFlow().collect {
+                _nodeFilter.value = it
+            }
         }
         viewModelScope.launch {
             settingsRepository.getNodeSortType().collect { type ->
@@ -81,7 +72,7 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         _sortType,
         _nodeFilter,
         _customNodeOrder
-    ) { nodes, sortType, filter, customOrder ->
+    ) { nodes: List<NodeUi>, sortType: NodeSortType, filter: NodeFilter, customOrder: List<String> ->
         // 先过滤
         val filtered = when (filter.filterMode) {
             FilterMode.NONE -> nodes

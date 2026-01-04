@@ -69,7 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.kunk.singbox.viewmodel.FilterMode
+import com.kunk.singbox.model.FilterMode
 import com.kunk.singbox.model.NodeSortType
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.ui.components.InputDialog
