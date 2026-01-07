@@ -110,7 +110,8 @@ fun DashboardScreen(
     }
 
     // 优化: 缓存活跃节点名称计算
-    val activeNodeName by remember {
+    // 重要：必须依赖 activeNodeId 的变化，否则节点选择后不会更新显示
+    val activeNodeName by remember(activeNodeId) {
         derivedStateOf {
             viewModel.getActiveNodeName()
         }

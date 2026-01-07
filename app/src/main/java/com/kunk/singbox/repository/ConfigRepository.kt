@@ -228,8 +228,9 @@ class ConfigRepository(private val context: Context) {
                 activeProfileId = _activeProfileId.value,
                 activeNodeId = _activeNodeId.value
             )
+            Log.d(TAG, "saveProfiles: Saving activeProfileId=${_activeProfileId.value}, activeNodeId=${_activeNodeId.value}")
             val json = gson.toJson(data)
-            
+
             // Robust atomic write implementation
             val tmpFile = File(profilesFile.parent, "${profilesFile.name}.tmp")
             try {
@@ -243,7 +244,7 @@ class ConfigRepository(private val context: Context) {
                         tmpFile.copyTo(profilesFile, overwrite = true)
                         tmpFile.delete()
                     }
-                    Log.d(TAG, "Profiles saved successfully")
+                    Log.d(TAG, "Profiles saved successfully to ${profilesFile.absolutePath}")
                 } else {
                     Log.e(TAG, "Tmp file is empty, skipping save to prevent data corruption")
                 }
@@ -333,7 +334,9 @@ class ConfigRepository(private val context: Context) {
         try {
             if (profilesFile.exists()) {
                 val json = profilesFile.readText()
+                Log.d(TAG, "loadSavedProfiles: Loading from ${profilesFile.absolutePath}")
                 val savedData = gson.fromJson(json, SavedProfilesData::class.java)
+                Log.d(TAG, "loadSavedProfiles: Loaded activeProfileId=${savedData.activeProfileId}, activeNodeId=${savedData.activeNodeId}")
                 
                 // Gson 有时会将泛型列表中的对象反序列化为 LinkedTreeMap，而不是目标对象 (ProfileUi)
                 // 这通常发生在类型擦除或混淆导致类型信息丢失的情况下
@@ -383,11 +386,24 @@ class ConfigRepository(private val context: Context) {
                         updateNodeGroups(nodes)
                         val restored = savedData.activeNodeId
                         _activeNodeId.value = when {
-                            !restored.isNullOrBlank() && nodes.any { it.id == restored } -> restored
-                            nodes.isNotEmpty() -> nodes.first().id
-                            else -> null
+                            !restored.isNullOrBlank() && nodes.any { it.id == restored } -> {
+                                Log.d(TAG, "loadSavedProfiles: Restored activeNodeId=$restored")
+                                restored
+                            }
+                            nodes.isNotEmpty() -> {
+                                Log.d(TAG, "loadSavedProfiles: Saved activeNodeId not found, defaulting to first node: ${nodes.first().id}")
+                                nodes.first().id
+                            }
+                            else -> {
+                                Log.w(TAG, "loadSavedProfiles: No nodes available, activeNodeId set to null")
+                                null
+                            }
                         }
+                    } ?: run {
+                        Log.w(TAG, "loadSavedProfiles: profileNodes[$activeId] is null, activeNodeId not restored")
                     }
+                } ?: run {
+                    Log.w(TAG, "loadSavedProfiles: activeProfileId is null, activeNodeId not restored")
                 }
             }
         } catch (e: Exception) {
@@ -1732,13 +1748,27 @@ class ConfigRepository(private val context: Context) {
             _nodes.value = nodes
             updateNodeGroups(nodes)
 
+            val currentActiveId = _activeNodeId.value
+
             // 如果指定了目标节点且存在于列表中，直接选中
             if (targetNodeId != null && nodes.any { it.id == targetNodeId }) {
+                Log.d(TAG, "setActiveProfile.updateState: Setting activeNodeId to targetNodeId=$targetNodeId")
                 _activeNodeId.value = targetNodeId
             }
-            // 否则，如果当前选中节点不在列表中，重置为第一个
-            else if (nodes.isNotEmpty() && _activeNodeId.value !in nodes.map { it.id }) {
+            // 如果当前选中节点在新节点列表中，保持不变
+            else if (currentActiveId != null && nodes.any { it.id == currentActiveId }) {
+                Log.d(TAG, "setActiveProfile.updateState: Keeping current activeNodeId=$currentActiveId (found in nodes list)")
+                // 不需要修改，已经是正确的值
+            }
+            // 如果当前没有选中节点，或选中的节点不在新列表中，选择第一个
+            else if (nodes.isNotEmpty()) {
+                val oldValue = _activeNodeId.value
                 _activeNodeId.value = nodes.first().id
+                if (oldValue != null) {
+                    Log.w(TAG, "setActiveProfile.updateState: Current activeNodeId=$oldValue not in nodes list, resetting to first node: ${nodes.first().id}")
+                } else {
+                    Log.d(TAG, "setActiveProfile.updateState: activeNodeId is null, setting to first node: ${nodes.first().id}")
+                }
             }
         }
 
@@ -1785,6 +1815,7 @@ class ConfigRepository(private val context: Context) {
         }
 
         _activeNodeId.value = nodeId
+        Log.d(TAG, "setActiveNodeWithResult: Set activeNodeId=$nodeId")
         saveProfiles()
 
         val persistedActive = VpnStateStore.getActive(context)
@@ -3715,9 +3746,22 @@ class ConfigRepository(private val context: Context) {
     
     /**
      * 根据节点ID获取NodeUi
+     * 优先从当前配置的节点中查找，如果找不到则从所有已加载的配置中查找
      */
     fun getNodeById(nodeId: String): NodeUi? {
-        return _nodes.value.find { it.id == nodeId }
+        // 首先在当前配置的节点中查找
+        _nodes.value.find { it.id == nodeId }?.let { return it }
+
+        // 如果当前配置中没有，尝试从所有已加载的配置中查找
+        // 这样可以确保即使配置切换时也能正确显示节点名称
+        for ((_, nodes) in profileNodes) {
+            nodes.find { it.id == nodeId }?.let { return it }
+        }
+
+        // 最后尝试从 allNodes 中查找（如果已加载）
+        _allNodes.value.find { it.id == nodeId }?.let { return it }
+
+        return null
     }
     
     /**

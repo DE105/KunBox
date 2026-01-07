@@ -891,10 +891,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     
     /**
      * 获取活跃节点的名称
+     * 使用改进的 getNodeById 方法确保即使配置切换或节点列表未完全加载时也能正确显示
      */
     fun getActiveNodeName(): String? {
         val activeId = activeNodeId.value ?: return null
-        return configRepository.nodes.value.find { it.id == activeId }?.name
+        return configRepository.getNodeById(activeId)?.displayName
     }
     
     override fun onCleared() {
