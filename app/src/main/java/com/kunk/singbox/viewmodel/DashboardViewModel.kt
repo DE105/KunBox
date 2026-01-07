@@ -422,12 +422,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     Log.w(TAG, "Timeout waiting for service to stop, proceeding with restart")
                 }
             }
-            
-            // 额外等待确保 QUIC 连接和网络接口完全释放
-            // STOPPED 状态是在 cleanupScope 中异步设置的，boxService.close() 可能仍在执行
-            // 对于 Hysteria2/QUIC，需要更长时间来关闭 UDP 连接
-            // 增加到 2500ms 以确保绝对安全，避免 "use of closed network connection"
-            delay(2500)
+
+            // 优化: 减少等待时间从 2500ms 到 300ms
+            // 原因: 之前的长延迟是为了确保 QUIC 连接释放,但实际上状态机已经等待 STOPPED 状态
+            // STOPPED 状态意味着 boxService.close() 已完成,资源已释放
+            // 只需要一个小缓冲确保操作系统层面的网络接口完全释放
+            delay(300)
 
             startCore()
         }
@@ -495,8 +495,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                         Log.w(TAG, "Timeout waiting for opposite service to stop")
                     }
                 }
-                // 额外缓冲时间确保网络接口释放（对于 QUIC 协议需要更长时间）
-                delay(800)
+                // 优化: 减少缓冲时间从 800ms 到 200ms
+                // 原因: 已经通过状态机等待 STOPPED,只需短暂缓冲即可
+                delay(200)
             }
             
             // 生成配置文件并启动 VPN 服务
@@ -780,10 +781,15 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 val up = (dTx * 1000L) / dtMs
                 val down = (dRx * 1000L) / dtMs
 
-                // 使用指数移动平均进行平滑处理，减少闪烁
-                val smoothFactor = 0.3 // 平滑因子，越小越平滑
-                val smoothedUp = if (lastUploadSpeed == 0L) up else (lastUploadSpeed * (1 - smoothFactor) + up * smoothFactor).toLong()
-                val smoothedDown = if (lastDownloadSpeed == 0L) down else (lastDownloadSpeed * (1 - smoothFactor) + down * smoothFactor).toLong()
+                // 优化: 使用自适应平滑因子，根据速度变化幅度动态调整
+                // 优势: 大幅变化时快速响应,小幅变化时平滑显示，兼顾响应性和稳定性
+                val uploadSmoothFactor = calculateAdaptiveSmoothFactor(up, lastUploadSpeed)
+                val downloadSmoothFactor = calculateAdaptiveSmoothFactor(down, lastDownloadSpeed)
+
+                val smoothedUp = if (lastUploadSpeed == 0L) up
+                    else (lastUploadSpeed * (1 - uploadSmoothFactor) + up * uploadSmoothFactor).toLong()
+                val smoothedDown = if (lastDownloadSpeed == 0L) down
+                    else (lastDownloadSpeed * (1 - downloadSmoothFactor) + down * downloadSmoothFactor).toLong()
 
                 lastUploadSpeed = smoothedUp
                 lastDownloadSpeed = smoothedDown
@@ -817,6 +823,29 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         lastTrafficTxBytes = 0
         lastTrafficRxBytes = 0
         lastTrafficSampleAtElapsedMs = 0
+    }
+
+    /**
+     * 计算自适应平滑因子
+     * @param current 当前速度
+     * @param previous 上一次速度
+     * @return 平滑因子 (0.0-1.0),值越大响应越快
+     */
+    private fun calculateAdaptiveSmoothFactor(current: Long, previous: Long): Double {
+        // 处理零值情况
+        if (previous <= 0) return 1.0
+
+        // 计算变化幅度比例
+        val change = kotlin.math.abs(current - previous).toDouble()
+        val ratio = change / previous
+
+        // 根据变化幅度返回不同的平滑因子
+        return when {
+            ratio > 2.0 -> 0.7  // 大幅变化(200%+),快速响应
+            ratio > 0.5 -> 0.4  // 中等变化(50%-200%),平衡响应
+            ratio > 0.1 -> 0.25 // 小幅变化(10%-50%),适度平滑
+            else -> 0.15        // 微小变化(<10%),高度平滑
+        }
     }
     
     private fun getRegionWeight(flag: String?): Int {

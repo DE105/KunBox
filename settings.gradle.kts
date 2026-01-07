@@ -1,5 +1,6 @@
 pluginManagement {
     repositories {
+        // 修复: 恢复阿里云镜像,解决 TLS 握手失败问题
         maven { url = uri("https://maven.aliyun.com/repository/public") }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
@@ -11,6 +12,7 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        // 修复: 恢复阿里云镜像,解决 TLS 握手失败问题
         maven { url = uri("https://maven.aliyun.com/repository/public") }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         google()

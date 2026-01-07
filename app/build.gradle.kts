@@ -368,11 +368,12 @@ dependencies {
     }
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
 
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.activity:activity-compose:1.9.0")
-    implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+    // 优化: 更新核心依赖版本
+    implementation("androidx.core:core-ktx:1.13.1")  // 从 1.12.0 更新
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")  // 从 2.7.0 更新
+    implementation("androidx.appcompat:appcompat:1.7.0")  // 从 1.6.1 更新
+    implementation("androidx.activity:activity-compose:1.9.3")  // 从 1.9.0 更新
+    implementation(platform("androidx.compose:compose-bom:2024.11.00"))  // 从 2024.06.00 更新（修正：2024.12.00不存在）
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -386,13 +387,13 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.0.0")
     
     // ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")  // 从 2.7.0 更新
 
     // Network - OkHttp
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")  // 已是最新版本
+
     // JSON parsing - Gson
-    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("com.google.code.gson:gson:2.11.0")  // 从 2.10.1 更新
 
     // YAML parsing
     implementation("org.yaml:snakeyaml:2.2")

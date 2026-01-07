@@ -8,6 +8,7 @@ import androidx.work.WorkManager
 import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.service.RuleSetAutoUpdateWorker
 import com.kunk.singbox.service.SubscriptionAutoUpdateWorker
+import com.kunk.singbox.service.VpnKeepaliveWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +40,9 @@ class SingBoxApplication : Application(), Configuration.Provider {
                 SubscriptionAutoUpdateWorker.rescheduleAll(this@SingBoxApplication)
                 // 规则集自动更新
                 RuleSetAutoUpdateWorker.rescheduleAll(this@SingBoxApplication)
+                // VPN 进程保活机制
+                // 优化: 定期检查后台进程状态,防止系统杀死导致 VPN 意外断开
+                VpnKeepaliveWorker.schedule(this@SingBoxApplication)
             }
         }
     }

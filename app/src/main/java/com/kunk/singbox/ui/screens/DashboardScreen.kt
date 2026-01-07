@@ -44,6 +44,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -99,11 +100,22 @@ fun DashboardScreen(
     val isPingTesting by viewModel.isPingTesting.collectAsState()
     val nodes by viewModel.nodes.collectAsState()
     val settings by settingsViewModel.settings.collectAsState()
-    
-    // 获取活跃配置和节点的名称
-    val activeProfileName = profiles.find { it.id == activeProfileId }?.name
-    val activeNodeName = viewModel.getActiveNodeName()
-    
+
+    // 优化: 使用 derivedStateOf 避免不必要的重组
+    // 原因: profiles 或 activeProfileId 变化时,只有实际名称改变才触发重组
+    val activeProfileName by remember {
+        derivedStateOf {
+            profiles.find { it.id == activeProfileId }?.name
+        }
+    }
+
+    // 优化: 缓存活跃节点名称计算
+    val activeNodeName by remember {
+        derivedStateOf {
+            viewModel.getActiveNodeName()
+        }
+    }
+
     var showModeDialog by remember { mutableStateOf(false) }
     val currentMode = stringResource(settings.routingMode.displayNameRes)
     var showUpdateDialog by remember { mutableStateOf(false) }

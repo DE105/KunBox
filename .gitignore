@@ -30,3 +30,4 @@ NekoBoxForAndroid/.git
 # Claude Code 配置文件
 CLAUDE.md
 .claude/
+build_log.txt

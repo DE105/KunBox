@@ -13,7 +13,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import java.io.File
 
 /**
@@ -21,20 +22,24 @@ import java.io.File
  * 负责应用数据的备份和恢复
  */
 class DataExportRepository(private val context: Context) {
-    
+
     companion object {
         private const val TAG = "DataExportRepository"
         private const val CURRENT_VERSION = 1
-        
+
         @Volatile
         private var instance: DataExportRepository? = null
-        
+
         fun getInstance(context: Context): DataExportRepository {
             return instance ?: synchronized(this) {
                 instance ?: DataExportRepository(context.applicationContext).also { instance = it }
             }
         }
     }
+
+    // 使用 Application Scope 替代 GlobalScope,避免内存泄漏
+    // Repository 是单例且生命周期与应用相同,使用 SupervisorJob 确保子协程异常不影响父协程
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     
     private val gson: Gson = GsonBuilder()
         .setPrettyPrinting()
@@ -227,8 +232,9 @@ class DataExportRepository(private val context: Context) {
                     // 触发规则集下载
                     if (exportData.settings.ruleSets.isNotEmpty()) {
                         Log.i(TAG, "Triggering rule set download after import...")
+                        // 使用 repositoryScope 替代 GlobalScope,避免内存泄漏
                         // 在后台启动下载任务，不阻塞导入流程
-                        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                        repositoryScope.launch {
                             try {
                                 ruleSetRepository.ensureRuleSetsReady(forceUpdate = false, allowNetwork = true) {
                                     Log.d(TAG, "Rule set import progress: $it")
