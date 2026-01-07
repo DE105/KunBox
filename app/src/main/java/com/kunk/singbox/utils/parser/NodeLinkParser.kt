@@ -29,6 +29,9 @@ class NodeLinkParser(private val gson: Gson) {
             link.startsWith("tuic://") -> parseTuicLink(link)
             link.startsWith("wireguard://") -> parseWireGuardLink(link)
             link.startsWith("ssh://") -> parseSSHLink(link)
+            link.startsWith("https://") -> parseHttpLink(link, useTls = true)
+            link.startsWith("http://") -> parseHttpLink(link, useTls = false)
+            link.startsWith("socks5://") || link.startsWith("socks://") -> parseSocks5Link(link)
             else -> null
         }
     }
@@ -631,7 +634,7 @@ class NodeLinkParser(private val gson: Gson) {
             val name = java.net.URLDecoder.decode(uri.fragment ?: "SSH Node", "UTF-8")
             val userInfo = uri.userInfo ?: ""
             val parts = userInfo.split(":")
-            
+
             return Outbound(
                 type = "ssh",
                 tag = name,
@@ -642,6 +645,87 @@ class NodeLinkParser(private val gson: Gson) {
             )
         } catch (e: Exception) {
             Log.e("NodeLinkParser", "Failed to parse SSH link", e)
+        }
+        return null
+    }
+
+    /**
+     * 解析 HTTP/HTTPS 代理链接
+     * 格式: http://[username:password@]host:port[#name]
+     *       https://[username:password@]host:port[#name]
+     */
+    private fun parseHttpLink(link: String, useTls: Boolean): Outbound? {
+        try {
+            val uri = java.net.URI(link)
+            val name = java.net.URLDecoder.decode(
+                uri.fragment ?: if (useTls) "HTTPS Proxy" else "HTTP Proxy",
+                "UTF-8"
+            )
+            val server = uri.host ?: return null
+            val port = if (uri.port > 0) uri.port else if (useTls) 443 else 8080
+
+            // 解析用户名和密码
+            var username: String? = null
+            var password: String? = null
+            if (uri.userInfo != null) {
+                val parts = uri.userInfo.split(":", limit = 2)
+                username = java.net.URLDecoder.decode(parts.getOrNull(0) ?: "", "UTF-8")
+                    .takeIf { it.isNotBlank() }
+                password = java.net.URLDecoder.decode(parts.getOrNull(1) ?: "", "UTF-8")
+                    .takeIf { it.isNotBlank() }
+            }
+
+            return Outbound(
+                type = "http",
+                tag = name,
+                server = server,
+                serverPort = port,
+                username = username,
+                password = password,
+                tls = if (useTls) TlsConfig(enabled = true, serverName = server) else null
+            )
+        } catch (e: Exception) {
+            Log.e("NodeLinkParser", "Failed to parse HTTP/HTTPS link", e)
+        }
+        return null
+    }
+
+    /**
+     * 解析 SOCKS5 代理链接
+     * 格式: socks5://[username:password@]host:port[#name]
+     *       socks://[username:password@]host:port[#name]
+     */
+    private fun parseSocks5Link(link: String): Outbound? {
+        try {
+            // 统一转换为标准 URI 格式
+            val normalizedLink = link
+                .replace("socks5://", "socks://")
+            val uri = java.net.URI(normalizedLink)
+            val name = java.net.URLDecoder.decode(uri.fragment ?: "SOCKS5 Proxy", "UTF-8")
+            val server = uri.host ?: return null
+            val port = if (uri.port > 0) uri.port else 1080
+
+            // 解析用户名和密码
+            var username: String? = null
+            var password: String? = null
+            if (uri.userInfo != null) {
+                val parts = uri.userInfo.split(":", limit = 2)
+                username = java.net.URLDecoder.decode(parts.getOrNull(0) ?: "", "UTF-8")
+                    .takeIf { it.isNotBlank() }
+                password = java.net.URLDecoder.decode(parts.getOrNull(1) ?: "", "UTF-8")
+                    .takeIf { it.isNotBlank() }
+            }
+
+            return Outbound(
+                type = "socks",
+                tag = name,
+                server = server,
+                serverPort = port,
+                username = username,
+                password = password
+            )
+        } catch (e: Exception) {
+            Log.e("NodeLinkParser", "Failed to parse SOCKS5 link", e)
         }
         return null
     }

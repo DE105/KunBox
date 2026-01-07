@@ -9,6 +9,7 @@ import com.kunk.singbox.model.ProfileUi
 import com.kunk.singbox.model.ProfileType
 import com.kunk.singbox.model.SubscriptionUpdateResult
 import com.kunk.singbox.repository.ConfigRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -21,8 +22,11 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class ProfilesViewModel(application: Application) : AndroidViewModel(application) {
-    
+
     private val configRepository = ConfigRepository.getInstance(application)
+
+    // 用于跟踪当前的导入任务，以便可以取消
+    private var importJob: Job? = null
 
     val profiles: StateFlow<List<ProfileUi>> = configRepository.profiles
         .stateIn(
@@ -128,10 +132,10 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         if (_importState.value is ImportState.Loading) {
             return
         }
-        
-        viewModelScope.launch {
+
+        importJob = viewModelScope.launch {
             _importState.value = ImportState.Loading(getApplication<Application>().getString(R.string.common_loading))
-            
+
             val result = configRepository.importFromSubscription(
                 name = name,
                 url = url,
@@ -140,13 +144,18 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                     _importState.value = ImportState.Loading(progress)
                 }
             )
-            
+
             result.fold(
                 onSuccess = { profile ->
                     _importState.value = ImportState.Success(profile)
                 },
                 onFailure = { error ->
-                    _importState.value = ImportState.Error(error.message ?: getApplication<Application>().getString(R.string.import_failed))
+                    // 检查是否是由于取消导致的
+                    if (error is kotlinx.coroutines.CancellationException) {
+                        _importState.value = ImportState.Idle
+                    } else {
+                        _importState.value = ImportState.Error(error.message ?: getApplication<Application>().getString(R.string.import_failed))
+                    }
                 }
             )
         }
@@ -165,7 +174,7 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
             return
         }
 
-        viewModelScope.launch {
+        importJob = viewModelScope.launch {
             _importState.value = ImportState.Loading(getApplication<Application>().getString(R.string.common_loading))
 
             val result = configRepository.importFromContent(
@@ -182,13 +191,28 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                     _importState.value = ImportState.Success(profile)
                 },
                 onFailure = { error ->
-                    _importState.value = ImportState.Error(error.message ?: getApplication<Application>().getString(R.string.import_failed))
+                    // 检查是否是由于取消导致的
+                    if (error is kotlinx.coroutines.CancellationException) {
+                        _importState.value = ImportState.Idle
+                    } else {
+                        _importState.value = ImportState.Error(error.message ?: getApplication<Application>().getString(R.string.import_failed))
+                    }
                 }
             )
         }
     }
-    
+
+    /**
+     * 取消当前的导入操作
+     */
+    fun cancelImport() {
+        importJob?.cancel()
+        importJob = null
+        _importState.value = ImportState.Idle
+    }
+
     fun resetImportState() {
+        importJob = null
         _importState.value = ImportState.Idle
     }
 

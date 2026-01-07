@@ -186,7 +186,10 @@ data class Outbound(
     
     // SOCKS/HTTP 字段
     @SerializedName("username") val username: String? = null,
-    @SerializedName("network") val network: String? = null
+    @SerializedName("network") val network: String? = null,
+    // HTTP outbound 特有字段
+    @SerializedName("path") val path: String? = null,
+    @SerializedName("headers") val headers: Map<String, String>? = null
 )
 
 @Keep

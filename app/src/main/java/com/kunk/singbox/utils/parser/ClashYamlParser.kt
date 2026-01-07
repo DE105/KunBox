@@ -590,10 +590,42 @@ class ClashYamlParser : SubscriptionParser {
 
     private fun parseHttp(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
         if (server == null || port == null) return null
+
         val username = asString(map["username"])
         val password = asString(map["password"])
+
+        // sing-box HTTP outbound 支持 TLS
         val tlsEnabled = asBool(map["tls"]) == true
-        
+        val fingerprint = asString(map["client-fingerprint"]) ?: asString(map["fingerprint"])
+        val tlsConfig = if (tlsEnabled) {
+            val sni = asString(map["sni"]) ?: asString(map["servername"]) ?: server
+            // 对于 HTTP+TLS 代理，默认跳过证书验证（许多代理服务使用自签名证书）
+            // 只有当用户明确设置 skip-cert-verify: false 时才进行证书验证
+            val skipCertVerify = map["skip-cert-verify"]
+            val insecure = if (skipCertVerify == null) true else asBool(skipCertVerify) == true
+            val alpn = asStringList(map["alpn"])
+            TlsConfig(
+                enabled = true,
+                serverName = sni,
+                insecure = insecure,
+                alpn = alpn,
+                utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+            )
+        } else null
+
+        // HTTP outbound 支持 path 和 headers 字段
+        val path = asString(map["path"])
+        val headersRaw = map["headers"] as? Map<*, *>
+        val headers = if (headersRaw != null) {
+            val headerMap = mutableMapOf<String, String>()
+            headersRaw.forEach { (k, v) ->
+                val ks = asString(k) ?: return@forEach
+                val vs = asString(v) ?: return@forEach
+                headerMap[ks] = vs
+            }
+            headerMap.takeIf { it.isNotEmpty() }
+        } else null
+
         return Outbound(
             type = "http",
             tag = name,
@@ -601,15 +633,24 @@ class ClashYamlParser : SubscriptionParser {
             serverPort = port,
             username = username,
             password = password,
-            tls = if (tlsEnabled) TlsConfig(enabled = true) else null
+            tls = tlsConfig,
+            path = path,
+            headers = headers
         )
     }
 
     private fun parseSocks(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
         if (server == null || port == null) return null
+
+        // sing-box 的 socks 出站类型不支持 TLS，但仍然导入节点（忽略 TLS 设置）
+        val tlsEnabled = asBool(map["tls"]) == true
+        if (tlsEnabled) {
+            android.util.Log.w("ClashYamlParser", "SOCKS proxy '$name' has TLS enabled but sing-box does not support it, importing without TLS")
+        }
+
         val username = asString(map["username"])
         val password = asString(map["password"])
-        
+
         return Outbound(
             type = "socks",
             tag = name,

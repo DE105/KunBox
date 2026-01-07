@@ -47,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -132,7 +133,8 @@ fun ProfilesScreen(
 
     if (importState is com.kunk.singbox.viewmodel.ProfilesViewModel.ImportState.Loading) {
         ImportLoadingDialog(
-            message = (importState as com.kunk.singbox.viewmodel.ProfilesViewModel.ImportState.Loading).message
+            message = (importState as com.kunk.singbox.viewmodel.ProfilesViewModel.ImportState.Loading).message,
+            onCancel = { viewModel.cancelImport() }
         )
     }
 
@@ -486,7 +488,7 @@ private fun ImportSelectionDialog(
 }
 
 @Composable
-private fun ImportLoadingDialog(message: String) {
+private fun ImportLoadingDialog(message: String, onCancel: () -> Unit = {}) {
     // 尝试解析进度信息 (例如 "正在提取节点 (50/1000)...")
     var displayMessage = message
     val progress = remember(message) {
@@ -533,6 +535,15 @@ private fun ImportLoadingDialog(message: String) {
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
             )
+            TextButton(
+                onClick = onCancel,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text(
+                    text = stringResource(R.string.common_cancel),
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
         }
     }
 }

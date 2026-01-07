@@ -301,7 +301,9 @@ class SingBoxCore private constructor(private val context: Context) {
                             }
                             resp.body?.close()
                         }
-                        (System.nanoTime() - t0) / 1_000_000
+                        val elapsed = (System.nanoTime() - t0) / 1_000_000
+                        // 如果实际耗时超过用户设置的超时时间，视为超时
+                        if (elapsed > timeoutMs) -1L else elapsed
                     }
                 }
 
@@ -516,7 +518,7 @@ class SingBoxCore private constructor(private val context: Context) {
                                 val latency = try {
                                     val t0 = System.nanoTime()
                                     val req = Request.Builder().url(targetUrl).get().build()
-                                    
+
                                     client.newCall(req).execute().use { resp ->
                                         // 严格检查状态码：任何 >= 400 的响应都视为测速失败
                                         // 这可以过滤掉代理服务器返回的错误 (400/403/407/502/503/504)
@@ -526,7 +528,9 @@ class SingBoxCore private constructor(private val context: Context) {
                                         }
                                         resp.body?.close()
                                     }
-                                    (System.nanoTime() - t0) / 1_000_000
+                                    val elapsed = (System.nanoTime() - t0) / 1_000_000
+                                    // 如果实际耗时超过用户设置的超时时间，视为超时
+                                    if (elapsed > timeoutMs) -1L else elapsed
                                 } catch (e: Exception) {
                                     // 尝试 fallback
                                     if (fallbackUrl != null && fallbackUrl != targetUrl) {
@@ -536,7 +540,9 @@ class SingBoxCore private constructor(private val context: Context) {
                                             client.newCall(req).execute().use { resp ->
                                                 resp.body?.close()
                                             }
-                                            (System.nanoTime() - t0) / 1_000_000
+                                            val elapsed = (System.nanoTime() - t0) / 1_000_000
+                                            // 如果实际耗时超过用户设置的超时时间，视为超时
+                                            if (elapsed > timeoutMs) -1L else elapsed
                                         } catch (_: Exception) {
                                             -1L
                                         }

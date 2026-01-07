@@ -64,10 +64,57 @@ class ConfigRepository(private val context: Context) {
     private val gson = Gson()
     private val singBoxCore = SingBoxCore.getInstance(context)
     private val settingsRepository = SettingsRepository.getInstance(context)
+
+    // TUN 栈降级状态管理
+    // 当设备不支持 system/mixed 模式时（报 "operation not permitted" 错误），
+    // 自动降级到 gvisor 模式，但 UI 仍显示用户选择的模式（视觉安慰）
+    @Volatile
+    private var tunStackFallbackToGvisor: Boolean = false
+
+    /**
+     * 获取实际使用的 TUN 栈模式
+     * 如果设备不支持 system/mixed 模式且已触发降级，则返回 GVISOR
+     * 否则返回用户选择的模式
+     */
+    private fun getEffectiveTunStack(userSelected: TunStack): TunStack {
+        return if (tunStackFallbackToGvisor && userSelected != TunStack.GVISOR) {
+            Log.d(TAG, "TUN stack fallback active: using GVISOR instead of ${userSelected.name}")
+            TunStack.GVISOR
+        } else {
+            userSelected
+        }
+    }
+
+    /**
+     * 标记需要降级到 gVisor 模式
+     * 当检测到 "bind forwarder to interface: operation not permitted" 错误时调用
+     */
+    fun markTunStackFallbackNeeded() {
+        if (!tunStackFallbackToGvisor) {
+            Log.w(TAG, "TUN stack fallback triggered: device does not support system/mixed mode, will use GVISOR")
+            tunStackFallbackToGvisor = true
+        }
+    }
+
+    /**
+     * 检查是否需要重试连接（使用降级后的 gVisor 模式）
+     */
+    fun shouldRetryWithFallback(): Boolean {
+        return tunStackFallbackToGvisor
+    }
+
+    /**
+     * 重置降级状态（用于用户手动切换 TUN 栈时）
+     */
+    fun resetTunStackFallback() {
+        tunStackFallbackToGvisor = false
+    }
+
     // client 改为动态获取，以支持可配置的超时
+    // 使用不带重试的 Client，避免订阅获取时超时时间被重试机制延长
     private fun getClient(): okhttp3.OkHttpClient {
         val timeout = runBlocking { settingsRepository.settings.first().subscriptionUpdateTimeout.toLong() }
-        return NetworkClient.createClientWithTimeout(timeout, timeout, timeout)
+        return NetworkClient.createClientWithoutRetry(timeout, timeout, timeout)
     }
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -1527,7 +1574,7 @@ class ConfigRepository(private val context: Context) {
         val proxyTypes = setOf(
             "shadowsocks", "vmess", "vless", "trojan",
             "hysteria", "hysteria2", "tuic", "wireguard",
-            "shadowtls", "ssh", "anytls"
+            "shadowtls", "ssh", "anytls", "http", "socks"
         )
 
         var processedCount = 0
@@ -3017,7 +3064,9 @@ class ConfigRepository(private val context: Context) {
                     mtu = settings.tunMtu,
                     autoRoute = false, // Handled by Android VpnService
                     strictRoute = false, // Can cause issues on some Android versions
-                    stack = settings.tunStack.name.lowercase(), // gvisor/system/mixed/lwip
+                    // 智能降级逻辑：如果设备不支持 system/mixed 模式（缺少 CAP_NET_RAW 权限），
+                    // 自动降级到 gvisor 模式。UI 仍显示用户选择的模式。
+                    stack = getEffectiveTunStack(settings.tunStack).name.lowercase(),
                     endpointIndependentNat = settings.endpointIndependentNat,
                     sniff = true,
                     sniffOverrideDestination = true,
@@ -3453,12 +3502,12 @@ class ConfigRepository(private val context: Context) {
         }
 
         // 收集所有代理节点名称 (包括新添加的外部节点)
-        // 2025-fix: 扩展支持的协议列表，防止 wireguard/ssh/shadowtls 等被排除在 PROXY 组之外
+        // 2025-fix: 扩展支持的协议列表，防止 wireguard/ssh/shadowtls/http/socks 等被排除在 PROXY 组之外
         val proxyTags = fixedOutbounds.filter {
             it.type in listOf(
                 "vless", "vmess", "trojan", "shadowsocks",
                 "hysteria2", "hysteria", "anytls", "tuic",
-                "wireguard", "ssh", "shadowtls"
+                "wireguard", "ssh", "shadowtls", "http", "socks"
             )
         }.map { it.tag }.toMutableList()
 

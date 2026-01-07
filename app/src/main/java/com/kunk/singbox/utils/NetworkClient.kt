@@ -97,6 +97,29 @@ object NetworkClient {
     }
 
     /**
+     * 创建一个具有自定义超时且不带重试的 OkHttpClient
+     * 用于订阅获取等需要精确控制超时的场景
+     * @param connectTimeoutSeconds 连接超时时间（秒）
+     * @param readTimeoutSeconds 读取超时时间（秒）
+     * @param writeTimeoutSeconds 写入超时时间（秒）
+     */
+    fun createClientWithoutRetry(
+        connectTimeoutSeconds: Long,
+        readTimeoutSeconds: Long,
+        writeTimeoutSeconds: Long = readTimeoutSeconds
+    ): OkHttpClient {
+        return OkHttpClient.Builder()
+            .connectTimeout(connectTimeoutSeconds, TimeUnit.SECONDS)
+            .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
+            .writeTimeout(writeTimeoutSeconds, TimeUnit.SECONDS)
+            .connectionPool(connectionPool)
+            .retryOnConnectionFailure(false) // 不自动重试
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+    }
+
+    /**
      * 清理连接池
      * 当 VPN 状态变化或网络切换时调用，避免复用失效的 Socket
      */

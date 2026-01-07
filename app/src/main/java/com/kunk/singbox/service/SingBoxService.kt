@@ -33,6 +33,7 @@ import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.Outbound
 import com.kunk.singbox.model.SingBoxConfig
+import com.kunk.singbox.model.TunStack
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.repository.ConfigRepository
@@ -1379,6 +1380,14 @@ private val platformInterface = object : PlatformInterface {
                 Log.d(TAG, "libbox: $message")
             }
             com.kunk.singbox.repository.LogRepository.getInstance().addLog(message)
+
+            // 检测 TUN 栈不兼容错误，触发智能降级
+            // 当 system/mixed 模式因缺少 CAP_NET_RAW 权限而失败时，自动标记需要降级到 gVisor
+            if (message.contains("bind forwarder to interface") &&
+                message.contains("operation not permitted", ignoreCase = true)) {
+                Log.w(TAG, "Detected TUN stack incompatibility, marking fallback to gVisor")
+                ConfigRepository.getInstance(this@SingBoxService).markTunStackFallbackNeeded()
+            }
         }
     }
     
@@ -2051,7 +2060,28 @@ private val platformInterface = object : PlatformInterface {
                 updateTileState()
 
                 startRouteGroupAutoSelect(configContent)
-                
+
+                // TUN 栈智能降级：启动后检查是否触发了降级标记
+                // 如果检测到 "bind forwarder to interface: operation not permitted" 错误，
+                // 自动重启 VPN 使用 gVisor 模式
+                serviceScope.launch {
+                    delay(3000) // 等待 3 秒让错误日志有时间出现
+                    val configRepo = ConfigRepository.getInstance(this@SingBoxService)
+                    if (configRepo.shouldRetryWithFallback() && isRunning) {
+                        val settings = SettingsRepository.getInstance(this@SingBoxService).settings.first()
+                        // 只有用户选择的不是 gVisor 时才需要重试
+                        if (settings.tunStack != TunStack.GVISOR) {
+                            Log.i(TAG, "TUN stack fallback triggered, restarting VPN with gVisor mode")
+                            LogRepository.getInstance().addLog("INFO: 检测到设备不支持 ${settings.tunStack.name} 模式，自动切换到 gVisor 模式")
+
+                            // 重新生成配置（这次会使用 gVisor）并重启
+                            withContext(Dispatchers.Main) {
+                                restartVpnWithFallback()
+                            }
+                        }
+                    }
+                }
+
             } catch (e: CancellationException) {
                 Log.i(TAG, "startVpn cancelled")
                 // Do not treat cancellation as failure. stopVpn() is already responsible for cleanup.
@@ -2146,7 +2176,49 @@ private val platformInterface = object : PlatformInterface {
             }
         }.getOrDefault(false)
     }
-    
+
+    /**
+     * TUN 栈智能降级：重启 VPN 使用 gVisor 模式
+     * 当检测到设备不支持 system/mixed 模式时自动调用
+     */
+    private fun restartVpnWithFallback() {
+        if (!isRunning) return
+
+        serviceScope.launch {
+            try {
+                Log.i(TAG, "Restarting VPN with gVisor fallback...")
+
+                // 停止当前 VPN
+                withContext(Dispatchers.Main) {
+                    stopVpn(stopService = false)
+                }
+
+                // 等待停止完成
+                var waitCount = 0
+                while (isStopping && waitCount < 50) {
+                    delay(100)
+                    waitCount++
+                }
+
+                // 重新生成配置文件（这次会使用降级后的 gVisor 模式）
+                val configRepo = ConfigRepository.getInstance(this@SingBoxService)
+
+                // 使用 generateConfigFile 重新生成配置
+                val result = configRepo.generateConfigFile()
+                if (result != null) {
+                    Log.i(TAG, "Generated new config with gVisor fallback: ${result.path}")
+                    // 重启 VPN
+                    delay(500)
+                    startVpn(result.path)
+                } else {
+                    Log.e(TAG, "Failed to generate config for fallback restart")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to restart VPN with fallback", e)
+            }
+        }
+    }
+
     private fun stopVpn(stopService: Boolean) {
         synchronized(this) {
             stopSelfRequested = stopSelfRequested || stopService
