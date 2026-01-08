@@ -268,7 +268,8 @@ class SingBoxCore private constructor(private val context: Context) {
                 experimental = com.kunk.singbox.model.ExperimentalConfig(
                     cacheFile = com.kunk.singbox.model.CacheFileConfig(
                         enabled = true,
-                        path = File(context.filesDir, "singbox_data/cache_test.db").absolutePath,
+                        path = File(context.filesDir, "singbox_data").also { it.mkdirs() }
+                            .resolve("cache_test.db").absolutePath,
                         storeFakeip = false // 测试服务不需要 FakeIP
                     )
                 )
@@ -488,7 +489,8 @@ class SingBoxCore private constructor(private val context: Context) {
                 experimental = com.kunk.singbox.model.ExperimentalConfig(
                     cacheFile = com.kunk.singbox.model.CacheFileConfig(
                         enabled = true,
-                        path = File(context.filesDir, "singbox_data/cache_test.db").absolutePath,
+                        path = File(context.filesDir, "singbox_data").also { it.mkdirs() }
+                            .resolve("cache_test.db").absolutePath,
                         storeFakeip = false // 测试服务不需要 FakeIP
                     )
                 )
