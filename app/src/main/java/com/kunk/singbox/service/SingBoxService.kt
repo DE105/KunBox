@@ -56,6 +56,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.Proxy
+import java.net.Socket
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -1031,6 +1032,7 @@ private val platformInterface = object : PlatformInterface {
                 }
 
                 // 设置底层网络 - 关键！让 VPN 流量可以通过物理网络出去
+                // 修复: 延迟设置,避免在 TUN 建立瞬间就暴露网络(导致应用过早发起连接)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                     val activePhysicalNetwork = findBestPhysicalNetwork()
 
@@ -1043,10 +1045,14 @@ private val platformInterface = object : PlatformInterface {
                             if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) append("WIFI ")
                             if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true) append("CELLULAR ")
                         }
-                        builder.setUnderlyingNetworks(arrayOf(activePhysicalNetwork))
-                        Log.i(TAG, "Set underlying network: $activePhysicalNetwork (caps: $capsStr)")
+
+                        // 关键修复: 先不设置底层网络,等 VPN 核心就绪后再设置
+                        // 这样可以防止应用在 VPN 未完全就绪时就开始发送流量
+                        // builder.setUnderlyingNetworks(arrayOf(activePhysicalNetwork))
+
+                        Log.i(TAG, "Physical network detected: $activePhysicalNetwork (caps: $capsStr) - will be set after core ready")
                         com.kunk.singbox.repository.LogRepository.getInstance()
-                            .addLog("INFO openTun: underlying network = $activePhysicalNetwork ($capsStr)")
+                            .addLog("INFO openTun: found network = $activePhysicalNetwork ($capsStr)")
                     } else {
                         // 无物理网络，记录一次性警告
                         if (!noPhysicalNetworkWarningLogged) {
@@ -1124,14 +1130,22 @@ private val platformInterface = object : PlatformInterface {
                     val bestNetwork = findBestPhysicalNetwork()
                     if (bestNetwork != null) {
                         try {
-                            setUnderlyingNetworks(arrayOf(bestNetwork))
+                            // === 关键修复: 立即清空底层网络,阻止应用过早建连 ===
+                            // 问题: establish() 可能会自动绑定底层网络,导致应用立即可以发送流量
+                            // 解决: 强制设置为 null,延迟到核心就绪后再设置
+                            setUnderlyingNetworks(null)
                             lastKnownNetwork = bestNetwork
+                            Log.i(TAG, "Physical network cached: $bestNetwork, underlying set to NULL (will be set after core ready)")
                         } catch (_: Exception) {
                         }
                     }
                 }
 
-                Log.i(TAG, "TUN interface established with fd: $fd")
+                Log.i(TAG, "TUN interface established with fd: $fd, underlying networks = NULL (blocked until core ready)")
+
+                // === 移除旧的 Stage 1 震荡逻辑,改为延迟设置底层网络 ===
+                // 新策略: TUN 建立后不暴露底层网络,等核心就绪后一次性设置
+                // 这样可以避免应用在 VPN 未就绪时发起连接
 
                 // === CRITICAL: Trigger immediate network validation (Best practice from NekoBox) ===
                 // Request network validation to speed up VPN link validation callback
@@ -1692,7 +1706,50 @@ private val platformInterface = object : PlatformInterface {
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true
         }
     }
-    
+
+    /**
+     * DNS 预热: 预解析常见域名,避免首次查询超时导致用户感知延迟
+     * 这是解决 VPN 启动后首次访问 GitHub 等网站时加载缓慢的关键优化
+     */
+    private fun warmupDnsCache() {
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Starting DNS warmup...")
+                val startTime = System.currentTimeMillis()
+
+                // 常见域名列表 (根据用户使用场景调整)
+                val domains = listOf(
+                    "www.google.com",
+                    "github.com",
+                    "api.github.com",
+                    "www.youtube.com",
+                    "twitter.com",
+                    "facebook.com"
+                )
+
+                // 并发预解析,最多等待 1.5 秒
+                withTimeoutOrNull(1500L) {
+                    domains.map { domain ->
+                        async {
+                            try {
+                                // 通过 InetAddress 触发系统 DNS 解析,结果会被缓存
+                                InetAddress.getByName(domain)
+                                Log.v(TAG, "DNS warmup: resolved $domain")
+                            } catch (e: Exception) {
+                                Log.v(TAG, "DNS warmup: failed to resolve $domain (${e.javaClass.simpleName})")
+                            }
+                        }
+                    }.awaitAll()
+                }
+
+                val elapsed = System.currentTimeMillis() - startTime
+                Log.i(TAG, "DNS warmup completed in ${elapsed}ms")
+            } catch (e: Exception) {
+                Log.w(TAG, "DNS warmup failed", e)
+            }
+        }
+    }
+
     private fun updateDefaultInterface(network: Network) {
         try {
             // 验证网络是否为有效的物理网络
@@ -2251,9 +2308,9 @@ private val platformInterface = object : PlatformInterface {
                 // This prevents connection leaks during VPN startup window
                 serviceScope.launch {
                     try {
-                        // Wait up to 3s for VPN link to be validated
+                        // Wait up to 2s for VPN link to be validated (reduced from 3s)
                         var waited = 0L
-                        while (!vpnLinkValidated && waited < 3000L) {
+                        while (!vpnLinkValidated && waited < 2000L) {
                             delay(100)
                             waited += 100
                         }
@@ -2266,6 +2323,76 @@ private val platformInterface = object : PlatformInterface {
 
                         boxService?.resetNetwork()
                         Log.i(TAG, "Initial boxService.resetNetwork() called")
+
+                        // 关键修复:等待 sing-box 核心完全初始化
+                        // 延长到 2.5 秒,让应用层等待而非发起连接后失败
+                        Log.i(TAG, "Waiting for sing-box core to fully initialize (2.5s)...")
+                        delay(2500)
+
+                        // === 核心就绪后首次设置底层网络 ===
+                        // 新策略: TUN 建立时不设置底层网络,延迟到核心就绪后首次设置
+                        // 这样可以避免应用在 VPN 未完全就绪时发起连接
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                            try {
+                                val currentNetwork = lastKnownNetwork ?: findBestPhysicalNetwork()
+                                if (currentNetwork != null) {
+                                    Log.i(TAG, "Setting underlying network for the first time (network=$currentNetwork)")
+                                    setUnderlyingNetworks(arrayOf(currentNetwork))
+                                    delay(300) // 等待网络设置生效,让系统识别到网络可用
+                                    LogRepository.getInstance().addLog("INFO: VPN 底层网络已配置,开始路由流量")
+                                } else {
+                                    Log.w(TAG, "No physical network found after core ready")
+                                }
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to set underlying network", e)
+                            }
+                        }
+
+                        // DNS 预热: 预解析常见域名,避免首次查询超时导致用户感知延迟
+                        warmupDnsCache()
+
+                        // === 关键修复: 发送网络切换通知强制应用重连 ===
+                        // 解决问题: VPN 启动瞬间建立的应用层连接会永久卡死
+                        // 原理: Android 系统在 VPN 启动时不会自动发送该广播,需要我们主动触发
+                        // 参考: PCAPdroid, NetGuard, Clash 等成熟 VPN 项目的标准做法
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            try {
+                                val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java)
+                                // 找到我们的 VPN 网络
+                                val vpnNetwork = cm?.allNetworks?.find { network ->
+                                    val caps = cm.getNetworkCapabilities(network)
+                                    caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                                }
+
+                                if (vpnNetwork != null) {
+                                    Log.i(TAG, "Triggering connectivity change notification (network=$vpnNetwork)")
+
+                                    // 方法 1: 报告网络连接状态变化,触发 ConnectivityManager 回调
+                                    // 这会导致应用层感知到网络切换,从而放弃旧连接并重新建连
+                                    cm?.reportNetworkConnectivity(vpnNetwork, true)
+                                    delay(100)
+
+                                    // 方法 2: 短暂震荡底层网络,强制系统重新评估网络状态
+                                    // 这会触发应用的 NetworkCallback.onAvailable/onLost 回调
+                                    val physicalNet = lastKnownNetwork ?: findBestPhysicalNetwork()
+                                    if (physicalNet != null) {
+                                        setUnderlyingNetworks(null)
+                                        delay(200) // 延长震荡时间,确保应用感知到网络切换
+                                        setUnderlyingNetworks(arrayOf(physicalNet))
+                                        Log.i(TAG, "Network oscillation complete, apps should reconnect now")
+                                    }
+
+                                    LogRepository.getInstance().addLog("INFO: 已通知应用网络已切换,强制重新建立连接")
+                                } else {
+                                    Log.w(TAG, "VPN network not found after core ready, skip connectivity notification")
+                                }
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to trigger connectivity change notification", e)
+                            }
+                        }
+
+                        Log.i(TAG, "Sing-box core initialization complete, VPN is now fully ready")
+                        LogRepository.getInstance().addLog("INFO: VPN 核心已完全就绪,网络连接可用")
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to call initial resetNetwork", e)
                     }
@@ -3053,7 +3180,40 @@ private val platformInterface = object : PlatformInterface {
         }
         return best
     }
-    
+
+    /**
+     * 执行连通性检查,确保 VPN 隧道真正可用
+     * 参考 Clash/NekoBox 的实现: ping 公共 DNS 服务器验证网络连通性
+     * @return true 表示连通性检查通过,false 表示失败
+     */
+    private suspend fun performConnectivityCheck(): Boolean = withContext(Dispatchers.IO) {
+        val testTargets = listOf(
+            "1.1.1.1" to 53,      // Cloudflare DNS
+            "8.8.8.8" to 53,      // Google DNS
+            "223.5.5.5" to 53     // Ali DNS (国内备用)
+        )
+
+        Log.i(TAG, "Starting connectivity check...")
+
+        for ((host, port) in testTargets) {
+            try {
+                val socket = Socket()
+                socket.connect(InetSocketAddress(host, port), 2000) // 2秒超时
+                socket.close()
+                Log.i(TAG, "Connectivity check passed: $host:$port reachable")
+                LogRepository.getInstance().addLog("INFO: VPN 连通性检查通过 ($host:$port)")
+                return@withContext true
+            } catch (e: Exception) {
+                Log.d(TAG, "Connectivity check failed for $host:$port - ${e.message}")
+                // 继续尝试下一个目标
+            }
+        }
+
+        Log.w(TAG, "Connectivity check failed: all test targets unreachable")
+        LogRepository.getInstance().addLog("WARN: VPN 连通性检查失败,所有测试目标均不可达")
+        return@withContext false
+    }
+
     private fun startCommandServerAndClient() {
         if (boxService == null) return
 

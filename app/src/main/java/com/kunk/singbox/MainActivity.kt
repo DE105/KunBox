@@ -240,8 +240,8 @@ fun SingBoxApp() {
             snackbarHostState.currentSnackbarData?.dismiss()
 
             snackbarHostState.showSnackbar(
-                message = context.getString(R.string.settings_about_kunbox), // TODO: check string
-                duration = SnackbarDuration.Indefinite
+                message = context.getString(R.string.settings_restart_needed),
+                duration = SnackbarDuration.Short
             )
         }
     }
