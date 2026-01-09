@@ -64,11 +64,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setAutoConnect(value: Boolean) {
         viewModelScope.launch { repository.setAutoConnect(value) }
     }
-    
-    fun setAutoReconnect(value: Boolean) {
-        viewModelScope.launch { repository.setAutoReconnect(value) }
-    }
-    
+
     fun setExcludeFromRecent(value: Boolean) {
         viewModelScope.launch { repository.setExcludeFromRecent(value) }
     }

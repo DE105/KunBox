@@ -1296,12 +1296,6 @@ class SingBoxService : VpnService() {
     private var vpnHealthJob: Job? = null
     @Volatile private var vpnLinkValidated: Boolean = false
 
-    // Auto reconnect states
-    private var autoReconnectEnabled: Boolean = false
-    private var lastAutoReconnectAttemptMs: Long = 0L
-    private val autoReconnectDebounceMs: Long = 10000L
-    private var autoReconnectJob: Job? = null
-
     // 网络就绪标志：确保 Libbox 启动前网络回调已完成初始采样
     @Volatile private var networkCallbackReady: Boolean = false
     @Volatile private var noPhysicalNetworkWarningLogged: Boolean = false
@@ -2322,23 +2316,6 @@ private val platformInterface = object : PlatformInterface {
                 }
             }
 
-            // 自动重连逻辑
-            val nowMs = System.currentTimeMillis()
-            if (autoReconnectEnabled && !isRunning && !isStarting && lastConfigPath != null) {
-                if (!isManuallyStopped && nowMs - lastAutoReconnectAttemptMs >= autoReconnectDebounceMs) {
-                    Log.i(TAG, "Auto-reconnect triggered: interface=$interfaceName")
-                    lastAutoReconnectAttemptMs = nowMs
-                    autoReconnectJob?.cancel()
-                    autoReconnectJob = serviceScope.launch {
-                        delay(800)
-                        if (!isRunning && !isStarting && !isManuallyStopped && lastConfigPath != null) {
-                            Log.i(TAG, "Auto-reconnecting now executing startVpn")
-                            startVpn(lastConfigPath!!)
-                        }
-                    }
-                }
-            }
-
             // 更新接口名并通知 libbox
             if (interfaceName.isNotEmpty() && interfaceName != defaultInterfaceName) {
                 val oldInterfaceName = defaultInterfaceName
@@ -2388,16 +2365,6 @@ private val platformInterface = object : PlatformInterface {
             }
         }
 
-        serviceScope.launch {
-            SettingsRepository.getInstance(this@SingBoxService)
-                .settings
-                .map { it.autoReconnect }
-                .distinctUntilChanged()
-                .collect { enabled ->
-                    autoReconnectEnabled = enabled
-                }
-        }
-        
         // 监听活动节点变化，更新通知
         serviceScope.launch {
             ConfigRepository.getInstance(this@SingBoxService).activeNodeId.collect { activeNodeId ->
@@ -3241,8 +3208,6 @@ private val platformInterface = object : PlatformInterface {
 
         Log.i(TAG, "stopVpn(stopService=$stopService) isManuallyStopped=$isManuallyStopped")
 
-        autoReconnectJob?.cancel()
-        autoReconnectJob = null
         postTunRebindJob?.cancel()
         postTunRebindJob = null
 

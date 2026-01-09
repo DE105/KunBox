@@ -51,7 +51,6 @@ class SettingsRepository(private val context: Context) {
     private object PreferencesKeys {
         // 通用设置
         val AUTO_CONNECT = booleanPreferencesKey("auto_connect")
-        val AUTO_RECONNECT = booleanPreferencesKey("auto_reconnect")
         val EXCLUDE_FROM_RECENT = booleanPreferencesKey("exclude_from_recent")
         val APP_THEME = stringPreferencesKey("app_theme")
         val APP_LANGUAGE = stringPreferencesKey("app_language")
@@ -301,7 +300,6 @@ class SettingsRepository(private val context: Context) {
         AppSettings(
             // 通用设置
             autoConnect = preferences[PreferencesKeys.AUTO_CONNECT] ?: false,
-            autoReconnect = preferences[PreferencesKeys.AUTO_RECONNECT] ?: true,
             excludeFromRecent = preferences[PreferencesKeys.EXCLUDE_FROM_RECENT] ?: false,
             appTheme = runCatching { AppThemeMode.valueOf(preferences[PreferencesKeys.APP_THEME] ?: "") }.getOrDefault(AppThemeMode.SYSTEM),
             appLanguage = runCatching { AppLanguage.valueOf(preferences[PreferencesKeys.APP_LANGUAGE] ?: "") }.getOrDefault(AppLanguage.SYSTEM),
@@ -379,11 +377,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAutoConnect(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.AUTO_CONNECT] = value }
     }
-    
-    suspend fun setAutoReconnect(value: Boolean) {
-        context.dataStore.edit { it[PreferencesKeys.AUTO_RECONNECT] = value }
-    }
-    
+
     suspend fun setExcludeFromRecent(value: Boolean) {
         context.dataStore.edit { it[PreferencesKeys.EXCLUDE_FROM_RECENT] = value }
     }

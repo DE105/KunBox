@@ -69,12 +69,6 @@ fun ConnectionSettingsScreen(
                 onCheckedChange = { settingsViewModel.setAutoConnect(it) }
             )
             SettingSwitchItem(
-                title = stringResource(R.string.connection_settings_auto_reconnect),
-                subtitle = stringResource(R.string.connection_settings_auto_reconnect_subtitle),
-                checked = settings.autoReconnect,
-                onCheckedChange = { settingsViewModel.setAutoReconnect(it) }
-            )
-            SettingSwitchItem(
                 title = stringResource(R.string.connection_settings_hide_recent),
                 subtitle = stringResource(R.string.connection_settings_hide_recent_subtitle),
                 checked = settings.excludeFromRecent,

@@ -131,8 +131,6 @@
     <string name="connection_settings_title">Connection &amp; Startup</string>
     <string name="connection_settings_auto_connect">Auto Connect</string>
     <string name="connection_settings_auto_connect_subtitle">Automatically connect VPN on app launch</string>
-    <string name="connection_settings_auto_reconnect">Auto Reconnect</string>
-    <string name="connection_settings_auto_reconnect_subtitle">Automatically reconnect when disconnected</string>
     <string name="connection_settings_hide_recent">Hide from Recent Tasks</string>
     <string name="connection_settings_hide_recent_subtitle">When enabled, app will not appear in recent tasks list</string>
     <string name="connection_settings_proxy_port">Proxy Port</string>
