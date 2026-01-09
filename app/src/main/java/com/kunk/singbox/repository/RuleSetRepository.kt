@@ -148,7 +148,6 @@ class RuleSetRepository(private val context: Context) {
     private fun installBaselineRuleSet(tag: String, targetFile: File): Boolean {
         return try {
             val assetPath = "rulesets/$tag.srs"
-            Log.d(TAG, "Installing baseline rule set from assets: $assetPath")
             
             context.assets.open(assetPath).use { input ->
                 targetFile.outputStream().use { output ->
@@ -282,7 +281,6 @@ class RuleSetRepository(private val context: Context) {
 
     private suspend fun downloadFile(url: String, targetFile: File): Boolean {
         return try {
-            Log.d(TAG, "Downloading rule set from: $url")
             val request = Request.Builder().url(url).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {

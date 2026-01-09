@@ -89,25 +89,21 @@ class VpnKeepaliveWorker(
 
     override suspend fun doWork(): Result {
         return try {
-            Log.d(TAG, "VPN keepalive check started")
 
             // 1. 检查是否应该运行 VPN (用户未手动停止)
             val isManuallyStopped = VpnStateStore.isManuallyStopped(applicationContext)
             if (isManuallyStopped) {
-                Log.d(TAG, "VPN manually stopped, skip keepalive check")
                 return Result.success()
             }
 
             // 2. 检查当前 VPN 模式
             val currentMode = VpnStateStore.getMode(applicationContext)
             if (currentMode == VpnStateStore.CoreMode.NONE) {
-                Log.d(TAG, "VPN mode is NONE, skip keepalive check")
                 return Result.success()
             }
 
             // 3. 检查后台进程是否存活
             val bgProcessAlive = isBackgroundProcessAlive(applicationContext)
-            Log.d(TAG, "Background process alive: $bgProcessAlive, mode: $currentMode")
 
             // 4. 如果进程死亡但应该运行,则尝试恢复
             if (!bgProcessAlive) {
@@ -117,7 +113,6 @@ class VpnKeepaliveWorker(
                 // 5. 进程存活,检查服务状态是否一致
                 // 这里通过 SingBoxRemote 检查,但由于是跨进程,可能有延迟
                 // 主要作为辅助验证
-                Log.d(TAG, "Background process alive, VPN should be running")
             }
 
             Result.success()

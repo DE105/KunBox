@@ -96,22 +96,17 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
             _error.value = null
-            Log.d(TAG, "========== 开始获取规则集 ==========")
             try {
-                Log.d(TAG, ">>> 获取 SagerNet 官方规则集...")
                 val sagerNetRules = fetchFromSagerNet()
-                Log.d(TAG, "<<< SagerNet 获取到 ${sagerNetRules.size} 个规则集")
                 
                 if (sagerNetRules.isEmpty()) {
                     Log.w(TAG, "Online results empty, using built-in rule sets")
                     // 确保一定有数据
                     val builtIn = getBuiltInRuleSets().sortedBy { it.name }
                     _ruleSets.value = builtIn
-                    Log.d(TAG, "Loaded built-in rule sets: ${builtIn.size}")
                 } else {
                     _ruleSets.value = sagerNetRules.sortedBy { it.name }
                 }
-                Log.d(TAG, "========== Rule sets loading complete ==========")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch rule sets", e)
                 _error.value = getApplication<Application>().getString(R.string.settings_update_failed) + ", please check your network" // TODO: better string
@@ -155,7 +150,6 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
         // SagerNet 的 .srs 文件在 rule-set 分支的根目录，不是主分支的子目录
         // 使用 ghp.ci 镜像代理 GitHub API 请求可能不合适，API 还是直接连，但下载链接用镜像
         val url = "https://api.github.com/repos/SagerNet/sing-geosite/contents/?ref=rule-set"
-        Log.d(TAG, "[SagerNet] 请求 URL: $url")
         return try {
             val request = Request.Builder()
                 .url(url)
@@ -169,7 +163,6 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
                 .build()
 
             shortTimeoutClient.newCall(request).execute().use { response ->
-                Log.d(TAG, "[SagerNet] HTTP 状态码: ${response.code}")
                 
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string() ?: ""
@@ -178,17 +171,13 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
                 }
 
                 val json = response.body?.string() ?: "[]"
-                Log.d(TAG, "[SagerNet] 响应长度: ${json.length} 字符")
                 
                 val type = object : TypeToken<List<GithubFile>>() {}.type
                 val files: List<GithubFile> = gson.fromJson(json, type) ?: emptyList()
-                Log.d(TAG, "[SagerNet] 解析到 ${files.size} 个文件")
                 
                 val srsFiles = files.filter { it.name.endsWith(".srs") }
-                Log.d(TAG, "[SagerNet] 其中 .srs 文件 ${srsFiles.size} 个")
                 
                 if (srsFiles.isNotEmpty()) {
-                    Log.d(TAG, "[SagerNet] 前5个文件: ${srsFiles.take(5).map { it.name }}")
                 }
 
                 srsFiles.map { file ->

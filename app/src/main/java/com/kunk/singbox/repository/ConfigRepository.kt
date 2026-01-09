@@ -1,4 +1,4 @@
-package com.kunk.singbox.repository
+﻿package com.kunk.singbox.repository
 
 import com.kunk.singbox.R
 import android.content.Intent
@@ -200,7 +200,7 @@ class ConfigRepository(private val context: Context) {
                 activeProfileId = _activeProfileId.value,
                 activeNodeId = _activeNodeId.value
             )
-            Log.d(TAG, "saveProfiles: Saving activeProfileId=${_activeProfileId.value}, activeNodeId=${_activeNodeId.value}")
+
             val json = gson.toJson(data)
 
             // Robust atomic write implementation
@@ -216,7 +216,6 @@ class ConfigRepository(private val context: Context) {
                         tmpFile.copyTo(profilesFile, overwrite = true)
                         tmpFile.delete()
                     }
-                    Log.d(TAG, "Profiles saved successfully to ${profilesFile.absolutePath}")
                 } else {
                     Log.e(TAG, "Tmp file is empty, skipping save to prevent data corruption")
                 }
@@ -306,9 +305,7 @@ class ConfigRepository(private val context: Context) {
         try {
             if (profilesFile.exists()) {
                 val json = profilesFile.readText()
-                Log.d(TAG, "loadSavedProfiles: Loading from ${profilesFile.absolutePath}")
                 val savedData = gson.fromJson(json, SavedProfilesData::class.java)
-                Log.d(TAG, "loadSavedProfiles: Loaded activeProfileId=${savedData.activeProfileId}, activeNodeId=${savedData.activeNodeId}")
                 
                 // Gson 有时会将泛型列表中的对象反序列化为 LinkedTreeMap，而不是目标对象 (ProfileUi)
                 // 这通常发生在类型擦除或混淆导致类型信息丢失的情况下
@@ -359,11 +356,9 @@ class ConfigRepository(private val context: Context) {
                         val restored = savedData.activeNodeId
                         _activeNodeId.value = when {
                             !restored.isNullOrBlank() && nodes.any { it.id == restored } -> {
-                                Log.d(TAG, "loadSavedProfiles: Restored activeNodeId=$restored")
                                 restored
                             }
                             nodes.isNotEmpty() -> {
-                                Log.d(TAG, "loadSavedProfiles: Saved activeNodeId not found, defaulting to first node: ${nodes.first().id}")
                                 nodes.first().id
                             }
                             else -> {
@@ -539,7 +534,6 @@ class ConfigRepository(private val context: Context) {
         for ((index, userAgent) in USER_AGENTS.withIndex()) {
             try {
                 onProgress("尝试获取订阅 (${index + 1}/${USER_AGENTS.size})...")
-                Log.v(TAG, "Trying subscription with User-Agent: $userAgent")
                 
                 val request = Request.Builder()
                     .url(url)
@@ -574,10 +568,6 @@ class ConfigRepository(private val context: Context) {
                     userInfo = parseSubscriptionUserInfo(response.header("Subscription-Userinfo"), decodedBody)
 
                     val contentType = response.header("Content-Type") ?: ""
-                    Log.v(
-                        TAG,
-                        "Subscription response meta: ua='$userAgent' ct='$contentType' len=${responseBody.length} head='${sanitizeSubscriptionSnippet(responseBody)}'"
-                    )
 
                     onProgress("正在解析配置...")
 
@@ -1724,12 +1714,10 @@ class ConfigRepository(private val context: Context) {
 
             // 如果指定了目标节点且存在于列表中，直接选中
             if (targetNodeId != null && nodes.any { it.id == targetNodeId }) {
-                Log.d(TAG, "setActiveProfile.updateState: Setting activeNodeId to targetNodeId=$targetNodeId")
                 _activeNodeId.value = targetNodeId
             }
             // 如果当前选中节点在新节点列表中，保持不变
             else if (currentActiveId != null && nodes.any { it.id == currentActiveId }) {
-                Log.d(TAG, "setActiveProfile.updateState: Keeping current activeNodeId=$currentActiveId (found in nodes list)")
                 // 不需要修改，已经是正确的值
             }
             // 如果当前没有选中节点，或选中的节点不在新列表中，选择第一个
@@ -1739,7 +1727,6 @@ class ConfigRepository(private val context: Context) {
                 if (oldValue != null) {
                     Log.w(TAG, "setActiveProfile.updateState: Current activeNodeId=$oldValue not in nodes list, resetting to first node: ${nodes.first().id}")
                 } else {
-                    Log.d(TAG, "setActiveProfile.updateState: activeNodeId is null, setting to first node: ${nodes.first().id}")
                 }
             }
         }
@@ -1787,7 +1774,6 @@ class ConfigRepository(private val context: Context) {
         }
 
         _activeNodeId.value = nodeId
-        Log.d(TAG, "setActiveNodeWithResult: Set activeNodeId=$nodeId")
         saveProfiles()
 
         val persistedActive = VpnStateStore.getActive(context)
@@ -1851,7 +1837,6 @@ class ConfigRepository(private val context: Context) {
                 lastRunOutboundTags = currentTags
                 lastRunProfileId = _activeProfileId.value
                 
-                Log.d(TAG, "Node switch decision: tagsActuallyChanged=$tagsActuallyChanged, profileChanged=$profileChanged, tagsChanged=$tagsChanged, lastTagsWasNull=${lastRunOutboundTags == null}")
 
                 val coreMode = VpnStateStore.getMode(context)
                 val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
@@ -2008,7 +1993,6 @@ class ConfigRepository(private val context: Context) {
                         return@withContext -1L
                     }
 
-                    Log.v(TAG, "Testing latency for node: ${node.name} (${outbound.type})")
                     val fixedOutbound = buildOutboundForRuntime(outbound)
                     val latency = singBoxCore.testOutboundLatency(fixedOutbound)
 
@@ -2023,7 +2007,6 @@ class ConfigRepository(private val context: Context) {
                     } ?: emptyList()
                     updateLatencyInAllNodes(nodeId, latency)
 
-                    Log.v(TAG, "Latency test result for ${node.name}: ${latency}ms")
                     latency
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) {
@@ -2074,7 +2057,6 @@ class ConfigRepository(private val context: Context) {
         } else {
             allNodes
         }
-        Log.d(TAG, "Starting latency test for ${nodes.size} nodes")
 
         data class NodeTestInfo(
             val outbound: Outbound,
@@ -2112,11 +2094,9 @@ class ConfigRepository(private val context: Context) {
             
             updateLatencyInAllNodes(info.nodeId, latency)
 
-            Log.d(TAG, "Latency: ${info.outbound.tag} = ${latency}ms")
             onNodeComplete?.invoke(info.nodeId)
         }
 
-        Log.d(TAG, "Latency test completed for all nodes")
     }
 
     suspend fun updateAllProfiles(): BatchUpdateResult {
@@ -2324,7 +2304,6 @@ class ConfigRepository(private val context: Context) {
             val configFile = File(context.filesDir, "running_config.json")
             configFile.writeText(gson.toJson(runConfig))
             
-            Log.d(TAG, "Generated config file: ${configFile.absolutePath}")
             
             // 解析当前选中的节点在运行配置中的实际 Tag
             val resolvedTag = activeNodeId?.let { outboundsContext.nodeTagMap[it] }
@@ -2385,7 +2364,6 @@ class ConfigRepository(private val context: Context) {
                 interval = null,
                 tolerance = null
             )
-            Log.d(TAG, "Converted urltest '${result.tag}' to selector with ${newOutbounds.size} nodes")
         }
         
         // Fix Selector empty outbounds
@@ -2823,7 +2801,6 @@ class ConfigRepository(private val context: Context) {
 
         // 记录所有可用的 outbound tags，用于调试
         val availableTags = outbounds.map { it.tag }
-        Log.v(TAG, "Available outbound tags for rule matching: $availableTags")
         
         val validTags = validRuleSets.mapNotNull { it.tag }.toSet()
         
@@ -2857,10 +2834,8 @@ class ConfigRepository(private val context: Context) {
             )
         )
         
-        Log.v(TAG, "Sorted rule sets order: ${sortedRuleSets.map { "${it.tag}(${it.outboundMode})" }}")
         
         sortedRuleSets.forEach { ruleSet ->
-            Log.v(TAG, "Processing rule set: ${ruleSet.tag}, mode=${ruleSet.outboundMode}, value=${ruleSet.outboundValue}")
             
             val outboundTag = when (ruleSet.outboundMode ?: RuleSetOutboundMode.DIRECT) {
                 RuleSetOutboundMode.DIRECT -> "direct"
@@ -2915,7 +2890,6 @@ class ConfigRepository(private val context: Context) {
                 inbound = inboundTags
             ))
             
-            Log.v(TAG, "Added rule set rule: ${ruleSet.tag} -> $outboundTag (inbounds: $inboundTags)")
         }
 
         return rules
@@ -2984,7 +2958,6 @@ class ConfigRepository(private val context: Context) {
                 )
             )
             
-            Log.v(TAG, "Added app rule: ${rule.appName} (${rule.packageName}) -> $outboundTag")
         }
         
         // 2. 处理应用分组
@@ -3011,11 +2984,9 @@ class ConfigRepository(private val context: Context) {
                     )
                 )
                 
-                Log.v(TAG, "Added app group rule: ${group.name} (${packageNames.size} apps) -> $outboundTag")
             }
         }
         
-        Log.v(TAG, "Generated ${rules.size} app routing rules")
         return rules
     }
 
@@ -3442,7 +3413,6 @@ class ConfigRepository(private val context: Context) {
             existingTags.add(finalTag)
             nodeTagMap[nodeId] = finalTag
 
-            Log.d(TAG, "Imported external node: ${node.name} -> $finalTag from profile $sourceProfileId")
         }
 
         // 3. 处理需要的节点组 (Merge/Create selectors)
@@ -3461,7 +3431,6 @@ class ConfigRepository(private val context: Context) {
                         val safeTags = if (combinedTags.isEmpty()) listOf("direct") else combinedTags
                         val safeDefault = existing.default?.takeIf { it in safeTags } ?: safeTags.firstOrNull()
                         fixedOutbounds[existingIndex] = existing.copy(outbounds = safeTags, default = safeDefault)
-                        Log.d(TAG, "Updated group '$groupName' with ${safeTags.size} nodes")
                     } else {
                         Log.w(TAG, "Tag collision: '$groupName' is needed as group but exists as ${existing.type}")
                     }
@@ -3476,7 +3445,6 @@ class ConfigRepository(private val context: Context) {
                     )
                     // Insert at beginning to ensure visibility/precedence
                     fixedOutbounds.add(0, newSelector)
-                    Log.d(TAG, "Created synthetic group '$groupName' with ${nodeTags.size} nodes")
                 }
             }
         }
@@ -3499,7 +3467,6 @@ class ConfigRepository(private val context: Context) {
                         interruptExistConnections = false
                     )
                     fixedOutbounds.add(0, newSelector)
-                    Log.d(TAG, "Created synthetic profile selector '$tag' for profile $profileId with ${nodeTags.size} nodes")
                 }
             }
         }
@@ -3549,7 +3516,6 @@ class ConfigRepository(private val context: Context) {
         // 将 Selector 添加到 outbounds 列表的最前面（或者合适的位置）
         fixedOutbounds.add(0, selectorOutbound)
 
-        Log.d(TAG, "Created selector '$selectorTag' with ${proxyTags.size} nodes. Default: ${activeNode?.name}")
 
         // 定义节点标签解析器
         val nodeTagResolver: (String?) -> String? = { value ->
@@ -3659,7 +3625,6 @@ class ConfigRepository(private val context: Context) {
         }
 
         // 记录所有生成的路由规则
-        Log.v(TAG, "=== Generated Route Rules (${allRules.size} total) ===")
         allRules.forEachIndexed { index, rule ->
             val ruleDesc = buildString {
                 rule.protocolRaw?.let { append("protocol=$it ") }
@@ -3669,9 +3634,7 @@ class ConfigRepository(private val context: Context) {
                 rule.inbound?.let { append("inbound=$it ") }
                 append("-> ${rule.outbound}")
             }
-            Log.v(TAG, "  Rule[$index]: $ruleDesc")
         }
-        Log.v(TAG, "=== Final outbound: $selectorTag ===")
 
         return RouteConfig(
             ruleSet = validRuleSets,
@@ -4005,7 +3968,6 @@ class ConfigRepository(private val context: Context) {
             return null
         }
 
-        Log.d(TAG, "exportNode: Found outbound ${outbound.tag} of type ${outbound.type}")
 
         val link = when (outbound.type) {
             "vless" -> generateVLessLink(outbound)
@@ -4014,7 +3976,6 @@ class ConfigRepository(private val context: Context) {
             "trojan" -> generateTrojanLink(outbound)
             "hysteria2" -> {
                 val hy2 = generateHysteria2Link(outbound)
-                Log.d(TAG, "exportNode: Generated hy2 link: $hy2")
                 hy2
             }
             "hysteria" -> generateHysteriaLink(outbound)

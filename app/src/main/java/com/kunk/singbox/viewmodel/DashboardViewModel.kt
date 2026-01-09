@@ -684,7 +684,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     return@launch
                 }
                 
-                Log.d(TAG, "Starting ping test for node: $nodeName (5s timeout)")
                 
                 // 使用5秒超时包装整个测试过程
                 val delay = withTimeoutOrNull(5000L) {
@@ -698,7 +697,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 if (_connectionState.value == ConnectionState.Connected && pingTestJob?.isActive == true) {
                     if (delay != null && delay > 0) {
                         _currentNodePing.value = delay
-                        Log.d(TAG, "Ping test completed: ${delay}ms")
                     } else {
                         // 超时或失败，设置为 -1 表示超时
                         _currentNodePing.value = -1L

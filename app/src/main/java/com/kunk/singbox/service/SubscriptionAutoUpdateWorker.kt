@@ -36,7 +36,6 @@ class SubscriptionAutoUpdateWorker(
             if (intervalMinutes <= 0) {
                 // 禁用自动更新，取消现有任务
                 workManager.cancelUniqueWork(workName)
-                Log.d(TAG, "Cancelled auto-update for profile: $profileId")
                 return
             }
             
@@ -69,7 +68,6 @@ class SubscriptionAutoUpdateWorker(
                 workRequest
             )
             
-            Log.d(TAG, "Scheduled auto-update for profile: $profileId, interval: $intervalMinutes minutes")
         }
         
         /**
@@ -79,7 +77,6 @@ class SubscriptionAutoUpdateWorker(
             val workManager = WorkManager.getInstance(context)
             val workName = "$WORK_NAME_PREFIX$profileId"
             workManager.cancelUniqueWork(workName)
-            Log.d(TAG, "Cancelled auto-update for profile: $profileId")
         }
         
         /**
@@ -88,7 +85,6 @@ class SubscriptionAutoUpdateWorker(
         fun cancelAll(context: Context) {
             val workManager = WorkManager.getInstance(context)
             workManager.cancelAllWorkByTag(TAG)
-            Log.d(TAG, "Cancelled all auto-update tasks")
         }
         
         /**
@@ -108,7 +104,6 @@ class SubscriptionAutoUpdateWorker(
                     }
                 }
                 
-                Log.d(TAG, "Rescheduled auto-update for ${profiles.count { it.autoUpdateInterval > 0 }} profiles")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to reschedule auto-update tasks", e)
             }
@@ -123,7 +118,6 @@ class SubscriptionAutoUpdateWorker(
             return@withContext Result.failure()
         }
         
-        Log.d(TAG, "Starting auto-update for profile: $profileId")
         
         try {
             val configRepository = ConfigRepository.getInstance(applicationContext)
@@ -137,12 +131,10 @@ class SubscriptionAutoUpdateWorker(
             }
             
             if (!profile.enabled) {
-                Log.d(TAG, "Profile disabled: $profileId, skipping update")
                 return@withContext Result.success()
             }
             
             if (profile.autoUpdateInterval <= 0) {
-                Log.d(TAG, "Auto-update disabled for profile: $profileId, cancelling work")
                 cancel(applicationContext, profileId)
                 return@withContext Result.success()
             }
@@ -150,7 +142,6 @@ class SubscriptionAutoUpdateWorker(
             // 执行更新
             val result = configRepository.updateProfile(profileId)
             
-            Log.d(TAG, "Auto-update completed for profile: $profileId, result: $result")
             
             Result.success()
         } catch (e: Exception) {

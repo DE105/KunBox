@@ -35,7 +35,6 @@ class RuleSetAutoUpdateWorker(
             if (intervalMinutes <= 0) {
                 // 禁用自动更新，取消现有任务
                 workManager.cancelUniqueWork(WORK_NAME)
-                Log.d(TAG, "Cancelled global rule set auto-update")
                 return
             }
             
@@ -63,7 +62,6 @@ class RuleSetAutoUpdateWorker(
                 workRequest
             )
             
-            Log.d(TAG, "Scheduled global rule set auto-update, interval: $intervalMinutes minutes")
         }
         
         /**
@@ -72,7 +70,6 @@ class RuleSetAutoUpdateWorker(
         fun cancel(context: Context) {
             val workManager = WorkManager.getInstance(context)
             workManager.cancelUniqueWork(WORK_NAME)
-            Log.d(TAG, "Cancelled global rule set auto-update")
         }
         
         /**
@@ -86,10 +83,8 @@ class RuleSetAutoUpdateWorker(
                 
                 if (settings.ruleSetAutoUpdateEnabled && settings.ruleSetAutoUpdateInterval > 0) {
                     schedule(context, settings.ruleSetAutoUpdateInterval)
-                    Log.d(TAG, "Rescheduled global rule set auto-update with interval: ${settings.ruleSetAutoUpdateInterval} minutes")
                 } else {
                     cancel(context)
-                    Log.d(TAG, "Rule set auto-update is disabled")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to reschedule auto-update task", e)
@@ -98,7 +93,6 @@ class RuleSetAutoUpdateWorker(
     }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        Log.d(TAG, "Starting global rule set auto-update")
         
         try {
             val settingsRepository = SettingsRepository.getInstance(applicationContext)
@@ -108,7 +102,6 @@ class RuleSetAutoUpdateWorker(
             val settings = settingsRepository.settings.first()
             
             if (!settings.ruleSetAutoUpdateEnabled) {
-                Log.d(TAG, "Auto-update disabled, cancelling work")
                 cancel(applicationContext)
                 return@withContext Result.success()
             }
@@ -119,11 +112,9 @@ class RuleSetAutoUpdateWorker(
             }
             
             if (remoteRuleSets.isEmpty()) {
-                Log.d(TAG, "No remote rule sets to update")
                 return@withContext Result.success()
             }
             
-            Log.d(TAG, "Updating ${remoteRuleSets.size} remote rule sets")
             
             var successCount = 0
             var failCount = 0
@@ -137,7 +128,6 @@ class RuleSetAutoUpdateWorker(
                     )
                     if (success) {
                         successCount++
-                        Log.d(TAG, "Updated rule set: ${ruleSet.tag}")
                     } else {
                         failCount++
                         Log.w(TAG, "Failed to update rule set: ${ruleSet.tag}")
@@ -148,7 +138,6 @@ class RuleSetAutoUpdateWorker(
                 }
             }
             
-            Log.d(TAG, "Auto-update completed: $successCount success, $failCount failed")
             
             Result.success()
         } catch (e: Exception) {

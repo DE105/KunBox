@@ -59,17 +59,14 @@ class DataExportRepository(private val context: Context) {
      */
     suspend fun exportAllData(): Result<String> = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Starting data export...")
             
             // 1. 获取当前设置
             val settings = settingsRepository.settings.first()
-            Log.d(TAG, "Settings loaded")
             
             // 2. 获取配置列表和节点数据
             val profiles = configRepository.profiles.value
             val activeProfileId = configRepository.activeProfileId.value
             val activeNodeId = configRepository.activeNodeId.value
-            Log.d(TAG, "Found ${profiles.size} profiles, activeProfile=$activeProfileId, activeNode=$activeNodeId")
             
             // 3. 加载每个配置的完整节点数据
             val profileExportDataList = profiles.mapNotNull { profile ->
@@ -88,7 +85,6 @@ class DataExportRepository(private val context: Context) {
                     null
                 }
             }
-            Log.d(TAG, "Loaded ${profileExportDataList.size} profile configs")
             
             // 4. 构建导出数据
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -106,7 +102,6 @@ class DataExportRepository(private val context: Context) {
             
             // 5. 序列化为 JSON
             val jsonString = gson.toJson(exportData)
-            Log.d(TAG, "Export data serialized, size=${jsonString.length} bytes")
             
             Result.success(jsonString)
         } catch (e: Exception) {
@@ -133,7 +128,6 @@ class DataExportRepository(private val context: Context) {
                 outputStream.flush()
             } ?: throw Exception("Could not open file for writing")
             
-            Log.d(TAG, "Data exported to file successfully")
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Export to file failed", e)
@@ -162,7 +156,6 @@ class DataExportRepository(private val context: Context) {
                 return@withContext Result.failure(Exception("Data format error: missing settings info"))
             }
             
-            Log.d(TAG, "Import data validated: version=${exportData.version}, profiles=${exportData.profiles.size}")
             Result.success(exportData)
         } catch (e: JsonSyntaxException) {
             Log.e(TAG, "Invalid JSON format", e)
@@ -227,7 +220,6 @@ class DataExportRepository(private val context: Context) {
                 try {
                     importSettings(exportData.settings)
                     settingsImported = true
-                    Log.d(TAG, "Settings imported successfully")
                     
                     // 触发规则集下载
                     if (exportData.settings.ruleSets.isNotEmpty()) {
@@ -237,7 +229,6 @@ class DataExportRepository(private val context: Context) {
                         repositoryScope.launch {
                             try {
                                 ruleSetRepository.ensureRuleSetsReady(forceUpdate = false, allowNetwork = true) {
-                                    Log.d(TAG, "Rule set import progress: $it")
                                 }
                             } catch (e: Exception) {
                                 Log.e(TAG, "Failed to download rule sets after import", e)
@@ -257,7 +248,6 @@ class DataExportRepository(private val context: Context) {
                         val nodeCount = importProfile(profileData, options.overwriteExisting)
                         profilesImported++
                         nodesImported += nodeCount
-                        Log.d(TAG, "Profile imported: ${profileData.profile.name}, nodes=$nodeCount")
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to import profile: ${profileData.profile.name}", e)
                         errors.add("Profile '${profileData.profile.name}' import failed: ${e.message}")
@@ -275,7 +265,6 @@ class DataExportRepository(private val context: Context) {
                             exportData.activeProfileId,
                             exportData.activeNodeId
                         )
-                        Log.d(TAG, "Active profile restored: ${exportData.activeProfileId}")
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to restore active profile", e)
@@ -297,7 +286,6 @@ class DataExportRepository(private val context: Context) {
                 else -> ImportResult.Failed(errors.joinToString("\n"))
             }
             
-            Log.d(TAG, "Import completed: $result")
             Result.success(result)
         } catch (e: Exception) {
             Log.e(TAG, "Import failed", e)
@@ -316,7 +304,6 @@ class DataExportRepository(private val context: Context) {
                 inputStream.bufferedReader().readText()
             } ?: throw Exception("Could not read file")
             
-            Log.d(TAG, "Read ${jsonData.length} bytes from file")
             importData(jsonData, options)
         } catch (e: Exception) {
             Log.e(TAG, "Import from file failed", e)
@@ -434,7 +421,6 @@ class DataExportRepository(private val context: Context) {
             val existingId = existingById?.id ?: existingByName?.id
             if (existingId != null) {
                 configRepository.deleteProfile(existingId)
-                Log.d(TAG, "Deleted existing profile: $existingId")
             }
         }
         
