@@ -148,10 +148,7 @@ class ClashYamlParser : SubscriptionParser {
             "http" -> parseHttp(proxyMap, name, server, port)
             "socks5" -> parseSocks(proxyMap, name, server, port)
             "shadowtls" -> parseShadowTLS(proxyMap, name, server, port)
-            else -> {
-                android.util.Log.d("ClashYamlParser", "Unknown/Unsupported proxy type: '$type' for node '$name'")
-                null
-            }
+            else -> null
         }
         
         if (outbound == null && (type.contains("tuic") || type.contains("anytls"))) {
