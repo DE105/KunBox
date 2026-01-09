@@ -61,6 +61,8 @@
 -keepclassmembers class com.kunk.singbox.model.** {
     @com.google.gson.annotations.SerializedName <fields>;
 }
+# 禁止 repackage model 类，避免包名丢失导致的初始化错误
+-keeppackagenames com.kunk.singbox.model.**
 
 # ====================================================================
 # AIDL Interfaces (进程间通信)
@@ -125,7 +127,13 @@
 -optimizations !code/simplification/arithmetic,!code/simplification/cast,!field/*,!class/merging/*
 
 # 允许重新打包类到顶级包(减小 APK 体积)
--repackageclasses ''
+# 注意：排除关键包避免 Package.getName() 返回 null 导致崩溃
+# 完全禁用 repackage 以彻底解决包名丢失问题（增加约1-2MB APK大小）
+# -repackageclasses ''
+# -keeppackagenames com.kunk.singbox.**
+# -keeppackagenames com.google.gson.**
+# -keeppackagenames kotlin.**
+# -keeppackagenames kotlinx.**
 
 # 允许属性优化
 -allowaccessmodification

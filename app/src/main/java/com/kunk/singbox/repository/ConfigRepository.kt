@@ -3000,12 +3000,21 @@ class ConfigRepository(private val context: Context) {
     private fun buildRunExperimentalConfig(settings: AppSettings): ExperimentalConfig {
         // 使用 filesDir 而非 cacheDir，确保 FakeIP 缓存不会被系统清理
         val singboxDataDir = File(context.filesDir, "singbox_data").also { it.mkdirs() }
+
+        // 启用 Clash API 提供额外的保活机制
+        // 这会定期发送心跳，防止长连接应用（Telegram等）的TCP连接被NAT设备超时关闭
+        val clashApi = ClashApiConfig(
+            externalController = "127.0.0.1:9090",
+            defaultMode = "rule"
+        )
+
         return ExperimentalConfig(
             cacheFile = CacheFileConfig(
                 enabled = true,
                 path = File(singboxDataDir, "cache.db").absolutePath,
                 storeFakeip = settings.fakeDnsEnabled
-            )
+            ),
+            clashApi = clashApi
         )
     }
 

@@ -27,8 +27,6 @@ class NodeLinkParser(private val gson: Gson) {
             link.startsWith("hysteria://") -> parseHysteriaLink(link)
             link.startsWith("anytls://") -> parseAnyTLSLink(link)
             link.startsWith("tuic://") -> parseTuicLink(link)
-            link.startsWith("wireguard://") -> parseWireGuardLink(link)
-            link.startsWith("ssh://") -> parseSSHLink(link)
             link.startsWith("https://") -> parseHttpLink(link, useTls = true)
             link.startsWith("http://") -> parseHttpLink(link, useTls = false)
             link.startsWith("socks5://") || link.startsWith("socks://") -> parseSocks5Link(link)

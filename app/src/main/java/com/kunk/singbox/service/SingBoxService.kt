@@ -1,5 +1,6 @@
 ﻿package com.kunk.singbox.service
 
+import android.app.Application
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -823,6 +824,17 @@ class SingBoxService : VpnService() {
                 override fun onReceive(context: Context, intent: Intent) {
                     when (intent.action) {
                         Intent.ACTION_SCREEN_ON -> {
+                            // 屏幕亮起时先记录状态，但不立即恢复（可能只是显示锁屏）
+                            Log.i(TAG, "📱 Screen ON detected (may still be locked)")
+                            isScreenOn = true
+                        }
+                        Intent.ACTION_SCREEN_OFF -> {
+                            Log.i(TAG, "📱 Screen OFF detected")
+                            isScreenOn = false
+                        }
+                        Intent.ACTION_USER_PRESENT -> {
+                            // ⭐ P0修复1: 用户真正解锁后才执行恢复
+                            // ACTION_USER_PRESENT 在用户滑动解锁/输入密码后触发，确保系统完全ready
                             val now = SystemClock.elapsedRealtime()
                             val elapsed = now - lastScreenOnCheckMs
 
@@ -831,16 +843,13 @@ class SingBoxService : VpnService() {
                             }
 
                             lastScreenOnCheckMs = now
-                            Log.i(TAG, "📱 Screen ON detected, checking VPN connection health...")
+                            Log.i(TAG, "🔓 User unlocked device, performing health check...")
 
                             // 在后台协程中执行健康检查
                             serviceScope.launch {
-                                delay(800) // 等待系统稳定后再检查
+                                delay(1200) // 增加延迟，确保系统完全ready（从800ms增加到1200ms）
                                 performScreenOnHealthCheck()
                             }
-                        }
-                        Intent.ACTION_SCREEN_OFF -> {
-                            // 屏幕关闭时不做特殊处理，WakeLock 会保持服务运行
                         }
                     }
                 }
@@ -849,6 +858,7 @@ class SingBoxService : VpnService() {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_USER_PRESENT) // ⭐ P0修复1: 添加解锁监听
             }
 
             registerReceiver(screenStateReceiver, filter)
@@ -870,6 +880,70 @@ class SingBoxService : VpnService() {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to unregister screen state receiver", e)
+        }
+    }
+
+    /**
+     * ⭐ P0修复3: 注册Activity生命周期回调
+     * 用于精确检测应用返回前台的时刻
+     */
+    private fun registerActivityLifecycleCallbacks() {
+        try {
+            if (activityLifecycleCallbacks != null) {
+                return
+            }
+
+            val app = application
+            if (app == null) {
+                Log.w(TAG, "Application is null, cannot register activity lifecycle callbacks")
+                return
+            }
+
+            activityLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
+                override fun onActivityResumed(activity: android.app.Activity) {
+                    // Activity恢复时，检查是否从后台返回前台
+                    if (!isAppInForeground) {
+                        Log.i(TAG, "📲 App returned to FOREGROUND (${activity.localClassName})")
+                        isAppInForeground = true
+
+                        // 执行健康检查
+                        serviceScope.launch {
+                            delay(500) // 短延迟，避免过于频繁
+                            performAppForegroundHealthCheck()
+                        }
+                    }
+                }
+
+                override fun onActivityPaused(activity: android.app.Activity) {
+                    // Activity暂停 - 不做处理，等待onTrimMemory
+                }
+
+                override fun onActivityStarted(activity: android.app.Activity) {}
+                override fun onActivityStopped(activity: android.app.Activity) {}
+                override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+                override fun onActivityDestroyed(activity: android.app.Activity) {}
+                override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+            }
+
+            app.registerActivityLifecycleCallbacks(activityLifecycleCallbacks)
+            Log.i(TAG, "✅ Activity lifecycle callbacks registered successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register activity lifecycle callbacks", e)
+        }
+    }
+
+    /**
+     * ⭐ P0修复3: 注销Activity生命周期回调
+     */
+    private fun unregisterActivityLifecycleCallbacks() {
+        try {
+            activityLifecycleCallbacks?.let { callbacks ->
+                application?.unregisterActivityLifecycleCallbacks(callbacks)
+                activityLifecycleCallbacks = null
+                Log.i(TAG, "Activity lifecycle callbacks unregistered")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unregister activity lifecycle callbacks", e)
         }
     }
 
@@ -952,6 +1026,79 @@ class SingBoxService : VpnService() {
     }
 
     /**
+     * ⭐ P0修复3: 应用返回前台时的健康检查
+     *
+     * 场景: 用户从 Telegram 切换到其他 app 再切回来（屏幕一直亮着）
+     * 与 performScreenOnHealthCheck 的区别:
+     * - 延迟更短 (500ms vs 1200ms) - 应用切换不涉及锁屏，系统响应更快
+     * - 更轻量级 - 不需要等待系统完全 ready
+     * - 优先级更高 - 用户正在主动使用应用
+     */
+    private suspend fun performAppForegroundHealthCheck() {
+        if (!isRunning) {
+            return
+        }
+
+        try {
+            Log.i(TAG, "🔍 [App Foreground] Performing health check...")
+
+            // 检查 1: VPN 接口是否有效
+            val vpnInterfaceValid = vpnInterface?.fileDescriptor?.valid() == true
+            if (!vpnInterfaceValid) {
+                Log.e(TAG, "❌ [App Foreground] VPN interface invalid, triggering recovery")
+                handleHealthCheckFailure("VPN interface invalid after app foreground")
+                return
+            }
+
+            // 检查 2: boxService 是否响应
+            val service = boxService
+            if (service == null) {
+                Log.e(TAG, "❌ [App Foreground] boxService is null")
+                handleHealthCheckFailure("boxService is null after app foreground")
+                return
+            }
+
+            withContext(Dispatchers.IO) {
+                try {
+                    // **关键修复**: 调用 libbox 的 Wake() 方法
+                    service.wake()
+                    Log.i(TAG, "✅ [App Foreground] Called boxService.wake()")
+
+                    // 短暂等待，应用切换场景不需要太长延迟
+                    delay(100)
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ [App Foreground] Failed to call boxService.wake()", e)
+                    handleHealthCheckFailure("Wake call failed: ${e.message}")
+                    return@withContext
+                }
+            }
+
+            // 检查 3: 网络震荡恢复（可选，仅在必要时执行）
+            val currentNetwork = lastKnownNetwork
+            if (currentNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                Log.i(TAG, "🔄 [App Foreground] Triggering network oscillation...")
+                withContext(Dispatchers.IO) {
+                    try {
+                        setUnderlyingNetworks(null)
+                        delay(100) // 更短的延迟，因为用户在主动使用
+                        setUnderlyingNetworks(arrayOf(currentNetwork))
+                        Log.i(TAG, "✅ [App Foreground] Network oscillation completed")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "[App Foreground] Network oscillation failed", e)
+                    }
+                }
+            }
+
+            Log.i(TAG, "✅ [App Foreground] Health check passed, connection should be restored")
+            consecutiveHealthCheckFailures = 0
+
+        } catch (e: Exception) {
+            Log.e(TAG, "[App Foreground] Health check failed", e)
+            handleHealthCheckFailure("App foreground check exception: ${e.message}")
+        }
+    }
+
+    /**
      * 轻量级健康检查
      * 用于网络恢复等场景，只做基本验证而不触发完整的重启流程
      */
@@ -1007,6 +1154,9 @@ class SingBoxService : VpnService() {
     private var screenStateReceiver: BroadcastReceiver? = null
     @Volatile private var lastScreenOnCheckMs: Long = 0L
     private val screenOnCheckDebounceMs: Long = 3000L // 屏幕开启后 3 秒才检查，避免频繁触发
+    @Volatile private var isScreenOn: Boolean = true // ⭐ P0修复1: 跟踪屏幕状态
+    @Volatile private var isAppInForeground: Boolean = true // ⭐ P0修复2: 跟踪应用前后台状态
+    private var activityLifecycleCallbacks: Application.ActivityLifecycleCallbacks? = null // ⭐ P0修复3: Activity生命周期回调
 
     // Periodic health check states
     private var periodicHealthCheckJob: Job? = null
@@ -2031,8 +2181,27 @@ private val platformInterface = object : PlatformInterface {
                     }
                 }
         }
+
+        // ⭐ P0修复3: 注册Activity生命周期回调，检测应用返回前台
+        registerActivityLifecycleCallbacks()
     }
-    
+
+    /**
+     * ⭐ P0修复2: 监听应用前后台切换
+     * 当所有Activity都不可见时触发 TRIM_MEMORY_UI_HIDDEN，表示应用进入后台
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+
+        when (level) {
+            android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
+                // 应用进入后台 (所有UI不可见)
+                Log.i(TAG, "📲 App moved to BACKGROUND (UI hidden)")
+                isAppInForeground = false
+            }
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand action=${intent?.action}")
         runCatching {
@@ -3079,7 +3248,10 @@ private val platformInterface = object : PlatformInterface {
     override fun onDestroy() {
         Log.i(TAG, "onDestroy called -> stopVpn(stopService=false) pid=${android.os.Process.myPid()}")
         TrafficRepository.getInstance(this).saveStats()
-        
+
+        // ⭐ P0修复3: 清理 ActivityLifecycleCallbacks
+        unregisterActivityLifecycleCallbacks()
+
         // Ensure critical state is saved synchronously before we potentially halt
         if (!isManuallyStopped) {
              // If we are being destroyed but not manually stopped (e.g. app update or system kill),
@@ -3106,10 +3278,10 @@ private val platformInterface = object : PlatformInterface {
             updateServiceState(ServiceState.STOPPED)
             updateTileState()
         }
-        
+
         serviceSupervisorJob.cancel()
         // cleanupSupervisorJob.cancel() // Allow cleanup to finish naturally
-        
+
         if (instance == this) {
             instance = null
         }

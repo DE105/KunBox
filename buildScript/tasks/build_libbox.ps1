@@ -195,18 +195,36 @@ if (-not (Test-Path $GobindPath)) {
 }
 Write-Host "Environment check: gobind found at $GobindPath" -ForegroundColor Gray
 
+# 编译优化参数 (2026-01-09 添加)
+Write-Host "  Applying size optimization flags..." -ForegroundColor Cyan
+
+# CGO 编译器优化 (优先体积而非速度)
+$env:CGO_CFLAGS = "-Os -ffunction-sections -fdata-sections -fvisibility=hidden"
+$env:CGO_LDFLAGS = "-Wl,--gc-sections -Wl,--strip-all -Wl,--as-needed"
+
+# Go 编译器优化 (通过 GOFLAGS 环境变量传递)
+$env:GOFLAGS = "-trimpath -buildvcs=false -ldflags=-s -ldflags=-w"
+
+Write-Host "    CGO_CFLAGS: $env:CGO_CFLAGS" -ForegroundColor Gray
+Write-Host "    CGO_LDFLAGS: $env:CGO_LDFLAGS" -ForegroundColor Gray
+Write-Host "    GOFLAGS: $env:GOFLAGS" -ForegroundColor Gray
+Write-Host "    优化策略: 体积优先 (-Os)" -ForegroundColor Cyan
+Write-Host "    注意: sing-box 官方构建工具不支持裁剪协议,构建完整内核" -ForegroundColor Yellow
+
 # 关键:使用 sing-box 官方构建工具 (修复 Go 1.24 兼容性问题)
 # 优化:仅构建 arm64-v8a 架构 (覆盖 99% 现代设备,减少 75% 体积)
 # 如需支持旧设备,可改为: android/arm64,android/arm
-# 注意: sing-box 构建工具内部已包含 -s -w 优化参数 (见 main.go:62)
+# 注意: sing-box 构建工具内部已包含 -s -w 优化参数 (见 cmd/internal/build_libbox/main.go)
 
 # 修复: 使用 -platform 参数而不是 -target (sing-box 1.12+ 的正确参数名)
 Write-Host ""
 Write-Host "Executing: go run ./cmd/internal/build_libbox -target android -platform android/arm64" -ForegroundColor Gray
+Write-Host "  With optimization: CGO_CFLAGS/LDFLAGS + GOFLAGS" -ForegroundColor Gray
 Write-Host "This will take several minutes (typically 5-15 minutes)..." -ForegroundColor Gray
 Write-Host ""
 
-# 使用完整路径的 go 命令，确保环境变量正确传递
+# 使用完整路径的 go 命令,确保环境变量正确传递
+# sing-box 构建工具已内置 -s -w 和其他优化参数
 & "$GoBin\go.exe" run ./cmd/internal/build_libbox -target android -platform android/arm64
 
 if ($LASTEXITCODE -eq 0) {
