@@ -113,15 +113,8 @@ class SingBoxCore private constructor(private val context: Context) {
         
         // 尝试初始化 libbox
         libboxAvailable = initLibbox()
-        
-        if (libboxAvailable) {
-            Log.i(TAG, "Libbox initialized successfully")
-            try {
-                Log.i(TAG, "Libbox kernel version: ${Libbox.version()}")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to read Libbox.version(): ${e.message}")
-            }
-        } else {
+
+        if (!libboxAvailable) {
             Log.w(TAG, "Libbox not available, using fallback mode")
         }
     }
@@ -281,7 +274,6 @@ class SingBoxCore private constructor(private val context: Context) {
             )
 
             val configJson = gson.toJson(config)
-            Log.d(TAG, "Test service: cache disabled to avoid bbolt conflicts")
             var service: BoxService? = null
             try {
                 ensureLibboxSetup(context)
@@ -369,15 +361,33 @@ class SingBoxCore private constructor(private val context: Context) {
         }
     }
 
+    /**
+     * 尝试使用 libbox 原生 urlTest 方法进行延迟测试
+     *
+     * 注意: 当前官方 libbox.aar 不包含 NekoBox 的 urlTest 接口,此方法直接返回 -1。
+     * 上层逻辑会回退到本地 HTTP 代理测速 (testWithLocalHttpProxy),
+     * 该方式虽非反射调用原生方法,但流量同样经过 libbox 核心,结果准确可靠。
+     *
+     * 如果未来切换到支持 urlTest 的内核 (如 NekoBox/sing-box-extra),
+     * 可以在此处添加反射调用逻辑,参考以下伪代码:
+     *
+     * ```kotlin
+     * val urlTestMethod = Libbox::class.java.methods
+     *     .find { it.name == "urlTest" && it.parameterCount == 3 }
+     * if (urlTestMethod != null) {
+     *     return urlTestMethod.invoke(null, configJson, outbound.tag, url) as Long
+     * }
+     * ```
+     *
+     * @return 延迟时间(毫秒), -1 表示不支持或测试失败
+     */
     private suspend fun testWithLibboxStaticUrlTest(
         outbound: Outbound,
         targetUrl: String,
         timeoutMs: Int,
         method: LatencyTestMethod
     ): Long = withContext(Dispatchers.IO) {
-        // 由于当前的 libbox.aar (官方版本) 不包含 NekoBox 特有的 urlTest 接口，
-        // 我们跳过直接调用，直接返回 -1，让上层逻辑回退到本地 HTTP 代理测速。
-        // 本地 HTTP 代理测速也是一种“原生”方式（流量经过内核），结果准确。
+        // 官方 libbox 不支持 urlTest,直接返回 -1 触发回退
         return@withContext -1L
     }
 
@@ -514,7 +524,6 @@ class SingBoxCore private constructor(private val context: Context) {
 
             // 3. 启动服务
             val configJson = gson.toJson(config)
-            Log.d(TAG, "Batch test service: cache disabled to avoid bbolt conflicts")
             var service: BoxService? = null
             
             try {
@@ -615,6 +624,17 @@ class SingBoxCore private constructor(private val context: Context) {
         }
     }
 
+    /**
+     * 分配多个本地端口用于批量测试
+     *
+     * @param count 需要分配的端口数量
+     * @return 已分配的端口列表
+     * @throws RuntimeException 如果无法分配足够的端口
+     *
+     * 注意: 此方法存在微小的竞态条件窗口 (TOCTOU - Time-of-check to time-of-use)
+     * 在 ServerSocket 关闭后到 sing-box 绑定端口之间,理论上其他进程可能占用端口。
+     * 但在本地回环接口上,此风险极低。如果发生冲突,上层逻辑会捕获异常并重试。
+     */
     private fun allocateMultipleLocalPorts(count: Int): List<Int> {
         val ports = mutableListOf<Int>()
         val sockets = mutableListOf<ServerSocket>()
@@ -626,13 +646,13 @@ class SingBoxCore private constructor(private val context: Context) {
                 sockets.add(socket)
             }
         } catch (e: Exception) {
-            // 失败时释放已分配的
-            sockets.forEach { try { it.close() } catch (_: Exception) {} }
-            throw e
+            // 失败时释放已分配的端口
+            sockets.forEach { runCatching { it.close() } }
+            throw RuntimeException("Failed to allocate $count ports (allocated ${ports.size})", e)
         }
         // 全部关闭以释放端口给 sing-box 使用
-        // 注意：这里存在微小的竞态条件，但在本地回环上通常安全
-        sockets.forEach { try { it.close() } catch (_: Exception) {} }
+        // 在关闭后立即返回,最小化竞态窗口
+        sockets.forEach { runCatching { it.close() } }
         return ports
     }
 
@@ -663,12 +683,10 @@ class SingBoxCore private constructor(private val context: Context) {
 
         val rtt = testWithTemporaryServiceUrlTestOnRunning(outbound, url, fallbackUrl, timeoutMs, settings.latencyTestMethod)
         if (rtt >= 0) {
-            Log.i(TAG, "Offline URLTest RTT: ${outbound.tag} -> ${rtt} ms")
             return@withContext rtt
         }
 
         val fallback = testWithLocalHttpProxy(outbound, url, fallbackUrl, timeoutMs)
-        Log.i(TAG, "Offline HTTP fallback: ${outbound.tag} -> ${fallback} ms")
         return@withContext fallback
     }
     
@@ -792,9 +810,19 @@ class SingBoxCore private constructor(private val context: Context) {
         override fun autoDetectInterfaceControl(fd: Int) {
             // 重要：如果 VPN 正在运行，必须 protect 测速 socket，否则流量会被 VPN 拦截
             try {
-                com.kunk.singbox.service.SingBoxService.instance?.protect(fd)
+                val service = com.kunk.singbox.service.SingBoxService.instance
+                if (service == null) {
+                    Log.w(TAG, "VPN service not available for socket protection fd=$fd")
+                    throw java.io.IOException("VPN service unavailable")
+                }
+                val protected = service.protect(fd)
+                if (!protected) {
+                    Log.e(TAG, "Failed to protect socket fd=$fd")
+                    throw java.io.IOException("Socket protection failed")
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to protect socket fd=$fd", e)
+                Log.e(TAG, "Socket protection error for fd=$fd", e)
+                throw e  // 重新抛出异常，让 libbox 知道此 socket 无法使用
             }
         }
 
@@ -904,8 +932,8 @@ class SingBoxCore private constructor(private val context: Context) {
         }
         override fun systemCertificates(): StringIterator? = null
         override fun writeLog(message: String?) {
-            Log.v("SingBoxCoreTest", "libbox: $message")
-            message?.let {
+            // 仅在必要时记录,避免大量日志输出
+            message?.takeIf { it.contains("error", ignoreCase = true) || it.contains("warn", ignoreCase = true) }?.let {
                 com.kunk.singbox.repository.LogRepository.getInstance().addLog("[Test] $it")
             }
         }
