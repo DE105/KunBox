@@ -33,6 +33,9 @@ class SingBoxApplication : Application(), Configuration.Provider {
 
         LogRepository.init(this)
 
+        // 清理遗留的临时数据库文件 (应对应用崩溃或强制停止的情况)
+        cleanupOrphanedTempFiles()
+
         // 只在主进程中调度自动更新任务
         if (isMainProcess()) {
             applicationScope.launch {
@@ -61,5 +64,32 @@ class SingBoxApplication : Application(), Configuration.Provider {
         val activityManager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
         val processName = activityManager.runningAppProcesses?.find { it.pid == pid }?.processName
         return processName == packageName
+    }
+
+    /**
+     * 清理遗留的临时数据库文件
+     * 在应用启动时执行,清理因崩溃或强制停止而残留的测试数据库文件
+     */
+    private fun cleanupOrphanedTempFiles() {
+        try {
+            val tempDir = java.io.File(cacheDir, "singbox_temp")
+            if (!tempDir.exists() || !tempDir.isDirectory) return
+
+            val cleaned = mutableListOf<String>()
+            tempDir.listFiles()?.forEach { file ->
+                // 清理所有测试数据库文件及其 WAL/SHM 辅助文件
+                if (file.name.startsWith("test_") || file.name.startsWith("batch_test_")) {
+                    if (file.delete()) {
+                        cleaned.add(file.name)
+                    }
+                }
+            }
+
+            if (cleaned.isNotEmpty()) {
+                android.util.Log.i("SingBoxApp", "Cleaned ${cleaned.size} orphaned temp files: ${cleaned.take(5).joinToString()}")
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SingBoxApp", "Failed to cleanup orphaned temp files", e)
+        }
     }
 }
