@@ -500,17 +500,19 @@ class SingBoxService : VpnService() {
             if (!switchSuccess) {
                 val client = commandClient
                 if (client != null) {
+                    var firstError: Exception? = null
                     try {
                         // 尝试 "PROXY" 和 "proxy"
                         try {
                             client.selectOutbound(selectorTag, nodeTag)
                             switchSuccess = true
                         } catch (e: Exception) {
+                            firstError = e
                             client.selectOutbound(selectorTag.lowercase(), nodeTag)
                             switchSuccess = true
                         }
                     } catch (e: Exception) {
-                        Log.w(TAG, "CommandClient.selectOutbound failed: ${e.message}")
+                        Log.w(TAG, "CommandClient.selectOutbound failed: PROXY=${firstError?.message}, proxy=${e.message}")
                     }
                 }
             }
@@ -1636,29 +1638,21 @@ private val platformInterface = object : PlatformInterface {
                     val bestNetwork = findBestPhysicalNetwork()
                     if (bestNetwork != null) {
                         try {
-                            // === 关键修复: 立即清空底层网络,阻止应用过早建连 ===
-                            // 问题: establish() 可能会自动绑定底层网络,导致应用立即可以发送流量
-                            // 解决: 强制设置为 null,延迟到核心就绪后再设置
-                            setUnderlyingNetworks(null)
+                            // FIX: 不再清空底层网络，因为这会导致 DNS bootstrap 失败
+                            // 旧策略: 清空底层网络阻止应用过早建连
+                            // 新策略: 保持底层网络设置，确保 sing-box 的 direct outbound 可以解析代理服务器域名
+                            // 应用层连接由 sing-box 路由规则控制，不需要在 VPN 层阻止
+                            setUnderlyingNetworks(arrayOf(bestNetwork))
                             lastKnownNetwork = bestNetwork
-                            Log.i(TAG, "Physical network cached: $bestNetwork, underlying set to NULL (will be set after core ready)")
+                            Log.i(TAG, "Physical network set: $bestNetwork (DNS bootstrap enabled)")
                         } catch (_: Exception) {
                         }
                     }
                 }
 
-                Log.i(TAG, "TUN interface established with fd: $fd, underlying networks = NULL (blocked until core ready)")
+                Log.i(TAG, "TUN interface established with fd: $fd")
 
-                // === 移除旧的 Stage 1 震荡逻辑,改为延迟设置底层网络 ===
-                // 新策略: TUN 建立后不暴露底层网络,等核心就绪后一次性设置
-                // 这样可以避免应用在 VPN 未就绪时发起连接
-
-                // === CRITICAL: Trigger immediate network validation (Best practice from NekoBox) ===
-                // Network reset is handled by requestCoreNetworkReset below
-                // BUG修复: 移除 reportNetworkConnectivity() 调用,避免在华为等设备上触发持续的系统提示音
-                // 参考: Android VPN 最佳实践,成熟 VPN 项目不使用 reportNetworkConnectivity 主动触发网络验证
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                }
+                // 不再使用 reportNetworkConnectivity()，避免在华为等设备上触发持续的系统提示音
 
                 // Force a network reset after TUN is ready to clear any stale connections
                 // force=true to ensure immediate update, skipping debounce
@@ -2056,14 +2050,56 @@ private val platformInterface = object : PlatformInterface {
             }
             
             // Get current default interface - 立即采样一次以初始化 lastKnownNetwork
+            // 2025-fix: 跨配置切换时，优先使用之前保存的 lastKnownNetwork（如果仍然有效）
+            // 这样可以避免在 VPN 重启窗口期 activeNetwork 返回 null 或 VPN 网络的问题
+            var initialNetwork: Network? = null
             val activeNet = connectivityManager?.activeNetwork
             if (activeNet != null) {
                 val caps = connectivityManager?.getNetworkCapabilities(activeNet)
                 val isVpn = caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
                 if (!isVpn && caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) {
-                    networkCallbackReady = true
-                    updateDefaultInterface(activeNet)
+                    initialNetwork = activeNet
                 }
+            }
+
+            // 如果 activeNetwork 不可用，尝试使用之前保存的 lastKnownNetwork
+            if (initialNetwork == null && lastKnownNetwork != null) {
+                val caps = connectivityManager?.getNetworkCapabilities(lastKnownNetwork!!)
+                val isVpn = caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                val hasInternet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                if (!isVpn && hasInternet) {
+                    initialNetwork = lastKnownNetwork
+                    Log.i(TAG, "startDefaultInterfaceMonitor: using preserved lastKnownNetwork: $lastKnownNetwork")
+                }
+            }
+
+            // 最后尝试查找最佳物理网络
+            if (initialNetwork == null) {
+                initialNetwork = findBestPhysicalNetwork()
+                if (initialNetwork != null) {
+                    Log.i(TAG, "startDefaultInterfaceMonitor: found best physical network: $initialNetwork")
+                }
+            }
+
+            if (initialNetwork != null) {
+                networkCallbackReady = true
+                lastKnownNetwork = initialNetwork
+
+                // 2025-fix: 强制重置 defaultInterfaceName 以确保 updateDefaultInterface 能够通知 libbox
+                // 在跨配置切换时，即使接口名称相同也需要重新通知 libbox
+                val savedDefaultInterfaceName = defaultInterfaceName
+                defaultInterfaceName = ""
+
+                updateDefaultInterface(initialNetwork)
+
+                // 如果 updateDefaultInterface 因为某些原因没有更新 defaultInterfaceName，恢复它
+                if (defaultInterfaceName.isEmpty()) {
+                    defaultInterfaceName = savedDefaultInterfaceName
+                }
+
+                Log.i(TAG, "startDefaultInterfaceMonitor: initialized with network=$initialNetwork, interface=$defaultInterfaceName")
+            } else {
+                Log.w(TAG, "startDefaultInterfaceMonitor: no usable physical network found at startup")
             }
         }
         
@@ -2867,6 +2903,16 @@ private val platformInterface = object : PlatformInterface {
                 boxService?.start()
                 Log.i(TAG, "BoxService started")
 
+                // 2025-fix: 跨配置切换时，boxService.start() 会调用 startDefaultInterfaceMonitor，
+                // 但 libbox 内部可能在网络接口信息完全初始化之前就开始处理流量。
+                // 立即调用 resetNetwork() 强制 libbox 重新扫描网络接口，避免 "no available network interface" 错误。
+                try {
+                    boxService?.resetNetwork()
+                    Log.i(TAG, "Immediate resetNetwork() called after boxService.start()")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Immediate resetNetwork() failed: ${e.message}")
+                }
+
                 // Wait for VPN link validation before resetting network
                 // This prevents connection leaks during VPN startup window
                 serviceScope.launch {
@@ -2888,23 +2934,32 @@ private val platformInterface = object : PlatformInterface {
                         Log.i(TAG, "Initial boxService.resetNetwork() called")
 
                         // 关键修复:等待 sing-box 核心完全初始化
-                        // 延长到 2.5 秒,让应用层等待而非发起连接后失败
-                        Log.i(TAG, "Waiting for sing-box core to fully initialize (2.5s)...")
-                        delay(2500)
-                        Log.i(TAG, "Core initialization wait completed")
+                        // 条件就绪触发 + 最大超时兜底，尽量缩短重启耗时
+                        Log.i(TAG, "Waiting for sing-box core readiness (max 2.5s)...")
+                        val coreWaitDeadlineMs = 2500L
+                        var coreWaitedMs = 0L
+                        while (coreWaitedMs < coreWaitDeadlineMs) {
+                            if (vpnLinkValidated && vpnInterface?.fileDescriptor?.valid() == true && boxService != null) {
+                                break
+                            }
+                            delay(100)
+                            coreWaitedMs += 100
+                        }
+                        if (coreWaitedMs < coreWaitDeadlineMs) {
+                            Log.i(TAG, "Core readiness detected after ${coreWaitedMs}ms")
+                        } else {
+                            Log.w(TAG, "Core readiness timeout after ${coreWaitedMs}ms, proceeding anyway")
+                        }
 
-                        // === 核心就绪后首次设置底层网络 ===
-                        // 新策略: TUN 建立时不设置底层网络,延迟到核心就绪后首次设置
-                        // 这样可以避免应用在 VPN 未完全就绪时发起连接
+                        // === 核心就绪后确认底层网络设置 ===
+                        // 底层网络已在 openTun 中设置，这里只是确认/刷新
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                             try {
                                 val currentNetwork = lastKnownNetwork ?: findBestPhysicalNetwork()
                                 if (currentNetwork != null) {
-                                    Log.i(TAG, "Setting underlying network for the first time (network=$currentNetwork)")
+                                    Log.i(TAG, "Confirming underlying network (network=$currentNetwork)")
                                     setUnderlyingNetworks(arrayOf(currentNetwork))
-                                    delay(300) // 等待网络设置生效,让系统识别到网络可用
-                                    Log.i(TAG, "Underlying network configured successfully")
-                                    LogRepository.getInstance().addLog("INFO: VPN 底层网络已配置,开始路由流量")
+                                    LogRepository.getInstance().addLog("INFO: VPN 底层网络已确认,开始路由流量")
                                 } else {
                                     Log.w(TAG, "No physical network found after core ready")
                                     LogRepository.getInstance().addLog("WARN: 未找到物理网络,VPN 可能无法正常工作")
@@ -2924,28 +2979,50 @@ private val platformInterface = object : PlatformInterface {
                             Log.w(TAG, "DNS warmup failed", e)
                         }
 
-                // === 关键修复: 使用 libbox resetNetwork() 强制应用重连 ===
-                // 解决问题: VPN 启动瞬间建立的应用层连接会永久卡死
-                // 原理: 使用 libbox 的 resetNetwork() 代替 reportNetworkConnectivity()
-                // BUG修复: reportNetworkConnectivity() 在华为EMUI等系统上会触发持续的系统提示音
-                // 参考: Android VPN 最佳实践,成熟 VPN 项目不使用 reportNetworkConnectivity
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    try {
-
-                        // 仅使用 libbox resetNetwork() 方法强制应用重连
-                        // 避免使用 reportNetworkConnectivity() 触发系统提示音
-                        try {
-                            boxService?.resetNetwork()
-                            Log.i(TAG, "Network reset triggered via libbox, apps should reconnect now")
-                            LogRepository.getInstance().addLog("INFO: 已通知应用网络已切换,强制重新建立连接")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to reset network via libbox", e)
-                            LogRepository.getInstance().addLog("WARN: 触发应用重连失败: ${e.message}")
+                        // === 重启后强制重连: 系统级网络重置 + libbox resetNetwork ===
+                        // 目的: 让应用感知网络重置,避免 TG 等应用卡在旧连接
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                            try {
+                                val currentNetwork = lastKnownNetwork ?: findBestPhysicalNetwork()
+                                if (currentNetwork != null) {
+                                    Log.i(TAG, "Triggering system-level network reset after restart...")
+                                    setUnderlyingNetworks(null)
+                                    delay(150)
+                                    setUnderlyingNetworks(arrayOf(currentNetwork))
+                                    Log.i(TAG, "System-level network reset triggered (net=$currentNetwork)")
+                                }
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to trigger system network reset after restart", e)
+                            }
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to trigger connectivity change notification", e)
-                    }
-                }
+
+                        try {
+                            closeRecentConnectionsBestEffort(reason = "restart")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to close recent connections after restart", e)
+                        }
+
+                        // === 关键修复: 使用 libbox resetNetwork() 强制应用重连 ===
+                        // 解决问题: VPN 启动瞬间建立的应用层连接会永久卡死
+                        // 原理: 使用 libbox 的 resetNetwork() 代替 reportNetworkConnectivity()
+                        // BUG修复: reportNetworkConnectivity() 在华为EMUI等系统上会触发持续的系统提示音
+                        // 参考: Android VPN 最佳实践,成熟 VPN 项目不使用 reportNetworkConnectivity
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            try {
+                                // 仅使用 libbox resetNetwork() 方法强制应用重连
+                                // 避免使用 reportNetworkConnectivity() 触发系统提示音
+                                try {
+                                    boxService?.resetNetwork()
+                                    Log.i(TAG, "Network reset triggered via libbox, apps should reconnect now")
+                                    LogRepository.getInstance().addLog("INFO: 已通知应用网络已切换,强制重新建立连接")
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed to reset network via libbox", e)
+                                    LogRepository.getInstance().addLog("WARN: 触发应用重连失败: ${e.message}")
+                                }
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to trigger connectivity change notification", e)
+                            }
+                        }
 
                         Log.i(TAG, "Sing-box core initialization complete, VPN is now fully ready")
                         LogRepository.getInstance().addLog("INFO: VPN 核心已完全就绪,网络连接可用")
@@ -3163,17 +3240,25 @@ private val platformInterface = object : PlatformInterface {
         routeGroupAutoSelectJob?.cancel()
         routeGroupAutoSelectJob = null
 
+        // FIX: 跨配置切换时（stopService=false）也需要重置关键网络状态
+        // 否则新 VPN 启动时可能因为残留的旧状态导致 DNS 解析失败
+        // 错误表现: "no available network interface"
+        vpnLinkValidated = false
+        noPhysicalNetworkWarningLogged = false
+        // 必须重置 defaultInterfaceName，否则新 libbox 实例无法收到 updateDefaultInterface 调用
+        defaultInterfaceName = ""
+        
         if (stopService) {
             networkCallbackReady = false
-            vpnLinkValidated = false
             lastKnownNetwork = null
-            noPhysicalNetworkWarningLogged = false
-            defaultInterfaceName = ""
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                 runCatching { setUnderlyingNetworks(null) }
             }
         } else {
-            noPhysicalNetworkWarningLogged = false
+            // 跨配置切换时保留 lastKnownNetwork，因为物理网络没有变化
+            // 但需要重置 vpnLinkValidated 以确保新 VPN 正确初始化
+            // networkCallbackReady 也需要重置，因为回调状态可能不一致
+            networkCallbackReady = false
         }
 
         tryClearRunningServiceForLibbox()

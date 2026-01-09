@@ -99,6 +99,21 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
         }
+        
+        // 2025-fix: 如果VPN正在运行，切换配置后需要触发热切换/重启以加载新配置
+        // 否则VPN仍然使用旧配置，导致用户看到"选中"了新配置的节点但实际没网
+        if (SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value) {
+            viewModelScope.launch {
+                // 等待配置切换完成（setActiveProfile 内部可能有异步加载）
+                delay(100)
+                // 获取新配置的当前选中节点
+                val currentNodeId = configRepository.activeNodeId.value
+                if (currentNodeId != null) {
+                    Log.i(TAG, "Profile switched while VPN running, triggering node switch for: $currentNodeId")
+                    configRepository.setActiveNodeWithResult(currentNodeId)
+                }
+            }
+        }
     }
 
     fun setActiveNode(nodeId: String) {

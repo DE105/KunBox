@@ -1,4 +1,4 @@
-﻿package com.kunk.singbox.repository
+package com.kunk.singbox.repository
 
 import com.kunk.singbox.R
 import android.content.Intent
@@ -1769,21 +1769,31 @@ class ConfigRepository(private val context: Context) {
         val targetNode = allNodesSnapshot.find { it.id == nodeId }
         if (targetNode != null && targetNode.sourceProfileId != _activeProfileId.value) {
             Log.i(TAG, "Cross-profile switch detected: ${_activeProfileId.value} -> ${targetNode.sourceProfileId}")
+
+            // 2025-fix: Ensure profile is loaded synchronously before switching
+            // This prevents race condition where _nodes is empty during generateConfigFile
+            val profileId = targetNode.sourceProfileId
+            withContext(Dispatchers.IO) {
+                if (profileNodes[profileId] == null) {
+                    Log.i(TAG, "Pre-loading profile nodes for $profileId")
+                    loadConfig(profileId)?.let { cfg ->
+                        val nodes = extractNodesFromConfig(cfg, profileId)
+                        profileNodes[profileId] = nodes
+                    }
+                }
+            }
+
             setActiveProfile(targetNode.sourceProfileId, nodeId)
-            
+
         }
 
         _activeNodeId.value = nodeId
         saveProfiles()
 
-        val persistedActive = VpnStateStore.getActive(context)
         val remoteRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
-        if (!persistedActive && !remoteRunning) {
-            Log.i(TAG, "setActiveNodeWithResult: VPN not running (persistedActive=false, remoteRunning=false)")
+        if (!remoteRunning) {
+            Log.i(TAG, "setActiveNodeWithResult: VPN not running, skip hot switch")
             return NodeSwitchResult.NotRunning
-        }
-        if (!persistedActive && remoteRunning) {
-            Log.w(TAG, "setActiveNodeWithResult: persistedActive=false but remoteRunning=true; proceeding with hot switch")
         }
         
         return withContext(Dispatchers.IO) {
@@ -1823,7 +1833,14 @@ class ConfigRepository(private val context: Context) {
                 // 检查是否需要重启服务：如果 Outbound 列表发生了变化（例如跨配置切换、增删节点），
                 // 或者当前配置 ID 发生了变化（跨配置切换），则必须重启 VPN 以加载新的配置文件。
                 val currentTags = generationResult.outboundTags
-                val profileChanged = lastRunProfileId != null && lastRunProfileId != _activeProfileId.value
+                val currentProfileId = _activeProfileId.value
+                
+                // 2025-fix: 改进 profileChanged 判断逻辑
+                // 问题：当 App 重启后 lastRunProfileId 为 null，但 VPN 已在运行时，
+                // 跨配置切换不会触发重启，导致热切换使用旧配置中的 selector
+                // 修复：如果 VPN 已在运行但 lastRunProfileId 为 null，视为首次切换，需要重启以确保配置同步
+                val isFirstSwitchWhileRunning = lastRunProfileId == null && remoteRunning
+                val profileChanged = (lastRunProfileId != null && lastRunProfileId != currentProfileId) || isFirstSwitchWhileRunning
                 
                 // 2025-fix: 改进 tagsChanged 判断逻辑
                 // 问题：lastRunOutboundTags 在 App 启动后为 null，导致首次切换节点时
@@ -1833,9 +1850,11 @@ class ConfigRepository(private val context: Context) {
                 val tagsActuallyChanged = lastRunOutboundTags != null && lastRunOutboundTags != currentTags
                 val tagsChanged = tagsActuallyChanged || profileChanged
                 
+                Log.d(TAG, "Switch decision: profileChanged=$profileChanged (last=$lastRunProfileId, cur=$currentProfileId, firstSwitch=$isFirstSwitchWhileRunning), tagsActuallyChanged=$tagsActuallyChanged, tagsChanged=$tagsChanged")
+                
                 // 更新缓存（在判断之后更新，确保下次能正确比较）
                 lastRunOutboundTags = currentTags
-                lastRunProfileId = _activeProfileId.value
+                lastRunProfileId = currentProfileId
                 
 
                 val coreMode = VpnStateStore.getMode(context)
@@ -1889,14 +1908,10 @@ class ConfigRepository(private val context: Context) {
     suspend fun syncActiveNodeFromProxySelection(proxyName: String?): Boolean {
         if (proxyName.isNullOrBlank()) return false
 
-        val activeProfileId = _activeProfileId.value
-        val candidates = if (activeProfileId != null) {
-            _nodes.value + _allNodes.value.filter { it.sourceProfileId != activeProfileId }
-        } else {
-            _allNodes.value
-        }
-
+        val activeProfileId = _activeProfileId.value ?: return false
+        val candidates = _nodes.value
         val matched = candidates.firstOrNull { it.name == proxyName } ?: return false
+        if (matched.sourceProfileId != activeProfileId) return false
         if (_activeNodeId.value == matched.id) return true
 
         _activeNodeId.value = matched.id
@@ -2304,13 +2319,25 @@ class ConfigRepository(private val context: Context) {
             val configFile = File(context.filesDir, "running_config.json")
             configFile.writeText(gson.toJson(runConfig))
             
-            
-            // 解析当前选中的节点在运行配置中的实际 Tag
-            val resolvedTag = activeNodeId?.let { outboundsContext.nodeTagMap[it] }
-                ?: activeNode?.name
-                
             // 收集所有 Outbound 的 tag
             val allTags = runConfig.outbounds?.map { it.tag }?.toSet() ?: emptySet()
+            
+            // 解析当前选中的节点在运行配置中的实际 Tag
+            // 关键修复：确保 resolvedTag 指向一个实际存在的 outbound
+            val candidateTag = activeNodeId?.let { outboundsContext.nodeTagMap[it] }
+                ?: activeNode?.name
+            
+            val resolvedTag = if (candidateTag != null && allTags.contains(candidateTag)) {
+                candidateTag
+            } else {
+                // 跨配置节点加载失败，回退到 PROXY selector 的 default
+                val proxySelector = runConfig.outbounds?.find { it.tag == "PROXY" }
+                val fallback = proxySelector?.default ?: proxySelector?.outbounds?.firstOrNull()
+                if (candidateTag != null) {
+                    Log.w(TAG, "Selected node tag '$candidateTag' not found in outbounds, falling back to: $fallback")
+                }
+                fallback
+            }
 
             ConfigGenerationResult(configFile.absolutePath, resolvedTag, allTags)
         } catch (e: Exception) {
@@ -3003,8 +3030,10 @@ class ConfigRepository(private val context: Context) {
 
         // 启用 Clash API 提供额外的保活机制
         // 这会定期发送心跳，防止长连接应用（Telegram等）的TCP连接被NAT设备超时关闭
+        // 自动查找可用端口，避免端口冲突导致启动失败
+        val clashApiPort = findAvailablePort(9090)
         val clashApi = ClashApiConfig(
-            externalController = "127.0.0.1:9090",
+            externalController = "127.0.0.1:$clashApiPort",
             defaultMode = "rule"
         )
 
@@ -3078,6 +3107,15 @@ class ConfigRepository(private val context: Context) {
         // 添加 DNS 配置
         val dnsServers = mutableListOf<DnsServer>()
         val dnsRules = mutableListOf<DnsRule>()
+        
+        // 关键：代理节点服务器域名必须使用直连 DNS 解析，避免循环依赖
+        // outbound: ["any"] 匹配所有 outbound 服务器的域名
+        dnsRules.add(
+            DnsRule(
+                outboundRaw = listOf("any"),
+                server = "dns-bootstrap"
+            )
+        )
 
         // 0. Bootstrap DNS (必须是 IP，用于解析其他 DoH/DoT 域名)
         // 使用多个 IP 以提高可靠性
@@ -3377,12 +3415,27 @@ class ConfigRepository(private val context: Context) {
         // 建立 NodeID -> OutboundTag 的映射
         val nodeTagMap = mutableMapOf<String, String>()
         val existingTags = fixedOutbounds.map { it.tag }.toMutableSet()
+        
+        // 2025-fix: 调试日志，帮助定位节点映射问题
+        Log.d(TAG, "buildRunOutbounds: activeProfileId=$activeProfileId, existingTags count=${existingTags.size}")
+        Log.d(TAG, "  existingTags (first 10): ${existingTags.take(10)}")
 
         // 1. 先映射当前配置中的节点
         if (activeProfileId != null) {
-            allNodes.filter { it.sourceProfileId == activeProfileId }.forEach { node ->
+            val profileNodes = allNodes.filter { it.sourceProfileId == activeProfileId }
+            Log.d(TAG, "  profileNodes count=${profileNodes.size}")
+            profileNodes.forEach { node ->
                 if (existingTags.contains(node.name)) {
                     nodeTagMap[node.id] = node.name
+                } else {
+                    // 2025-fix: 尝试模糊匹配
+                    val fuzzyMatch = existingTags.find { it.equals(node.name, ignoreCase = true) }
+                    if (fuzzyMatch != null) {
+                        nodeTagMap[node.id] = fuzzyMatch
+                        Log.w(TAG, "  Fuzzy matched node '${node.name}' to tag '$fuzzyMatch'")
+                    } else {
+                        Log.w(TAG, "  ⚠️ Node '${node.name}' (id=${node.id.take(8)}) not found in existingTags!")
+                    }
                 }
             }
         }
@@ -3391,15 +3444,41 @@ class ConfigRepository(private val context: Context) {
         requiredNodeIds.forEach { nodeId ->
             if (nodeTagMap.containsKey(nodeId)) return@forEach // 已经在当前配置中
 
-            val node = allNodes.find { it.id == nodeId } ?: return@forEach
+            val node = allNodes.find { it.id == nodeId }
+            if (node == null) {
+                Log.w(TAG, "Cross-profile node not found in allNodes: nodeId=$nodeId")
+                return@forEach
+            }
             val sourceProfileId = node.sourceProfileId
 
             // 如果是当前配置但没找到tag(可能改名了?), 跳过
-            if (sourceProfileId == activeProfileId) return@forEach
+            if (sourceProfileId == activeProfileId) {
+                Log.w(TAG, "Cross-profile node belongs to activeProfile but not in outbounds: ${node.name}")
+                return@forEach
+            }
 
             // 加载外部配置
-            val sourceConfig = loadConfig(sourceProfileId) ?: return@forEach
-            val sourceOutbound = sourceConfig.outbounds?.find { it.tag == node.name } ?: return@forEach
+            val sourceConfig = loadConfig(sourceProfileId)
+            if (sourceConfig == null) {
+                Log.e(TAG, "Failed to load source config for cross-profile node: profileId=$sourceProfileId, nodeName=${node.name}")
+                return@forEach
+            }
+            
+            // 尝试多种方式匹配 outbound
+            val sourceOutbound = sourceConfig.outbounds?.find { it.tag == node.name }
+                ?: sourceConfig.outbounds?.find { it.tag.equals(node.name, ignoreCase = true) }
+                ?: sourceConfig.outbounds?.find { 
+                    // 尝试模糊匹配：去除空格和特殊字符后比较
+                    it.tag.replace(Regex("[\\s\\-_]"), "").equals(
+                        node.name.replace(Regex("[\\s\\-_]"), ""), 
+                        ignoreCase = true
+                    )
+                }
+            
+            if (sourceOutbound == null) {
+                Log.e(TAG, "Cross-profile outbound not found: nodeName=${node.name}, profileId=$sourceProfileId, available tags: ${sourceConfig.outbounds?.map { it.tag }?.take(10)}")
+                return@forEach
+            }
 
             // 运行时修复
             var fixedSourceOutbound = buildOutboundForRuntime(sourceOutbound)
@@ -3502,6 +3581,17 @@ class ConfigRepository(private val context: Context) {
             ?.let { nodeTagMap[it.id] ?: it.name }
             ?.takeIf { it in proxyTags }
             ?: proxyTags.firstOrNull()
+        
+        // 2025-fix: 调试日志，帮助定位 selector default 设置问题
+        if (activeNode != null) {
+            val mappedTag = nodeTagMap[activeNode.id]
+            Log.d(TAG, "Selector default: activeNode=${activeNode.name}, id=${activeNode.id}, mappedTag=$mappedTag, selectorDefault=$selectorDefault, inProxyTags=${selectorDefault in proxyTags}")
+            if (mappedTag == null && activeNode.name !in proxyTags) {
+                Log.w(TAG, "⚠️ Active node not in nodeTagMap and name not in proxyTags! Node may not be selected correctly.")
+                Log.w(TAG, "  Available proxyTags (first 10): ${proxyTags.take(10)}")
+                Log.w(TAG, "  nodeTagMap keys (first 10): ${nodeTagMap.keys.take(10)}")
+            }
+        }
 
         val selectorOutbound = Outbound(
             type = "selector",
@@ -4273,5 +4363,23 @@ class ConfigRepository(private val context: Context) {
         }
         
         return config.copy(outbounds = newOutbounds)
+    }
+    
+    /**
+     * 查找可用端口，从指定端口开始尝试
+     * 如果指定端口被占用，尝试下一个端口，最多尝试100次
+     */
+    private fun findAvailablePort(startPort: Int): Int {
+        for (port in startPort until startPort + 100) {
+            try {
+                java.net.ServerSocket(port).use { 
+                    return port 
+                }
+            } catch (_: Exception) {
+                // 端口被占用，尝试下一个
+            }
+        }
+        // 如果都失败，返回原始端口（让 sing-box 报错）
+        return startPort
     }
 }

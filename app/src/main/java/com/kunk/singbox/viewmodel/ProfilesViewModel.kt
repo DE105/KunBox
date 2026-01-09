@@ -2,9 +2,10 @@ package com.kunk.singbox.viewmodel
 
 import com.kunk.singbox.R
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.kunk.singbox.ipc.VpnStateStore
+import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.model.ProfileUi
 import com.kunk.singbox.model.ProfileType
 import com.kunk.singbox.model.SubscriptionUpdateResult
@@ -61,11 +62,21 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         configRepository.setActiveProfile(profileId)
 
         // Only show toast when VPN is running
-        val isVpnRunning = VpnStateStore.getActive(getApplication())
+        val isVpnRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
         if (isVpnRunning) {
             val name = profiles.value.find { it.id == profileId }?.name
             if (!name.isNullOrBlank()) {
                 emitToast(getApplication<Application>().getString(R.string.profiles_updated) + ": $name")
+            }
+            
+            // 2025-fix: 切换配置后自动触发节点切换，确保VPN加载新配置
+            viewModelScope.launch {
+                delay(100)
+                val currentNodeId = configRepository.activeNodeId.value
+                if (currentNodeId != null) {
+                    Log.i("ProfilesViewModel", "Profile switched while VPN running, triggering node switch for: $currentNodeId")
+                    configRepository.setActiveNodeWithResult(currentNodeId)
+                }
             }
         }
     }
