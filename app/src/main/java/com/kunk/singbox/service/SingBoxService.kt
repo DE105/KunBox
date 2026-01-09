@@ -1,4 +1,4 @@
-﻿package com.kunk.singbox.service
+package com.kunk.singbox.service
 
 import android.app.Application
 import android.app.Notification
@@ -636,6 +636,10 @@ class SingBoxService : VpnService() {
     private var lastStallCheckAtMs: Long = 0L
     private var stallConsecutiveCount: Int = 0
     private var lastStallTrafficBytes: Long = 0L
+    
+    // ⭐ P1修复: 连续stall刷新失败后自动重启服务
+    private var stallRefreshAttempts: Int = 0
+    private val maxStallRefreshAttempts: Int = 3 // 连续3次stall刷新后仍无流量则重启服务
 
     private val coreResetDebounceMs: Long = 2500L
     private val lastCoreNetworkResetAtMs = AtomicLong(0L)
@@ -849,16 +853,42 @@ class SingBoxService : VpnService() {
                             }
 
                             if (shouldCheckStall && stallConsecutiveCount >= stallMinSamples) {
-                                Log.w(TAG, "⚠️ Periodic check detected stall (count=$stallConsecutiveCount), forcing refresh")
-                                try {
-                                    service.wake()
-                                    delay(30)
-                                    closeAllConnectionsImmediate()
-                                    Log.i(TAG, "Periodic check: cleared stale connections after stall")
-                                } catch (e: Exception) {
-                                    Log.w(TAG, "Periodic check: failed to clear connections", e)
+                                stallRefreshAttempts++
+                                Log.w(TAG, "⚠️ Periodic check detected stall (count=$stallConsecutiveCount, refreshAttempt=$stallRefreshAttempts/$maxStallRefreshAttempts), forcing refresh")
+                                
+                                // ⭐ P1修复: 如果连续多次stall刷新后仍无流量，说明核心已死，需要重启服务
+                                if (stallRefreshAttempts >= maxStallRefreshAttempts) {
+                                    Log.e(TAG, "❌ Too many stall refresh attempts ($stallRefreshAttempts), restarting VPN service")
+                                    LogRepository.getInstance().addLog(
+                                        "ERROR: VPN connection stalled for too long, automatically restarting..."
+                                    )
+                                    stallRefreshAttempts = 0
+                                    stallConsecutiveCount = 0
+                                    serviceScope.launch {
+                                        withContext(Dispatchers.Main) {
+                                            restartVpnService(reason = "Persistent connection stall")
+                                        }
+                                    }
+                                } else {
+                                    // 尝试刷新连接
+                                    try {
+                                        service.wake()
+                                        delay(30)
+                                        closeAllConnectionsImmediate()
+                                        Log.i(TAG, "Periodic check: cleared stale connections after stall")
+                                    } catch (e: Exception) {
+                                        Log.w(TAG, "Periodic check: failed to clear connections", e)
+                                    }
+                                    requestCoreNetworkReset(reason = "periodic_stall", force = true)
+                                    // 重置stallConsecutiveCount，给刷新一个检验窗口
+                                    stallConsecutiveCount = 0
                                 }
-                                requestCoreNetworkReset(reason = "periodic_stall", force = true)
+                            } else if (shouldCheckStall && stallConsecutiveCount < stallMinSamples) {
+                                // 流量恢复正常，重置刷新尝试计数
+                                if (stallRefreshAttempts > 0) {
+                                    Log.i(TAG, "✅ Traffic resumed, resetting stall refresh attempts")
+                                    stallRefreshAttempts = 0
+                                }
                             }
 
                             // 健康检查通过,重置失败计数器

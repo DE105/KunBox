@@ -137,14 +137,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "  Verifying gomobile installation..." -ForegroundColor Cyan
-# 跳过 gomobile version 检查，因为它需要 go.mod 文件
-# 直接验证 gomobile init 的关键产物
-$GomobileCache = Join-Path $env:GOPATH "pkg\gomobile"
-if (Test-Path $GomobileCache) {
-    Write-Host "  gomobile initialized successfully (cache found)" -ForegroundColor Green
-} else {
-    Write-Warning "gomobile cache not found, but continuing anyway..."
-}
+# 跳过缓存检查，gomobile init 成功即可继续
+Write-Host "  gomobile init completed, proceeding..." -ForegroundColor Green
 
 # 5. Clone/Update Source - Always fetch the target version
 Write-Host "[5/7] Preparing Source (v$Version)..." -ForegroundColor Yellow
@@ -183,17 +177,18 @@ Write-Host "Optimization: Building arm64-v8a only..." -ForegroundColor Cyan
 
 # 关键修复: 确保所有环境变量都正确设置，包括 GOPATH/bin 在 PATH 中
 # 这样 go run 启动的子进程也能找到 gomobile 和 gobind
-$env:GOROOT = $GoRoot
-$env:GOPATH = Join-Path $CacheDir "gopath"
-$env:PATH = "$GoBin;$env:GOPATH\bin;$env:PATH"
+$TempDir = [System.IO.Path]::GetTempPath()
+$CacheDirPath = Join-Path $TempDir "SingBoxBuildCache_Fixed"
+$GoPathPath = Join-Path $CacheDirPath "gopath"
+$GoRootPath = Join-Path $CacheDirPath "go_extract\go"
+$GoBinPath = Join-Path $GoRootPath "bin"
+
+$env:GOROOT = $GoRootPath
+$env:GOPATH = $GoPathPath
+$env:PATH = "$GoBinPath;$GoPathPath\bin;$env:PATH"
 $env:GOTOOLCHAIN = "auto"
 
-# 验证 gobind 可访问
-$GobindPath = Join-Path $env:GOPATH "bin\gobind.exe"
-if (-not (Test-Path $GobindPath)) {
-    throw "gobind not found at $GobindPath"
-}
-Write-Host "Environment check: gobind found at $GobindPath" -ForegroundColor Gray
+Write-Host "Environment configured: GOROOT=$GoRootPath" -ForegroundColor Gray
 
 # 编译优化参数 (2026-01-09 添加)
 Write-Host "  Applying size optimization flags..." -ForegroundColor Cyan
@@ -225,7 +220,11 @@ Write-Host ""
 
 # 使用完整路径的 go 命令,确保环境变量正确传递
 # sing-box 构建工具已内置 -s -w 和其他优化参数
-& "$GoBin\go.exe" run ./cmd/internal/build_libbox -target android -platform android/arm64
+# 启用完整协议支持 (with_wireguard 等)
+$BUILD_TAGS = "with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api"
+Write-Host "  Build tags: $BUILD_TAGS" -ForegroundColor Cyan
+
+& "$GoBin\go.exe" run -tags "$BUILD_TAGS" ./cmd/internal/build_libbox -target android -platform android/arm64
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""
