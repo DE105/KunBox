@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KunBox URL Scheme 测试页面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .test-section {
+            margin-bottom: 25px;
+        }
+
+        .test-section h2 {
+            color: #667eea;
+            font-size: 18px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .test-section h2::before {
+            content: "🔗";
+            font-size: 20px;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 15px 20px;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 25px;
+        }
+
+        .info-box p {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+
+        .info-box p:last-child {
+            margin-bottom: 0;
+        }
+
+        .code {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #333;
+            overflow-x: auto;
+            margin-top: 8px;
+            word-break: break-all;
+        }
+
+        .custom-form {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .footer {
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 KunBox URL Scheme 测试</h1>
+        <p class="subtitle">点击下方按钮测试一键导入订阅功能</p>
+
+        <div class="info-box">
+            <p><strong>📱 使用方法:</strong></p>
+            <p>1. 在 Android 设备上访问此页面</p>
+            <p>2. 点击测试按钮</p>
+            <p>3. 系统会提示选择应用,选择 KunBox</p>
+            <p>4. KunBox 会自动启动并导入订阅</p>
+        </div>
+
+        <!-- 基础测试 -->
+        <div class="test-section">
+            <h2>基础功能测试</h2>
+
+            <a href="singbox://install-config?url=https://example.com/api/v1/client/subscribe?token=test123" class="btn">
+                测试 1: 基本导入 (singbox://)
+            </a>
+            <div class="code">singbox://install-config?url=https://example.com/api/v1/client/subscribe?token=test123</div>
+
+            <a href="kunbox://install-config?url=https://example.com/sub" class="btn">
+                测试 2: kunbox:// scheme
+            </a>
+            <div class="code">kunbox://install-config?url=https://example.com/sub</div>
+        </div>
+
+        <!-- 参数测试 -->
+        <div class="test-section">
+            <h2>参数功能测试</h2>
+
+            <a href="singbox://install-config?url=https://example.com/sub&name=测试订阅A" class="btn">
+                测试 3: 自定义名称
+            </a>
+            <div class="code">singbox://install-config?url=https://example.com/sub&name=测试订阅A</div>
+
+            <a href="singbox://install-config?url=https://example.com/sub&name=机场B&interval=24" class="btn">
+                测试 4: 自动更新 (24小时)
+            </a>
+            <div class="code">singbox://install-config?url=https://example.com/sub&name=机场B&interval=24</div>
+
+            <a href="singbox://install-config?url=https%3A%2F%2Fexample.com%2Fapi%2Fv1%2Fclient%2Fsubscribe%3Ftoken%3Dtest123&name=%E6%B5%8B%E8%AF%95%E8%AE%A2%E9%98%85&interval=12" class="btn">
+                测试 5: URL 编码版本
+            </a>
+            <div class="code">singbox://install-config?url=https%3A%2F%2Fexample.com%2Fapi%2Fv1%2Fclient%2Fsubscribe%3Ftoken%3Dtest123&name=%E6%B5%8B%E8%AF%95%E8%AE%A2%E9%98%85&interval=12</div>
+        </div>
+
+        <!-- 自定义测试 -->
+        <div class="test-section">
+            <h2>自定义测试</h2>
+            <div class="custom-form">
+                <div class="form-group">
+                    <label for="customUrl">订阅地址:</label>
+                    <input type="text" id="customUrl" placeholder="https://example.com/sub" value="https://example.com/sub">
+                </div>
+                <div class="form-group">
+                    <label for="customName">配置名称:</label>
+                    <input type="text" id="customName" placeholder="我的订阅" value="我的订阅">
+                </div>
+                <div class="form-group">
+                    <label for="customInterval">自动更新间隔 (小时):</label>
+                    <input type="number" id="customInterval" placeholder="24" value="24" min="0">
+                </div>
+                <button class="btn btn-secondary" onclick="testCustom()">
+                    🚀 测试自定义配置
+                </button>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>KunBox - 强大的 Android Sing-box 客户端</p>
+            <p>URL Scheme 功能已启用</p>
+        </div>
+    </div>
+
+    <script>
+        function testCustom() {
+            const url = document.getElementById('customUrl').value;
+            const name = document.getElementById('customName').value;
+            const interval = document.getElementById('customInterval').value;
+
+            if (!url) {
+                alert('请输入订阅地址!');
+                return;
+            }
+
+            // URL 编码
+            const encodedUrl = encodeURIComponent(url);
+            const encodedName = encodeURIComponent(name);
+
+            // 构建 URL Scheme
+            let scheme = `singbox://install-config?url=${encodedUrl}`;
+            if (name) {
+                scheme += `&name=${encodedName}`;
+            }
+            if (interval && parseInt(interval) > 0) {
+                scheme += `&interval=${interval}`;
+            }
+
+            console.log('Generated URL Scheme:', scheme);
+
+            // 跳转
+            window.location.href = scheme;
+        }
+
+        // 在控制台输出测试信息
+        console.log('KunBox URL Scheme 测试页面已加载');
+        console.log('支持的 scheme: singbox:// 和 kunbox://');
+        console.log('格式: scheme://install-config?url=<订阅地址>&name=<名称>&interval=<间隔>');
+    </script>
+</body>
+</html>
