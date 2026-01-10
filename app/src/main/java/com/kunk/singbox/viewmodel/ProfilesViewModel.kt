@@ -12,6 +12,7 @@ import com.kunk.singbox.model.SubscriptionUpdateResult
 import com.kunk.singbox.repository.ConfigRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -156,6 +157,9 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                 }
             )
 
+            // 防止取消后仍然更新状态
+            coroutineContext.ensureActive()
+
             result.fold(
                 onSuccess = { profile ->
                     _importState.value = ImportState.Success(profile)
@@ -196,6 +200,9 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                     _importState.value = ImportState.Loading(progress)
                 }
             )
+
+            // 防止取消后仍然更新状态
+            coroutineContext.ensureActive()
 
             result.fold(
                 onSuccess = { profile ->

@@ -84,9 +84,20 @@ class ConfigRepository(private val context: Context) {
 
     // client 改为动态获取，以支持可配置的超时
     // 使用不带重试的 Client，避免订阅获取时超时时间被重试机制延长
+    // 当 VPN 运行时，使用代理客户端让请求走 sing-box 代理
     private fun getClient(): okhttp3.OkHttpClient {
-        val timeout = runBlocking { settingsRepository.settings.first().subscriptionUpdateTimeout.toLong() }
-        return NetworkClient.createClientWithoutRetry(timeout, timeout, timeout)
+        val settings = runBlocking { settingsRepository.settings.first() }
+        val timeout = settings.subscriptionUpdateTimeout.toLong()
+
+        // 检测 VPN 是否正在运行，如果是则使用代理
+        val isVpnRunning = SingBoxRemote.isRunning.value
+        return if (isVpnRunning) {
+            val proxyPort = settings.proxyPort
+            Log.d(TAG, "VPN is running, using proxy on port $proxyPort for subscription fetch")
+            NetworkClient.createClientWithProxy(proxyPort, timeout, timeout, timeout)
+        } else {
+            NetworkClient.createClientWithoutRetry(timeout, timeout, timeout)
+        }
     }
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())

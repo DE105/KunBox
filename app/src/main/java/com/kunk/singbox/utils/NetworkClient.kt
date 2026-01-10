@@ -126,4 +126,34 @@ object NetworkClient {
     fun clearConnectionPool() {
         connectionPool.evictAll()
     }
+
+    /**
+     * 创建一个使用本地 HTTP 代理的 OkHttpClient
+     * 用于在 VPN 运行时让应用自身的请求走代理
+     * @param proxyPort 代理端口（sing-box 的 mixed 端口）
+     * @param connectTimeoutSeconds 连接超时时间（秒）
+     * @param readTimeoutSeconds 读取超时时间（秒）
+     * @param writeTimeoutSeconds 写入超时时间（秒）
+     */
+    fun createClientWithProxy(
+        proxyPort: Int,
+        connectTimeoutSeconds: Long,
+        readTimeoutSeconds: Long,
+        writeTimeoutSeconds: Long = readTimeoutSeconds
+    ): OkHttpClient {
+        val proxy = java.net.Proxy(
+            java.net.Proxy.Type.HTTP,
+            java.net.InetSocketAddress("127.0.0.1", proxyPort)
+        )
+        return OkHttpClient.Builder()
+            .proxy(proxy)
+            .connectTimeout(connectTimeoutSeconds, TimeUnit.SECONDS)
+            .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
+            .writeTimeout(writeTimeoutSeconds, TimeUnit.SECONDS)
+            .connectionPool(connectionPool)
+            .retryOnConnectionFailure(false)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+    }
 }
