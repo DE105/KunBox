@@ -5,7 +5,6 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import com.kunk.singbox.model.HubRuleSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +21,7 @@ import android.util.Log
 import com.google.gson.annotations.SerializedName
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
-import com.kunk.singbox.model.GithubFile
+import com.kunk.singbox.model.GithubTreeResponse
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.ipc.SingBoxRemote
 import kotlinx.coroutines.delay
@@ -147,9 +146,9 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun fetchFromSagerNet(): List<HubRuleSet> {
-        // SagerNet 的 .srs 文件在 rule-set 分支的根目录，不是主分支的子目录
         // 使用 ghp.ci 镜像代理 GitHub API 请求可能不合适，API 还是直接连，但下载链接用镜像
-        val url = "https://api.github.com/repos/SagerNet/sing-geosite/contents/?ref=rule-set"
+        val rawUrl = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
+        val url = "https://api.github.com/repos/SagerNet/sing-geosite/git/trees/rule-set?recursive=1"
         return try {
             val request = Request.Builder()
                 .url(url)
@@ -163,33 +162,30 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
                 .build()
 
             shortTimeoutClient.newCall(request).execute().use { response ->
-                
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string() ?: ""
                     Log.e(TAG, "[SagerNet] 请求失败! 状态码=${response.code}, 响应=$errorBody")
                     return emptyList()
                 }
 
-                val json = response.body?.string() ?: "[]"
-                
-                val type = object : TypeToken<List<GithubFile>>() {}.type
-                val files: List<GithubFile> = gson.fromJson(json, type) ?: emptyList()
-                
-                val srsFiles = files.filter { it.name.endsWith(".srs") }
-                
-                if (srsFiles.isNotEmpty()) {
-                }
+                val json = response.body?.string() ?: "{}"
+                val treeResponse: GithubTreeResponse = gson.fromJson(json, GithubTreeResponse::class.java)
+                    ?: return emptyList()
+
+                val srsFiles = treeResponse.tree
+                    .filter { it.type == "blob" && it.path.endsWith(".srs") }
 
                 srsFiles.map { file ->
-                    val nameWithoutExt = file.name.substringBeforeLast(".srs")
-                    val rawUrl = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
+                    val fileName = file.path.substringAfterLast("/")
+                    val nameWithoutExt = fileName.substringBeforeLast(".srs")
+                    val sourcePath = file.path.replace(".srs", ".json")
                     HubRuleSet(
                         name = nameWithoutExt,
                         ruleCount = 0,
                         tags = listOf("Official", "geosite"),
                         description = "SagerNet Official Rule Set",
-                        sourceUrl = "https://ghp.ci/$rawUrl/${file.name.replace(".srs", ".json")}",
-                        binaryUrl = "https://ghp.ci/$rawUrl/${file.name}"
+                        sourceUrl = "https://ghp.ci/$rawUrl/$sourcePath",
+                        binaryUrl = "https://ghp.ci/$rawUrl/${file.path}"
                     )
                 }
             }

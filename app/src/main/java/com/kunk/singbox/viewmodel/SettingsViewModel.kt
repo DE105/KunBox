@@ -80,7 +80,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun ensureDefaultRuleSetsReady() {
         viewModelScope.launch {
             if (defaultRuleSetDownloadJob?.isActive == true) return@launch
-            val currentRuleSets = settings.value.ruleSets
+            val currentRuleSets = repository.getRuleSets()
             if (currentRuleSets.isNotEmpty()) return@launch
 
             val defaultRuleSets = repository.getDefaultRuleSets()
