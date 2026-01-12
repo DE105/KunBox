@@ -23,7 +23,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
@@ -55,6 +55,7 @@ import com.kunk.singbox.ui.navigation.Screen
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.kunk.singbox.ui.theme.Neutral800
 import com.kunk.singbox.ui.theme.Neutral700
+import com.kunk.singbox.viewmodel.DefaultRuleSetDownloadState
 import com.kunk.singbox.viewmodel.NodesViewModel
 import com.kunk.singbox.viewmodel.ProfilesViewModel
 import com.kunk.singbox.viewmodel.SettingsViewModel
@@ -62,89 +63,15 @@ import com.kunk.singbox.model.RuleSetOutboundMode
 import com.kunk.singbox.model.NodeUi
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.platform.LocalContext
 
-data class DefaultRuleSetConfig(
-    val tag: String,
-    @androidx.annotation.StringRes val descriptionRes: Int,
-    val url: String,
-    val outboundMode: RuleSetOutboundMode,
-    val format: String = "binary"
-)
+import androidx.compose.ui.draw.scale
 
-val CHINA_DEFAULT_RULE_SETS = listOf(
-    DefaultRuleSetConfig(
-        tag = "geosite-cn",
-        descriptionRes = R.string.rulesets_geosite_cn_desc,
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-        outboundMode = RuleSetOutboundMode.DIRECT
-    ),
-    DefaultRuleSetConfig(
-        tag = "geoip-cn",
-        descriptionRes = R.string.rulesets_geosite_cn_desc, // TODO: add geoip-cn desc if needed
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-        outboundMode = RuleSetOutboundMode.DIRECT
-    ),
-    DefaultRuleSetConfig(
-        tag = "geosite-geolocation-!cn",
-        descriptionRes = R.string.rulesets_geosite_not_cn_desc,
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-!cn.srs",
-        outboundMode = RuleSetOutboundMode.PROXY
-    ),
-    DefaultRuleSetConfig(
-        tag = "geosite-category-ads-all",
-        descriptionRes = R.string.rulesets_geosite_ads_desc,
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
-        outboundMode = RuleSetOutboundMode.BLOCK
-    ),
-    DefaultRuleSetConfig(
-        tag = "geosite-private",
-        descriptionRes = R.string.rulesets_geosite_private_desc,
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-private.srs",
-        outboundMode = RuleSetOutboundMode.DIRECT
-    ),
-    DefaultRuleSetConfig(
-        tag = "geosite-apple",
-        descriptionRes = R.string.rulesets_geosite_apple_desc,
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-apple.srs",
-        outboundMode = RuleSetOutboundMode.PROXY
-    ),
-    DefaultRuleSetConfig(
-        tag = "geosite-youtube",
-        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-youtube.srs",
-        outboundMode = RuleSetOutboundMode.PROXY
-    ),
-    DefaultRuleSetConfig(
-        tag = "geosite-google",
-        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-google.srs",
-        outboundMode = RuleSetOutboundMode.PROXY
-    ),
-    DefaultRuleSetConfig(
-        tag = "geosite-telegram",
-        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-telegram.srs",
-        outboundMode = RuleSetOutboundMode.PROXY
-    ),
-    DefaultRuleSetConfig(
-        tag = "geosite-facebook",
-        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-facebook.srs",
-        outboundMode = RuleSetOutboundMode.PROXY
-    ),
-    DefaultRuleSetConfig(
-        tag = "geosite-openai",
-        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-openai.srs",
-        outboundMode = RuleSetOutboundMode.PROXY
-    ),
-    DefaultRuleSetConfig(
-        tag = "geosite-github",
-        descriptionRes = R.string.rulesets_geosite_apple_desc, // Placeholder
-        url = "https://ghp.ci/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-github.srs",
-        outboundMode = RuleSetOutboundMode.PROXY
-    )
+private val defaultRuleSetTags = setOf(
+    "geosite-cn",
+    "geoip-cn",
+    "geosite-geolocation-!cn",
+    "geosite-category-ads-all",
+    "geosite-private"
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -157,6 +84,7 @@ fun RuleSetsScreen(
 ) {
     val settings by settingsViewModel.settings.collectAsState()
     val downloadingRuleSets by settingsViewModel.downloadingRuleSets.collectAsState()
+    val defaultRuleSetDownloadState by settingsViewModel.defaultRuleSetDownloadState.collectAsState()
     val allNodes by nodesViewModel.allNodes.collectAsState()
     val nodesForSelection by nodesViewModel.filteredAllNodes.collectAsState()
     val groups by nodesViewModel.allNodeGroups.collectAsState()
@@ -168,13 +96,17 @@ fun RuleSetsScreen(
             nodesViewModel.setAllNodesUiActive(false)
         }
     }
+
+    LaunchedEffect(settings.ruleSets.isEmpty()) {
+        if (settings.ruleSets.isEmpty()) {
+            settingsViewModel.ensureDefaultRuleSetsReady()
+        }
+    }
     
     var showAddDialog by remember { mutableStateOf(false) }
     var editingRuleSet by remember { mutableStateOf<RuleSet?>(null) }
-    var showDefaultRuleSetsDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val listState = rememberLazyListState()
     
     var isSelectionMode by remember { mutableStateOf(false) }
@@ -288,36 +220,18 @@ fun RuleSetsScreen(
             }
         )
     }
+
+    if (defaultRuleSetDownloadState.isActive) {
+        DefaultRuleSetProgressDialog(
+            state = defaultRuleSetDownloadState,
+            onCancel = { settingsViewModel.cancelDefaultRuleSetDownload() }
+        )
+    }
     
     // Pre-load string resources for use in callbacks
-    val importCountItemsMsg = stringResource(R.string.import_count_items, 0).substringBefore("0") // Get format
     val profilesDeletedMsg = stringResource(R.string.profiles_deleted)
     val selectProfileMsg = stringResource(R.string.rulesets_select_profile)
     val selectGroupMsg = stringResource(R.string.rulesets_select_group)
-    
-    if (showDefaultRuleSetsDialog) {
-        DefaultRuleSetsDialog(
-            existingTags = settings.ruleSets.map { it.tag },
-            onDismiss = { showDefaultRuleSetsDialog = false },
-            onAdd = { configs ->
-                val ruleSetsToAdd = configs.map { config ->
-                    RuleSet(
-                        tag = config.tag,
-                        type = RuleSetType.REMOTE,
-                        format = config.format,
-                        url = config.url,
-                        outboundMode = config.outboundMode
-                    )
-                }
-                settingsViewModel.addRuleSets(ruleSetsToAdd) { addedCount ->
-                    scope.launch {
-                        snackbarHostState.showSnackbar(context.getString(R.string.import_count_items, addedCount))
-                    }
-                }
-                showDefaultRuleSetsDialog = false
-            }
-        )
-    }
     
     if (showDeleteConfirmDialog) {
         val selectedCount = selectedItems.count { it.value }
@@ -497,7 +411,6 @@ fun RuleSetsScreen(
             TopAppBar(
                 title = {
                     if (isSelectionMode) {
-                        val selectedCount = selectedItems.count { it.value }
                         Text(stringResource(R.string.profiles_search), color = MaterialTheme.colorScheme.onBackground) // TODO: better string
                     } else {
                         Text(stringResource(R.string.rulesets_title), color = MaterialTheme.colorScheme.onBackground)
@@ -512,7 +425,7 @@ fun RuleSetsScreen(
                         }
                     }) {
                         Icon(
-                            if (isSelectionMode) Icons.Rounded.Close else Icons.Rounded.ArrowBack,
+                            if (isSelectionMode) Icons.Rounded.Close else Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = if (isSelectionMode) "取消" else "返回",
                             tint = MaterialTheme.colorScheme.onBackground
                         )
@@ -535,31 +448,8 @@ fun RuleSetsScreen(
                         IconButton(onClick = { navController.navigate(Screen.RuleSetHub.route) }) {
                             Icon(Icons.Rounded.CloudDownload, contentDescription = "导入", tint = MaterialTheme.colorScheme.onBackground)
                         }
-                        Box {
-                            var showAddMenu by remember { mutableStateOf(false) }
-                            IconButton(onClick = { showAddMenu = true }) {
-                                Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
-                            }
-                            DropdownMenu(
-                                expanded = showAddMenu,
-                                onDismissRequest = { showAddMenu = false },
-                                modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.rulesets_add), color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                    onClick = {
-                                        showAddMenu = false
-                                        showAddDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.rulesets_default_rule), color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                    onClick = {
-                                        showAddMenu = false
-                                        showDefaultRuleSetsDialog = true
-                                    }
-                                )
-                            }
+                        IconButton(onClick = { showAddDialog = true }) {
+                            Icon(Icons.Rounded.Add, contentDescription = "添加", tint = MaterialTheme.colorScheme.onBackground)
                         }
                     }
                 },
@@ -575,7 +465,7 @@ fun RuleSetsScreen(
             state = listState,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (ruleSets.isEmpty()) {
+            if (ruleSets.isEmpty() && !defaultRuleSetDownloadState.isActive) {
                 item {
                     Box(
                         modifier = Modifier
@@ -602,10 +492,6 @@ fun RuleSetsScreen(
                     val currentDragOffset = draggingItemOffset
                     
                     // Calculate the "projected" index of the dragged item
-                    val itemHeightWithSpacing = itemHeightPx + 16.dp.value * 2.625f // Approx px conversion, better to use density
-                    // Wait, we can get density. But simple calculation:
-                    // If we know itemHeightPx, and we assume spacing is consistent.
-                    
                     var translationY = 0f
                     var zIndex = 0f
                     
@@ -653,7 +539,7 @@ fun RuleSetsScreen(
                                 if (!enablePlacementAnimation || suppressPlacementAnimation) {
                                     Modifier
                                 } else {
-                                    Modifier.animateItemPlacement()
+                                    Modifier.animateItem()
                                 }
                             )
                     ) {
@@ -666,6 +552,9 @@ fun RuleSetsScreen(
                                 if (isSelectionMode) {
                                     toggleSelection(ruleSet.id)
                                 }
+                            },
+                            onToggle = { enabled ->
+                                settingsViewModel.updateRuleSet(ruleSet.copy(enabled = enabled))
                             },
                             onEditClick = { editingRuleSet = ruleSet },
                             onDeleteClick = { settingsViewModel.deleteRuleSet(ruleSet.id) },
@@ -768,6 +657,7 @@ fun RuleSetItem(
     isSelected: Boolean = false,
     isDownloading: Boolean = false,
     onClick: () -> Unit,
+    onToggle: (Boolean) -> Unit = {},
     onEditClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
     onOutboundClick: () -> Unit = {},
@@ -907,68 +797,78 @@ fun RuleSetItem(
                 }
             }
             if (!isSelectionMode) {
-                Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(
-                            imageVector = Icons.Rounded.MoreVert,
-                            contentDescription = "更多选项",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    MaterialTheme(
-                        shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(12.dp))
-                    ) {
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false },
-                            modifier = Modifier
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .width(100.dp)
+                if (defaultRuleSetTags.contains(ruleSet.tag)) {
+                    Switch(
+                        checked = ruleSet.enabled,
+                        onCheckedChange = onToggle,
+                        modifier = Modifier
+                            .scale(0.8f)
+                            .padding(end = 8.dp)
+                    )
+                } else {
+                    Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Rounded.MoreVert,
+                                contentDescription = "更多选项",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        MaterialTheme(
+                            shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(12.dp))
                         ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text(stringResource(R.string.common_edit), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false },
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .width(100.dp)
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                            Text(stringResource(R.string.common_edit), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        onEditClick()
                                     }
-                                },
-                                onClick = {
-                                    showMenu = false
-                                    onEditClick()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                            Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        showDeleteConfirm = true
                                     }
-                                },
-                                onClick = {
-                                    showMenu = false
-                                    showDeleteConfirm = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text(stringResource(R.string.common_outbound), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                            Text(stringResource(R.string.common_outbound), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        onOutboundClick()
                                     }
-                                },
-                                onClick = {
-                                    showMenu = false
-                                    onOutboundClick()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                        Text(stringResource(R.string.common_inbound), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                            Text(stringResource(R.string.common_inbound), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        onInboundClick()
                                     }
-                                },
-                                onClick = {
-                                    showMenu = false
-                                    onInboundClick()
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -1128,126 +1028,52 @@ fun RuleSetEditorDialog(
 }
 
 @Composable
-fun DefaultRuleSetsDialog(
-    existingTags: List<String>,
-    onDismiss: () -> Unit,
-    onAdd: (List<DefaultRuleSetConfig>) -> Unit
+fun DefaultRuleSetProgressDialog(
+    state: DefaultRuleSetDownloadState,
+    onCancel: () -> Unit
 ) {
-    val selectedItems = remember { 
-        mutableStateMapOf<String, Boolean>().apply {
-            CHINA_DEFAULT_RULE_SETS.forEach { config ->
-                put(config.tag, !existingTags.contains(config.tag))
-            }
-        }
-    }
-    
     AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(24.dp),
+        onDismissRequest = {},
         containerColor = MaterialTheme.colorScheme.surface,
         title = {
-            Column {
-                Text(
-                    text = stringResource(R.string.rulesets_add_default),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = stringResource(R.string.rulesets_default_subtitle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = stringResource(R.string.rulesets_add_default),
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         },
         text = {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 400.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(CHINA_DEFAULT_RULE_SETS) { config ->
-                    val isExisting = existingTags.contains(config.tag)
-                    val isSelected = selectedItems[config.tag] ?: false
-                    
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(enabled = !isExisting) {
-                                selectedItems[config.tag] = !isSelected
-                            }
-                            .padding(vertical = 8.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = if (isExisting) null else { isChecked -> selectedItems[config.tag] = isChecked },
-                            enabled = !isExisting
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = config.tag,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (isExisting) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = stringResource(config.descriptionRes) + if (isExisting) " (" + stringResource(R.string.common_ready) + ")" else "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (isExisting) 0.5f else 1f)
-                            )
-                        }
-                        val modeText = stringResource(config.outboundMode.displayNameRes)
-                        Surface(
-                            color = when (config.outboundMode) {
-                                RuleSetOutboundMode.DIRECT -> Color(0xFF2E7D32)
-                                RuleSetOutboundMode.BLOCK -> Color(0xFFC62828)
-                                RuleSetOutboundMode.PROXY -> Color(0xFF1565C0)
-                                RuleSetOutboundMode.PROFILE -> Color(0xFF1565C0)
-                                else -> Color.Gray
-                            }.copy(alpha = if (isExisting) 0.3f else 0.8f),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = modeText,
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            val selectedCount = selectedItems.count { it.value }
-            TextButton(
-                onClick = {
-                    val selected = CHINA_DEFAULT_RULE_SETS.filter { selectedItems[it.tag] == true }
-                    onAdd(selected)
-                },
-                enabled = selectedCount > 0
-            ) {
-                Text(stringResource(R.string.common_add) + " ($selectedCount)")
-            }
-        },
-        dismissButton = {
-            Row {
-                TextButton(
-                    onClick = {
-                        CHINA_DEFAULT_RULE_SETS.forEach { config ->
-                            if (!existingTags.contains(config.tag)) {
-                                selectedItems[config.tag] = true
-                            }
-                        }
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(stringResource(R.string.common_select_all))
+                    Text(
+                        text = state.currentTag ?: stringResource(R.string.common_loading),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "${state.completed}/${state.total}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                TextButton(onClick = onDismiss) {
-                    Text(stringResource(R.string.common_cancel))
-                }
+                LinearProgressIndicator(
+                    progress = { if (state.total > 0) state.completed.toFloat() / state.total else 0f },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onCancel) {
+                Text(stringResource(R.string.common_cancel))
             }
         }
     )

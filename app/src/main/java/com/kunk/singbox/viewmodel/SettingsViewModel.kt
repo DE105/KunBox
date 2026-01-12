@@ -29,6 +29,9 @@ import com.kunk.singbox.repository.DataExportRepository
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.service.RuleSetAutoUpdateWorker
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +39,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+data class DefaultRuleSetDownloadState(
+    val isActive: Boolean = false,
+    val total: Int = 0,
+    val completed: Int = 0,
+    val currentTag: String? = null,
+    val cancelled: Boolean = false
+)
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     
@@ -45,6 +56,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     
     private val _downloadingRuleSets = MutableStateFlow<Set<String>>(emptySet())
     val downloadingRuleSets: StateFlow<Set<String>> = _downloadingRuleSets.asStateFlow()
+
+    private val _defaultRuleSetDownloadState = MutableStateFlow(DefaultRuleSetDownloadState())
+    val defaultRuleSetDownloadState: StateFlow<DefaultRuleSetDownloadState> = _defaultRuleSetDownloadState.asStateFlow()
+
+    private var defaultRuleSetDownloadJob: Job? = null
+    private val defaultRuleSetDownloadTags = mutableSetOf<String>()
     
     // 导入导出状态
     private val _exportState = MutableStateFlow<ExportState>(ExportState.Idle)
@@ -60,6 +77,91 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             initialValue = AppSettings()
         )
     
+    fun ensureDefaultRuleSetsReady() {
+        viewModelScope.launch {
+            if (defaultRuleSetDownloadJob?.isActive == true) return@launch
+            val currentRuleSets = settings.value.ruleSets
+            if (currentRuleSets.isNotEmpty()) return@launch
+
+            val defaultRuleSets = repository.getDefaultRuleSets()
+            repository.setRuleSets(defaultRuleSets)
+            startDefaultRuleSetDownload(defaultRuleSets)
+        }
+    }
+
+    fun cancelDefaultRuleSetDownload() {
+        defaultRuleSetDownloadJob?.cancel()
+        defaultRuleSetDownloadJob = null
+        defaultRuleSetDownloadTags.forEach { tag ->
+            _downloadingRuleSets.value -= tag
+        }
+        defaultRuleSetDownloadTags.clear()
+        _defaultRuleSetDownloadState.value = _defaultRuleSetDownloadState.value.copy(
+            isActive = false,
+            currentTag = null,
+            cancelled = true
+        )
+    }
+
+    private fun startDefaultRuleSetDownload(ruleSets: List<RuleSet>) {
+        defaultRuleSetDownloadJob?.cancel()
+        defaultRuleSetDownloadTags.clear()
+
+        defaultRuleSetDownloadJob = viewModelScope.launch {
+            val remoteRuleSets = ruleSets.filter { it.type == RuleSetType.REMOTE }
+            if (remoteRuleSets.isEmpty()) {
+                _defaultRuleSetDownloadState.value = DefaultRuleSetDownloadState()
+                return@launch
+            }
+
+            var completedCount = 0
+            _defaultRuleSetDownloadState.value = DefaultRuleSetDownloadState(
+                isActive = true,
+                total = remoteRuleSets.size,
+                completed = 0
+            )
+
+            try {
+                for (ruleSet in remoteRuleSets) {
+                    ensureActive()
+                    _defaultRuleSetDownloadState.value = _defaultRuleSetDownloadState.value.copy(
+                        currentTag = ruleSet.tag
+                    )
+
+                    defaultRuleSetDownloadTags.add(ruleSet.tag)
+                    _downloadingRuleSets.value += ruleSet.tag
+                    try {
+                        ruleSetRepository.prefetchRuleSet(ruleSet, forceUpdate = false, allowNetwork = true)
+                    } finally {
+                        _downloadingRuleSets.value -= ruleSet.tag
+                        defaultRuleSetDownloadTags.remove(ruleSet.tag)
+                    }
+
+                    completedCount += 1
+                    _defaultRuleSetDownloadState.value = _defaultRuleSetDownloadState.value.copy(
+                        completed = completedCount
+                    )
+                }
+
+                _defaultRuleSetDownloadState.value = _defaultRuleSetDownloadState.value.copy(
+                    isActive = false,
+                    currentTag = null,
+                    cancelled = false
+                )
+            } catch (e: CancellationException) {
+                defaultRuleSetDownloadTags.forEach { tag ->
+                    _downloadingRuleSets.value -= tag
+                }
+                defaultRuleSetDownloadTags.clear()
+                _defaultRuleSetDownloadState.value = _defaultRuleSetDownloadState.value.copy(
+                    isActive = false,
+                    currentTag = null,
+                    cancelled = true
+                )
+            }
+        }
+    }
+
     // 通用设置
     fun setAutoConnect(value: Boolean) {
         viewModelScope.launch { repository.setAutoConnect(value) }
@@ -492,8 +594,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val currentSets = settings.value.ruleSets.toMutableList()
             val index = currentSets.indexOfFirst { it.id == ruleSet.id }
             if (index != -1) {
+                val previous = currentSets[index]
                 currentSets[index] = ruleSet
                 repository.setRuleSets(currentSets)
+
+                if (!previous.enabled && ruleSet.enabled && ruleSet.type == RuleSetType.REMOTE) {
+                    if (!_downloadingRuleSets.value.contains(ruleSet.tag)) {
+                        _downloadingRuleSets.value += ruleSet.tag
+                        launch {
+                            try {
+                                ruleSetRepository.prefetchRuleSet(ruleSet, forceUpdate = false, allowNetwork = true)
+                            } finally {
+                                _downloadingRuleSets.value -= ruleSet.tag
+                            }
+                        }
+                    }
+                }
             }
         }
     }

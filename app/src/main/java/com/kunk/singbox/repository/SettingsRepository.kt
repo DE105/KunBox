@@ -19,6 +19,8 @@ import com.kunk.singbox.model.RoutingMode
 import com.kunk.singbox.model.AppRule
 import com.kunk.singbox.model.AppGroup
 import com.kunk.singbox.model.RuleSet
+import com.kunk.singbox.model.RuleSetOutboundMode
+import com.kunk.singbox.model.RuleSetType
 import com.kunk.singbox.model.TunStack
 import com.kunk.singbox.model.LatencyTestMethod
 import com.kunk.singbox.model.VpnAppMode
@@ -46,6 +48,48 @@ class SettingsRepository(private val context: Context) {
     private fun parseVpnAppMode(raw: String?): VpnAppMode {
         if (raw.isNullOrBlank()) return VpnAppMode.ALL
         return VpnAppMode.entries.firstOrNull { it.name == raw } ?: VpnAppMode.ALL
+    }
+
+    fun getDefaultRuleSets(): List<RuleSet> {
+        val geositeBase = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
+        val geoipBase = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set"
+        return listOf(
+            RuleSet(
+                tag = "geosite-cn",
+                type = RuleSetType.REMOTE,
+                url = "$geositeBase/geosite-cn.srs",
+                enabled = false,
+                outboundMode = RuleSetOutboundMode.DIRECT
+            ),
+            RuleSet(
+                tag = "geoip-cn",
+                type = RuleSetType.REMOTE,
+                url = "$geoipBase/geoip-cn.srs",
+                enabled = false,
+                outboundMode = RuleSetOutboundMode.DIRECT
+            ),
+            RuleSet(
+                tag = "geosite-geolocation-!cn",
+                type = RuleSetType.REMOTE,
+                url = "$geositeBase/geosite-geolocation-!cn.srs",
+                enabled = false,
+                outboundMode = RuleSetOutboundMode.PROXY
+            ),
+            RuleSet(
+                tag = "geosite-category-ads-all",
+                type = RuleSetType.REMOTE,
+                url = "$geositeBase/geosite-category-ads-all.srs",
+                enabled = false,
+                outboundMode = RuleSetOutboundMode.BLOCK
+            ),
+            RuleSet(
+                tag = "geosite-private",
+                type = RuleSetType.REMOTE,
+                url = "$geositeBase/geosite-private.srs",
+                enabled = false,
+                outboundMode = RuleSetOutboundMode.DIRECT
+            )
+        )
     }
 
     private object PreferencesKeys {
@@ -703,7 +747,8 @@ class SettingsRepository(private val context: Context) {
 
             val originalRuleSets = currentSettings.ruleSets
             val currentMirrorUrl = currentSettings.ghProxyMirror.url
-            val migratedRuleSets = originalRuleSets.map { ruleSet ->
+            val targetRuleSets = if (originalRuleSets.isEmpty()) getDefaultRuleSets() else originalRuleSets
+            val migratedRuleSets = targetRuleSets.map { ruleSet ->
                 var updatedUrl = ruleSet.url
                 var updatedTag = ruleSet.tag
                 
