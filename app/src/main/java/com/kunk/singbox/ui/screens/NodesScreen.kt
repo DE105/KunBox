@@ -4,6 +4,8 @@ import com.kunk.singbox.R
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -63,6 +65,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -92,22 +99,27 @@ fun NodesScreen(
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val isAtBottom by remember {
-        derivedStateOf {
-            val layoutInfo = listState.layoutInfo
-            val visibleItems = layoutInfo.visibleItemsInfo
-            if (layoutInfo.totalItemsCount == 0 || visibleItems.isEmpty()) {
-                false
-            } else {
-                val lastVisibleItem = visibleItems.last()
-                val isLastItemVisible = lastVisibleItem.index == layoutInfo.totalItemsCount - 1
-                val isLastItemFullyVisible = isLastItemVisible &&
-                    (lastVisibleItem.offset + lastVisibleItem.size <= layoutInfo.viewportEndOffset)
-                val listFitsScreen = visibleItems.size == layoutInfo.totalItemsCount
-                !listFitsScreen && isLastItemFullyVisible
+
+    // FAB显隐逻辑：上滑隐藏，下滑显示（即使列表不可滚动也生效）
+    var isFabVisible by remember { mutableStateOf(true) }
+
+    // nestedScroll 处理列表可滚动时的情况
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -10f) {
+                    isFabVisible = false
+                } else if (available.y > 10f) {
+                    isFabVisible = true
+                }
+                return Offset.Zero
             }
         }
     }
+
+    // pointerInput 处理列表不可滚动时的手势检测
+    var lastY by remember { mutableStateOf(0f) }
+
     val nodes by viewModel.nodes.collectAsState()
     val activeNodeId by viewModel.activeNodeId.collectAsState()
     val groups by viewModel.nodeGroups.collectAsState()
@@ -216,7 +228,7 @@ fun NodesScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             AnimatedVisibility(
-                visible = !isAtBottom,
+                visible = isFabVisible,
                 enter = fadeIn(),
                 exit = fadeOut()
             ) {
@@ -318,6 +330,24 @@ fun NodesScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                        lastY = down.position.y
+                        do {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val currentY = event.changes.firstOrNull()?.position?.y ?: lastY
+                            val deltaY = currentY - lastY
+                            if (deltaY < -30f) {
+                                isFabVisible = false
+                            } else if (deltaY > 30f) {
+                                isFabVisible = true
+                            }
+                            lastY = currentY
+                        } while (event.changes.any { it.pressed })
+                    }
+                }
+                .nestedScroll(nestedScrollConnection)
                 .padding(bottom = padding.calculateBottomPadding())
         ) {
             // 1. Top Bar
