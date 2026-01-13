@@ -2,17 +2,19 @@ package com.kunk.singbox.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.List
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -68,29 +70,34 @@ fun AppNavBar(
 
             NavigationBarItem(
                 icon = { 
-                    Icon(
-                        imageVector = if (isSelected) {
-                            when(screen) {
-                                Screen.Dashboard -> Icons.Filled.Dashboard
-                                Screen.Nodes -> Icons.Filled.Dns
-                                Screen.Profiles -> Icons.Filled.List
-                                Screen.Settings -> Icons.Filled.Settings
-                                else -> Icons.Filled.Dashboard
-                            }
-                        } else {
-                            when(screen) {
-                                Screen.Dashboard -> Icons.Outlined.Dashboard
-                                Screen.Nodes -> Icons.Outlined.Dns
-                                Screen.Profiles -> Icons.Outlined.List
-                                Screen.Settings -> Icons.Outlined.Settings
-                                else -> Icons.Outlined.Dashboard
-                            }
-                        },
-                        contentDescription = screen.route,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .scale(scale)
-                    ) 
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isSelected) {
+                                when(screen) {
+                                    Screen.Dashboard -> Icons.Filled.Dashboard
+                                    Screen.Nodes -> Icons.Filled.Dns
+                                    Screen.Profiles -> Icons.AutoMirrored.Filled.List
+                                    Screen.Settings -> Icons.Filled.Settings
+                                    else -> Icons.Filled.Dashboard
+                                }
+                            } else {
+                                when(screen) {
+                                    Screen.Dashboard -> Icons.Outlined.Dashboard
+                                    Screen.Nodes -> Icons.Outlined.Dns
+                                    Screen.Profiles -> Icons.AutoMirrored.Outlined.List
+                                    Screen.Settings -> Icons.Outlined.Settings
+                                    else -> Icons.Outlined.Dashboard
+                                }
+                            },
+                            contentDescription = screen.route,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .scale(scale)
+                        )
+                    }
                 },
                 label = null, // Removed text label
                 selected = isSelected,

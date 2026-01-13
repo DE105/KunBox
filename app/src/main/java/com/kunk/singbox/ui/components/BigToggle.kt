@@ -138,8 +138,6 @@ fun BigToggle(
     // 移除绿色背景，改为透明或极淡的颜色
     val backgroundColor = Color.Transparent
     
-    // 移除边框颜色动画
-    val borderColor = Color.Transparent
 
     // 使用 Box 保持居中，移除硬编码的 padding
     Box(
