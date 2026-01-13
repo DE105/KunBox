@@ -1,54 +1,38 @@
 package com.kunk.singbox.ui.components
 
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDp
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
-import androidx.compose.animation.animateColor
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.PowerSettingsNew
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
-import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.kunk.singbox.ui.theme.OLEDBlack
-import androidx.compose.ui.viewinterop.AndroidView
-import android.widget.ImageView
 import com.kunk.singbox.R
+import kotlinx.coroutines.launch
+
 
 @Composable
 fun BigToggle(
@@ -189,14 +173,17 @@ fun BigToggle(
                 )
 
                 // 动态表情逻辑
-                val emoji = if (isRunning) "😳" else "😴"
+                val imageRes = if (isRunning) R.drawable.gengar_awake else R.drawable.gengar_sleep
 
                 // 表情层 (允许超出圆形边界)
-                Text(
-                    text = emoji,
-                    fontSize = 130.sp,
+                val imageSize = if (isRunning) 560.dp else 640.dp
+
+                Image(
+                    painter = painterResource(id = imageRes),
+                    contentDescription = if (isRunning) "Running" else "Idle",
                     modifier = Modifier
-                        .offset(x = (-4).dp, y = 8.dp)
+                        .size(imageSize)
+                        .offset(x = 0.dp, y = 32.dp)
                         .graphicsLayer {
                             rotationZ = rotation.value
                         }
