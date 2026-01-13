@@ -85,6 +85,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import android.app.Activity
 import com.kunk.singbox.ui.scanner.QrScannerActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 
 class MainActivity : ComponentActivity() {
 
@@ -148,7 +150,7 @@ fun SingBoxApp() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val permission = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-            
+
             if (permission != PackageManager.PERMISSION_GRANTED) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
@@ -158,6 +160,12 @@ fun SingBoxApp() {
     val settingsRepository = remember { SettingsRepository.getInstance(context) }
     val settings by settingsRepository.settings.collectAsState(initial = null)
     val dashboardViewModel: DashboardViewModel = viewModel()
+
+    // 2025-fix: 每次 Activity resume 时刷新 VPN 状态
+    // 解决通过快捷方式/通知栏操作后返回 App 时 UI 不更新的问题
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        dashboardViewModel.refreshState()
+    }
 
     // 当语言设置变化时,缓存到 SharedPreferences 供 attachBaseContext 使用
     LaunchedEffect(settings?.appLanguage) {
@@ -174,13 +182,6 @@ fun SingBoxApp() {
         val activity = context as? Activity
         activity?.intent?.let { intent ->
             when (intent.action) {
-                "com.kunk.singbox.action.TOGGLE" -> {
-                    // 等待服务绑定和 ViewModel 初始化
-                    delay(500)
-                    dashboardViewModel.toggleConnection()
-                    // 清除 Action 防止重组时重复执行
-                    intent.action = null
-                }
                 "com.kunk.singbox.action.SCAN" -> {
                     val scanIntent = android.content.Intent(context, QrScannerActivity::class.java)
                     context.startActivity(scanIntent)

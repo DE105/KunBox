@@ -63,7 +63,21 @@
             android:exported="false"
             android:screenOrientation="fullSensor"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
-        
+
+        <!-- 快捷方式切换 Activity (透明，不显示 UI) -->
+        <!-- 运行在 :bg 进程,与服务同进程,消除 IPC 延迟 (参考 v2rayNG) -->
+        <activity
+            android:name=".ui.ShortcutActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:process=":bg"
+            android:theme="@style/Theme.SingBoxAndroid.Transparent">
+            <intent-filter>
+                <action android:name="com.kunk.singbox.action.TOGGLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".service.SingBoxService"
             android:exported="false"

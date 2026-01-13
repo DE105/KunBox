@@ -61,8 +61,8 @@ fun BigToggle(
 
     // Scale animation on press
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.9f else 1f,
-        animationSpec = tween(durationMillis = 100, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = tween(durationMillis = 150, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         label = "ScaleAnimation"
     )
 

@@ -9,7 +9,7 @@
         <intent
             android:action="com.kunk.singbox.action.TOGGLE"
             android:targetPackage="com.kunk.singbox"
-            android:targetClass="com.kunk.singbox.MainActivity" />
+            android:targetClass="com.kunk.singbox.ui.ShortcutActivity" />
     </shortcut>
     <shortcut
         android:shortcutId="switch_node"

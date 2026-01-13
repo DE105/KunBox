@@ -374,7 +374,37 @@ class ProxyOnlyService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 VpnTileService.persistVpnPending(applicationContext, "starting")
-                val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
+                var configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
+
+                // P0 Optimization: If config path is missing, generate it inside Service
+                if (configPath == null) {
+                    Log.i(TAG, "ACTION_START received without config path, generating config...")
+                    serviceScope.launch {
+                        try {
+                            val repo = ConfigRepository.getInstance(applicationContext)
+                            val result = repo.generateConfigFile()
+                            if (result != null) {
+                                Log.i(TAG, "Config generated successfully: ${result.path}")
+                                // Recursively call start command with the generated path
+                                val newIntent = Intent(applicationContext, ProxyOnlyService::class.java).apply {
+                                    action = ACTION_START
+                                    putExtra(EXTRA_CONFIG_PATH, result.path)
+                                }
+                                startService(newIntent)
+                            } else {
+                                Log.e(TAG, "Failed to generate config file")
+                                setLastError("Failed to generate config file")
+                                withContext(Dispatchers.Main) { stopSelf() }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error generating config in Service", e)
+                            setLastError("Error generating config: ${e.message}")
+                            withContext(Dispatchers.Main) { stopSelf() }
+                        }
+                    }
+                    return START_NOT_STICKY
+                }
+
                 if (!configPath.isNullOrBlank()) {
                     startCore(configPath)
                 }

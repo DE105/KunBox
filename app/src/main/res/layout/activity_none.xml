@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 空布局,用于透明 Activity (如 ShortcutActivity) -->
+<!-- 参考 v2rayNG 的 activity_none.xml -->
+<View xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="0dp"
+    android:layout_height="0dp" />

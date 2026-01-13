@@ -1043,9 +1043,25 @@ fun NodeFilterDialog(
     onDismiss: () -> Unit
 ) {
     var filterMode by remember { mutableStateOf(currentFilter.filterMode) }
-    var keywordsText by remember {
-        mutableStateOf(currentFilter.keywords.joinToString(", "))
+    var includeKeywordsText by remember {
+        mutableStateOf(
+            if (currentFilter.filterMode == FilterMode.INCLUDE) {
+                currentFilter.keywords.joinToString(", ")
+            } else {
+                ""
+            }
+        )
     }
+    var excludeKeywordsText by remember {
+        mutableStateOf(
+            if (currentFilter.filterMode == FilterMode.EXCLUDE) {
+                currentFilter.keywords.joinToString(", ")
+            } else {
+                ""
+            }
+        )
+    }
+
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -1149,16 +1165,32 @@ fun NodeFilterDialog(
                 Spacer(modifier = Modifier.height(20.dp))
                 
                 Text(
-                    text = stringResource(R.string.node_filter_keywords),
+                    text = if (filterMode == FilterMode.INCLUDE) {
+                        stringResource(R.string.node_filter_include)
+                    } else {
+                        stringResource(R.string.node_filter_exclude)
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 
                 Spacer(modifier = Modifier.height(8.dp))
                 
+                val activeKeywords = if (filterMode == FilterMode.INCLUDE) {
+                    includeKeywordsText
+                } else {
+                    excludeKeywordsText
+                }
+                
                 OutlinedTextField(
-                    value = keywordsText,
-                    onValueChange = { keywordsText = it },
+                    value = activeKeywords,
+                    onValueChange = { newValue ->
+                        if (filterMode == FilterMode.INCLUDE) {
+                            includeKeywordsText = newValue
+                        } else {
+                            excludeKeywordsText = newValue
+                        }
+                    },
                     placeholder = { Text(stringResource(R.string.node_filter_keywords_hint), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = false,
@@ -1183,6 +1215,7 @@ fun NodeFilterDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
             
             Spacer(modifier = Modifier.height(24.dp))
             
@@ -1195,8 +1228,10 @@ fun NodeFilterDialog(
                 TextButton(
                     onClick = {
                         filterMode = FilterMode.NONE
-                        keywordsText = ""
+                        includeKeywordsText = ""
+                        excludeKeywordsText = ""
                     },
+
                     modifier = Modifier.weight(1f).height(50.dp),
                     colors = ButtonDefaults.textButtonColors(contentColor = Destructive)
                 ) {
@@ -1215,15 +1250,21 @@ fun NodeFilterDialog(
                 // 确定按钮
                 Button(
                     onClick = {
+                        val rawKeywords = when (filterMode) {
+                            FilterMode.INCLUDE -> includeKeywordsText
+                            FilterMode.EXCLUDE -> excludeKeywordsText
+                            else -> ""
+                        }
                         val keywords = if (filterMode == FilterMode.NONE) {
                             emptyList()
                         } else {
-                            keywordsText
-                                .split(",", "，") // 支持中英文逗号
+                            rawKeywords
+                                .split(",", "，")
                                 .map { it.trim() }
                                 .filter { it.isNotEmpty() }
                         }
                         onConfirm(NodeFilter(keywords, filterMode))
+
                     },
                     modifier = Modifier.weight(1f).height(50.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),

@@ -40,7 +40,15 @@ class ConfigRepository(private val context: Context) {
     
     companion object {
         private const val TAG = "ConfigRepository"
-        
+
+        /**
+         * 生成稳定的节点 ID（基于 profileId 和 outboundTag 的 UUID）
+         */
+        fun stableNodeId(profileId: String, outboundTag: String): String {
+            val key = "$profileId|$outboundTag"
+            return java.util.UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)).toString()
+        }
+
         // User-Agent 列表，按优先级排序
         private val USER_AGENTS = listOf(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", // Browser - 优先尝试获取通用 Base64 订阅，以绕过服务端的客户端过滤
@@ -1274,7 +1282,7 @@ class ConfigRepository(private val context: Context) {
                 security = json.scy ?: "auto",
                 tls = tlsConfig,
                 transport = transport,
-                packetEncoding = json.packetEncoding ?: "xudp"
+                packetEncoding = json.packetEncoding?.takeIf { it.isNotBlank() }
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -1654,11 +1662,6 @@ class ConfigRepository(private val context: Context) {
         val outbounds = config.outbounds ?: return nodes
         val trafficRepo = TrafficRepository.getInstance(context)
 
-        fun stableNodeId(profileId: String, outboundTag: String): String {
-            val key = "$profileId|$outboundTag"
-            return UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)).toString()
-        }
-        
         // 收集所有 selector 和 urltest 的 outbounds 作为分组
         val groupOutbounds = outbounds.filter { 
             it.type == "selector" || it.type == "urltest" 
@@ -1879,6 +1882,11 @@ class ConfigRepository(private val context: Context) {
         object Success : NodeSwitchResult()
         object NotRunning : NodeSwitchResult()
         data class Failed(val reason: String) : NodeSwitchResult()
+    }
+
+    fun setActiveNodeIdOnly(nodeId: String) {
+        _activeNodeId.value = nodeId
+        saveProfiles()
     }
 
     suspend fun setActiveNode(nodeId: String): Boolean {
@@ -2518,8 +2526,15 @@ class ConfigRepository(private val context: Context) {
 
         // Fix flow
         val cleanedFlow = result.flow?.takeIf { it.isNotBlank() }
-        if (cleanedFlow != result.flow) {
-            result = result.copy(flow = cleanedFlow)
+        val normalizedFlow = cleanedFlow?.let { flowValue ->
+            if (flowValue.contains("xtls-rprx-vision")) {
+                "xtls-rprx-vision"
+            } else {
+                flowValue
+            }
+        }
+        if (normalizedFlow != result.flow) {
+            result = result.copy(flow = normalizedFlow)
         }
 
         // Fix URLTest - Convert to selector to avoid sing-box core panic during InterfaceUpdated
@@ -4119,9 +4134,19 @@ class ConfigRepository(private val context: Context) {
         // 更新内存中的配置
         cacheConfig(profileId, newConfig)
         
+        val oldNodes = profileNodes[profileId] ?: _nodes.value
+        val latencyById = oldNodes.associate { it.id to it.latencyMs }
+        val updatedNodeId = stableNodeId(profileId, newName)
+        val originalLatency = oldNodes.find { it.id == nodeId }?.latencyMs
+
         // 重新提取节点列表
         val newNodes = extractNodesFromConfig(newConfig, profileId)
-        profileNodes[profileId] = newNodes
+        val mergedNodes = newNodes.map { nodeItem ->
+            val storedLatency = latencyById[nodeItem.id]
+                ?: if (nodeItem.id == updatedNodeId) originalLatency else null
+            if (storedLatency != null) nodeItem.copy(latencyMs = storedLatency) else nodeItem
+        }
+        profileNodes[profileId] = mergedNodes
         updateAllNodesAndGroups()
 
         // 保存文件
@@ -4134,12 +4159,12 @@ class ConfigRepository(private val context: Context) {
 
         // 如果是当前活跃配置，更新UI状态
         if (_activeProfileId.value == profileId) {
-            _nodes.value = newNodes
-            updateNodeGroups(newNodes)
+            _nodes.value = mergedNodes
+            updateNodeGroups(mergedNodes)
             
             // 如果重命名的是当前选中节点，更新 activeNodeId
             if (_activeNodeId.value == nodeId) {
-                val newNode = newNodes.find { it.name == newName }
+                val newNode = mergedNodes.find { it.name == newName }
                 if (newNode != null) {
                     _activeNodeId.value = newNode.id
                 }
@@ -4168,9 +4193,19 @@ class ConfigRepository(private val context: Context) {
         // 更新内存中的配置
         cacheConfig(profileId, newConfig)
         
+        val oldNodes = profileNodes[profileId] ?: _nodes.value
+        val latencyById = oldNodes.associate { it.id to it.latencyMs }
+        val updatedNodeId = stableNodeId(profileId, newOutbound.tag)
+        val originalLatency = oldNodes.find { it.id == nodeId }?.latencyMs
+
         // 重新提取节点列表
         val newNodes = extractNodesFromConfig(newConfig, profileId)
-        profileNodes[profileId] = newNodes
+        val mergedNodes = newNodes.map { nodeItem ->
+            val storedLatency = latencyById[nodeItem.id]
+                ?: if (nodeItem.id == updatedNodeId) originalLatency else null
+            if (storedLatency != null) nodeItem.copy(latencyMs = storedLatency) else nodeItem
+        }
+        profileNodes[profileId] = mergedNodes
         updateAllNodesAndGroups()
 
         // 保存文件
@@ -4183,12 +4218,12 @@ class ConfigRepository(private val context: Context) {
 
         // 如果是当前活跃配置，更新UI状态
         if (_activeProfileId.value == profileId) {
-            _nodes.value = newNodes
-            updateNodeGroups(newNodes)
+            _nodes.value = mergedNodes
+            updateNodeGroups(mergedNodes)
             
             // 如果更新的是当前选中节点，尝试恢复选中状态
             if (_activeNodeId.value == nodeId) {
-                val newNode = newNodes.find { it.name == newOutbound.tag }
+                val newNode = mergedNodes.find { it.name == newOutbound.tag }
                 if (newNode != null) {
                     _activeNodeId.value = newNode.id
                 }

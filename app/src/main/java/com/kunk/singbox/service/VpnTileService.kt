@@ -19,6 +19,7 @@ import com.kunk.singbox.aidl.ISingBoxServiceCallback
 import com.kunk.singbox.R
 import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.ipc.SingBoxIpcService
+import com.kunk.singbox.manager.VpnServiceManager
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
@@ -241,64 +242,41 @@ class VpnTileService : TileService() {
     }
 
     /**
-     * 执行停止 VPN 逻辑
+     * 执行停止 VPN 逻辑 (使用 VpnServiceManager 统一管理)
      */
     private fun executeStopVpn() {
-        // 在主线程立即标记状态，防止竞态条件导致 UI 闪烁
+        // 在主线程立即标记状态,防止竞态条件导致 UI 闪烁
         persistVpnPending(this, "stopping")
         persistVpnState(this, false)
 
         serviceScope.launch(Dispatchers.IO) {
-            // 确保 Service 已绑定或尝试绑定，以便发送命令
-            // 但对于停止操作，直接发 Intent 也可以
-            val coreMode = VpnStateStore.getMode(this@VpnTileService)
-            val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
-                Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
-                    action = ProxyOnlyService.ACTION_STOP
-                }
-            } else {
-                Intent(this@VpnTileService, SingBoxService::class.java).apply {
-                    action = SingBoxService.ACTION_STOP
-                }
-            }
-            
             try {
-                startService(intent)
+                VpnServiceManager.stopVpn(this@VpnTileService)
             } catch (e: Exception) {
                 e.printStackTrace()
-                // 如果停止失败，恢复 UI 状态（虽然概率很低）
-                handleStartFailure("Stop service failed: ${e.message}") // TODO: add to strings.xml
+                // 如果停止失败,恢复 UI 状态 (虽然概率很低)
+                handleStartFailure("Stop service failed: ${e.message}")
             }
         }
     }
 
     /**
-     * 执行启动 VPN 逻辑
+     * 执行启动 VPN 逻辑 (使用 VpnServiceManager 统一管理)
      */
     private fun executeStartVpn() {
-        // 在主线程立即标记状态，防止竞态条件导致 UI 闪烁
+        // 在主线程立即标记状态,防止竞态条件导致 UI 闪烁
         isStartingSequence = true
         persistVpnPending(this, "starting")
 
         serviceScope.launch(Dispatchers.IO) {
             try {
-                // 在后台线程显示 Toast 需要切换到 Main
-                withContext(Dispatchers.Main) {
-                    runCatching {
-                         // 抢跑模式下不需要显示"正在切换"，因为 UI 已经变了，
-                         // 除非你想给用户一个额外的反馈
-                         // Toast.makeText(this@VpnTileService, "正在启动...", Toast.LENGTH_SHORT).show()
-                    }
-                }
-
-                val configRepository = ConfigRepository.getInstance(applicationContext)
                 val settings = SettingsRepository.getInstance(applicationContext).settings.first()
 
-                // 双重检查 VPN 权限（防止在点击间隙权限被吊销）
+                // 双重检查 VPN 权限 (防止在点击间隙权限被吊销)
                 if (settings.tunEnabled) {
                     val prepareIntent = VpnService.prepare(this@VpnTileService)
                     if (prepareIntent != null) {
-                        // 需要授权，回滚 UI 并跳转
+                        // 需要授权,回滚 UI 并跳转
                         withContext(Dispatchers.Main) {
                             revertToInactive()
                             prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -308,57 +286,25 @@ class VpnTileService : TileService() {
                     }
                 }
 
-                // 生成配置文件（耗时操作）
+                // 生成配置文件 (耗时操作)
+                val configRepository = ConfigRepository.getInstance(applicationContext)
                 val configResult = configRepository.generateConfigFile()
-                
-                if (configResult != null) {
-                    if (settings.tunEnabled) {
-                        runCatching {
-                            startService(Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
-                                action = ProxyOnlyService.ACTION_STOP
-                            })
-                        }
-                    } else {
-                        runCatching {
-                            startService(Intent(this@VpnTileService, SingBoxService::class.java).apply {
-                                action = SingBoxService.ACTION_STOP
-                            })
-                        }
-                    }
-                    
-                    // 短暂延迟确保旧服务清理（可选，视内核实现而定，这里保留原逻辑）
-                    delay(600)
 
-                    val intent = if (settings.tunEnabled) {
-                        Intent(this@VpnTileService, SingBoxService::class.java).apply {
-                            action = SingBoxService.ACTION_START
-                            putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
-                        }
-                    } else {
-                        Intent(this@VpnTileService, ProxyOnlyService::class.java).apply {
-                            action = ProxyOnlyService.ACTION_START
-                            putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, configResult.path)
-                        }
-                    }
-                    
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
-                    
-                    // 启动成功后，Service 的回调会触发 updateTile，
-                    // 此时 pending 仍为 "starting"，updateTile 会保持 Active 状态
+                if (configResult != null) {
+                    // 使用 VpnServiceManager 统一启动逻辑
+                    // 内部会根据 tunEnabled 选择 SingBoxService 或 ProxyOnlyService
+                    VpnServiceManager.startVpn(this@VpnTileService, settings.tunEnabled)
+
+                    // 启动成功后, Service 的回调会触发 updateTile,
+                    // 此时 pending 仍为 "starting", updateTile 会保持 Active 状态
                 } else {
                     handleStartFailure(getString(R.string.dashboard_config_generation_failed))
                 }
             } catch (e: Exception) {
-                handleStartFailure("Start failed: ${e.message}") // TODO: add to strings.xml
+                handleStartFailure("Start failed: ${e.message}")
             } finally {
-                // 无论成功失败，结束启动序列标记
-                // 注意：成功时，Service 应该是 RUNNING 状态，
-                // 或者是 pending="starting"，所以 updateTile 依然会保持 Active
-                // 延迟一小会儿清除标记，确保 Service 状态已经稳定
+                // 无论成功失败,结束启动序列标记
+                // 延迟一小会儿清除标记,确保 Service 状态已经稳定
                 if (isStartingSequence) {
                     delay(2000)
                     isStartingSequence = false

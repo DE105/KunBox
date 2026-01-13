@@ -2461,9 +2461,39 @@ private val platformInterface = object : PlatformInterface {
                 isManuallyStopped = false
                 VpnStateStore.setManuallyStopped(applicationContext, false)
                 VpnTileService.persistVpnPending(applicationContext, "starting")
-                val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
+                var configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
                 val cleanCache = intent.getBooleanExtra(EXTRA_CLEAN_CACHE, false)
-                
+
+                // P0 Optimization: If config path is missing (Shortcut/Headless), generate it inside Service
+                if (configPath == null) {
+                    Log.i(TAG, "ACTION_START received without config path, generating config...")
+                    serviceScope.launch {
+                        try {
+                            val repo = ConfigRepository.getInstance(applicationContext)
+                            val result = repo.generateConfigFile()
+                            if (result != null) {
+                                Log.i(TAG, "Config generated successfully: ${result.path}")
+                                // Recursively call start command with the generated path
+                                val newIntent = Intent(applicationContext, SingBoxService::class.java).apply {
+                                    action = ACTION_START
+                                    putExtra(EXTRA_CONFIG_PATH, result.path)
+                                    putExtra(EXTRA_CLEAN_CACHE, cleanCache)
+                                }
+                                startService(newIntent)
+                            } else {
+                                Log.e(TAG, "Failed to generate config file")
+                                setLastError("Failed to generate config file")
+                                withContext(Dispatchers.Main) { stopSelf() }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error generating config in Service", e)
+                            setLastError("Error generating config: ${e.message}")
+                            withContext(Dispatchers.Main) { stopSelf() }
+                        }
+                    }
+                    return START_STICKY
+                }
+
                 if (configPath != null) {
                     updateServiceState(ServiceState.STARTING)
                     synchronized(this) {
@@ -2623,20 +2653,50 @@ private val platformInterface = object : PlatformInterface {
     @Volatile private var pendingHotSwitchFallbackConfigPath: String? = null
 
     private fun switchNextNode() {
+        if (!isRunning) {
+            Log.w(TAG, "switchNextNode: VPN not running, skip")
+            return
+        }
 
         serviceScope.launch {
             val configRepository = ConfigRepository.getInstance(this@SingBoxService)
+            // 2025-fix: Service 进程 (:bg) 的 ConfigRepository 与 UI 进程独立
+            // 需要强制从文件重新加载最新数据，否则 nodes.value 可能为空或过时
+            configRepository.reloadProfiles()
+
             val nodes = configRepository.nodes.value
-            if (nodes.isEmpty()) return@launch
+            if (nodes.isEmpty()) {
+                Log.w(TAG, "switchNextNode: no nodes available after reload")
+                return@launch
+            }
 
             val activeNodeId = configRepository.activeNodeId.value
             val currentIndex = nodes.indexOfFirst { it.id == activeNodeId }
             val nextIndex = (currentIndex + 1) % nodes.size
             val nextNode = nodes[nextIndex]
 
-            val success = configRepository.setActiveNode(nextNode.id)
+            Log.i(TAG, "switchNextNode: switching from ${nodes.getOrNull(currentIndex)?.name} to ${nextNode.name}")
+
+            configRepository.setActiveNodeIdOnly(nextNode.id)
+
+            val success = hotSwitchNode(nextNode.name)
             if (success) {
-                requestNotificationUpdate(force = false)
+                realTimeNodeName = nextNode.name
+                runCatching { configRepository.syncActiveNodeFromProxySelection(nextNode.name) }
+                requestNotificationUpdate(force = true)
+                Log.i(TAG, "switchNextNode: hot switch successful")
+            } else {
+                Log.w(TAG, "switchNextNode: hot switch failed, falling back to restart")
+                val configPath = intentConfigPath()
+                val restartIntent = Intent(this@SingBoxService, SingBoxService::class.java).apply {
+                    action = ACTION_START
+                    putExtra(EXTRA_CONFIG_PATH, configPath)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(restartIntent)
+                } else {
+                    startService(restartIntent)
+                }
             }
         }
     }

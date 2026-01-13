@@ -3,11 +3,13 @@ package com.kunk.singbox.ui.screens
 import com.kunk.singbox.R
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +23,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -28,8 +32,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import kotlinx.coroutines.delay
@@ -40,6 +46,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -50,7 +57,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -71,6 +83,9 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -126,9 +141,12 @@ fun NodesScreen(
     val testingNodeIds by viewModel.testingNodeIds.collectAsState()
     val nodeFilter by viewModel.nodeFilter.collectAsState()
     val sortType by viewModel.sortType.collectAsState()
-
+    
     var selectedGroupIndex by remember { mutableStateOf(0) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchExpanded by remember { mutableStateOf(false) }
     val isTesting by viewModel.isTesting.collectAsState()
+
 
     LaunchedEffect(Unit) {
         viewModel.toastEvents.collectLatest { message ->
@@ -143,14 +161,21 @@ fun NodesScreen(
         }
     }
 
-    // Filter nodes based on selected group
     val filteredNodes by remember {
         androidx.compose.runtime.derivedStateOf {
-            if (selectedGroupIndex == 0 || groups.isEmpty()) {
+            val groupFiltered = if (selectedGroupIndex == 0 || groups.isEmpty()) {
                 nodes
             } else {
                 val selectedGroup = groups.getOrNull(selectedGroupIndex)
                 if (selectedGroup == null) nodes else nodes.filter { it.group == selectedGroup }
+            }
+
+            if (searchQuery.isBlank()) {
+                groupFiltered
+            } else {
+                groupFiltered.filter { node ->
+                    node.displayName.contains(searchQuery, ignoreCase = true)
+                }
             }
         }
     }
@@ -414,15 +439,15 @@ fun NodesScreen(
                     )
                 }
             }
-            
-            Spacer(modifier = Modifier.height(8.dp))
 
-            // 3. Node List
-            LazyColumn(
-                state = listState,
-                contentPadding = PaddingValues(bottom = 88.dp, top = 16.dp, start = 16.dp, end = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(bottom = 88.dp, top = 12.dp, start = 16.dp, end = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                 itemsIndexed(
                     items = filteredNodes,
                     key = { index, node -> "${node.id}_$index" },
@@ -483,6 +508,130 @@ fun NodesScreen(
                                 translationY = translateY
                             )
                     )
+                }
+            }
+
+                ExpandableNodeSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    isExpanded = isSearchExpanded,
+                    onToggle = {
+                        isSearchExpanded = !isSearchExpanded
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 16.dp, end = 16.dp, top = 12.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpandableNodeSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(40.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        // 左侧搜索图标按钮
+        IconButton(
+            onClick = onToggle,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                imageVector = if (isExpanded) Icons.Rounded.Close else Icons.Rounded.Search,
+                contentDescription = null,
+                tint = if (isExpanded) MaterialTheme.colorScheme.primary else Neutral500,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+
+        // 右侧胶囊搜索框(仅展开时显示,从左侧按钮右边开始)
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandHorizontally(expandFrom = Alignment.Start) + fadeIn(),
+            exit = shrinkHorizontally(shrinkTowards = Alignment.Start) + fadeOut(),
+            modifier = Modifier
+                .padding(start = 52.dp)
+                .height(40.dp)
+        ) {
+            var isFocused by remember { mutableStateOf(false) }
+            val focusRequester = remember { FocusRequester() }
+
+            LaunchedEffect(isExpanded) {
+                if (isExpanded) {
+                    focusRequester.requestFocus()
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(20.dp)
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(20.dp)
+                    ),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .focusRequester(focusRequester)
+                        .onFocusChanged { isFocused = it.isFocused },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onBackground
+                    ),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (query.isEmpty() && !isFocused) {
+                                Text(
+                                    text = stringResource(R.string.common_search),
+                                    color = Neutral500,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                )
+
+                if (query.isNotEmpty()) {
+                    IconButton(
+                        onClick = { onQueryChange("") },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.common_clear),
+                            tint = Neutral500,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }

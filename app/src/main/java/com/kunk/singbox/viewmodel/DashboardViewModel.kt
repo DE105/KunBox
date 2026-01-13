@@ -265,7 +265,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     // VPN 权限请求结果
     private val _vpnPermissionNeeded = MutableStateFlow(false)
     val vpnPermissionNeeded: StateFlow<Boolean> = _vpnPermissionNeeded.asStateFlow()
-    
+
+    // 2025-fix: 用于确保状态监听只在 IPC 绑定后启动一次
+    @Volatile private var stateCollectorStarted = false
+
+    // 2025-fix: 标记是否在启动时检测到了系统 VPN
+    // 用于过滤 IPC 连接初期的虚假 STOPPED 状态
+    private var systemVpnDetectedOnBoot = false
+
     init {
         viewModelScope.launch {
             settingsRepository.getNodeFilterFlow().collect {
@@ -307,6 +314,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 } else {
                     false
                 }
+
+                // 记录系统 VPN 状态
+                if (hasSystemVpn) {
+                    systemVpnDetectedOnBoot = true
+                }
+
                 val persisted = context.getSharedPreferences("vpn_state", Context.MODE_PRIVATE)
                     .getBoolean("vpn_active", false)
 
@@ -322,25 +335,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     _connectionState.value = ConnectionState.Idle
                 }
             }
-        }
 
-        // Observe SingBoxService running and starting state to keep UI in sync
-        viewModelScope.launch {
-            SingBoxRemote.isRunning.collect { running ->
-                if (running) {
-                    _connectionState.value = ConnectionState.Connected
-                    _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
-                    startTrafficMonitor()
-                } else if (!SingBoxRemote.isStarting.value) {
-                    _connectionState.value = ConnectionState.Idle
-                    _connectedAtElapsedMs.value = null
-                    stopTrafficMonitor()
-                    stopPingTest()
-                    _statsBase.value = ConnectionStats(0, 0, 0, 0, 0)
-                    // Disconnect resets ping state to "not tested"
-                    _currentNodePing.value = null
-                }
-            }
+            // 2025-fix: IPC 绑定完成后再启动状态监听
+            // 避免在绑定前收到过时的初始值 STOPPED 导致 UI 显示断开
+            startStateCollector()
         }
 
         // Surface service-level startup errors on UI
@@ -358,17 +356,163 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
         }
+    }
 
+    /**
+     * 2025-fix: 启动状态监听器
+     * 确保只在 IPC 绑定完成后调用一次
+     */
+    // 2025-fix: 用于处理连接状态变更的防抖 Job
+    private var pendingIdleJob: Job? = null
+    private var startGraceUntilElapsedMs: Long? = null
+
+    /**
+     * 统一管理连接状态更新，内置防抖逻辑防止 UI 闪烁
+     */
+    private fun setConnectionState(newState: ConnectionState) {
+        if (newState == ConnectionState.Disconnecting && _connectionState.value == ConnectionState.Connecting) {
+            val graceUntil = startGraceUntilElapsedMs
+            if (graceUntil != null && SystemClock.elapsedRealtime() < graceUntil) {
+                return
+            }
+        }
+        when (newState) {
+            ConnectionState.Connected -> {
+                // 如果有挂起的"变更为Idle"的任务，立即取消，说明是虚惊一场
+                pendingIdleJob?.cancel()
+                pendingIdleJob = null
+                startGraceUntilElapsedMs = null
+
+                if (_connectionState.value != ConnectionState.Connected) {
+                    _connectionState.value = ConnectionState.Connected
+                    _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
+                    startTrafficMonitor()
+                }
+            }
+            ConnectionState.Idle -> {
+                // 如果当前是已连接，不要立即断开，而是延迟执行
+                if (_connectionState.value == ConnectionState.Connected) {
+                    // 如果已经在等待断开，不要重复创建
+                    if (pendingIdleJob?.isActive == true) return
+
+                    pendingIdleJob = viewModelScope.launch {
+                        // 如果是启动时的检测，给更长的宽限期 (1000ms)，否则给普通的防抖期 (300ms)
+                        val delayTime = if (systemVpnDetectedOnBoot) 1000L else 300L
+                        delay(delayTime)
+
+                        // 宽限期过，再次检查 SingBoxRemote 状态
+                        // 只有当服务端依然坚持是 STOPPED 时，才真正断开 UI
+                        if (SingBoxRemote.state.value == SingBoxService.ServiceState.STOPPED) {
+                            performDisconnect()
+                        }
+                        // 宽限期结束，标记失效
+                        systemVpnDetectedOnBoot = false
+                        pendingIdleJob = null
+                    }
+                } else if (_connectionState.value == ConnectionState.Connecting) {
+                    val graceUntil = startGraceUntilElapsedMs
+                    if (graceUntil != null) {
+                        val now = SystemClock.elapsedRealtime()
+                        val remaining = graceUntil - now
+                        if (remaining > 0) {
+                            if (pendingIdleJob?.isActive == true) return
+                            pendingIdleJob = viewModelScope.launch {
+                                delay(remaining)
+                                if (SingBoxRemote.state.value == SingBoxService.ServiceState.STOPPED) {
+                                    performDisconnect()
+                                }
+                                pendingIdleJob = null
+                            }
+                            return
+                        }
+                    }
+                    performDisconnect()
+                } else {
+                    // 当前不是连接状态，直接更新
+                    performDisconnect()
+                }
+            }
+            else -> {
+                // 其他状态（Connecting/Disconnecting/Error）直接更新
+                pendingIdleJob?.cancel()
+                if (newState == ConnectionState.Connecting) {
+                    startGraceUntilElapsedMs = SystemClock.elapsedRealtime() + 800L
+                } else {
+                    startGraceUntilElapsedMs = null
+                }
+                if (_connectionState.value != newState) {
+                    _connectionState.value = newState
+                }
+            }
+        }
+    }
+
+    private fun performDisconnect() {
+        if (_connectionState.value != ConnectionState.Idle) {
+            _connectionState.value = ConnectionState.Idle
+            _connectedAtElapsedMs.value = null
+            stopTrafficMonitor()
+            stopPingTest()
+            _statsBase.value = ConnectionStats(0, 0, 0, 0, 0)
+            _currentNodePing.value = null
+        }
+    }
+
+    private fun startStateCollector() {
+        if (stateCollectorStarted) return
+        stateCollectorStarted = true
+
+        // Observe SingBoxService state to keep UI in sync
         viewModelScope.launch {
-            SingBoxRemote.isStarting.collect { starting ->
-                if (starting) {
-                    _connectionState.value = ConnectionState.Connecting
-                } else if (!SingBoxRemote.isRunning.value) {
-                    if (_connectionState.value != ConnectionState.Connecting) {
-                        _connectionState.value = ConnectionState.Idle
+            SingBoxRemote.state.collect { state ->
+                when (state) {
+                    SingBoxService.ServiceState.RUNNING -> {
+                        systemVpnDetectedOnBoot = false
+                        setConnectionState(ConnectionState.Connected)
+                    }
+                    SingBoxService.ServiceState.STARTING -> {
+                        systemVpnDetectedOnBoot = false
+                        setConnectionState(ConnectionState.Connecting)
+                    }
+                    SingBoxService.ServiceState.STOPPING -> {
+                        systemVpnDetectedOnBoot = false
+                        setConnectionState(ConnectionState.Disconnecting)
+                    }
+                    SingBoxService.ServiceState.STOPPED -> {
+                        setConnectionState(ConnectionState.Idle)
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * 2025-fix: 刷新 VPN 状态
+     * 在 Activity resume 时调用，确保 UI 与服务端状态同步
+     * 解决通过快捷方式操作后返回 App 时 UI 不更新的问题
+     */
+    fun refreshState() {
+        viewModelScope.launch {
+            // 确保 IPC 已绑定
+            runCatching { SingBoxRemote.ensureBound(getApplication()) }
+
+            var retries = 0
+            while (!SingBoxRemote.isBound() && retries < 10) {
+                delay(50)
+                retries++
+            }
+
+            // 根据当前状态同步 UI
+            val state = SingBoxRemote.state.value
+            when (state) {
+                SingBoxService.ServiceState.RUNNING -> setConnectionState(ConnectionState.Connected)
+                SingBoxService.ServiceState.STARTING -> setConnectionState(ConnectionState.Connecting)
+                SingBoxService.ServiceState.STOPPING -> setConnectionState(ConnectionState.Disconnecting)
+                SingBoxService.ServiceState.STOPPED -> setConnectionState(ConnectionState.Idle)
+            }
+
+            // 确保状态监听器已启动
+            startStateCollector()
         }
     }
 
@@ -376,12 +520,21 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             when (_connectionState.value) {
                 ConnectionState.Idle, ConnectionState.Error -> {
+                    // P0 Optimization: Optimistic UI
+                    startGraceUntilElapsedMs = SystemClock.elapsedRealtime() + 800L
+                    _connectionState.value = ConnectionState.Connecting
                     startCore()
                 }
                 ConnectionState.Connecting -> {
+                    // P0 Optimization: Optimistic UI
+                    startGraceUntilElapsedMs = null
+                    _connectionState.value = ConnectionState.Disconnecting
                     stopVpn()
                 }
                 ConnectionState.Connected, ConnectionState.Disconnecting -> {
+                    // P0 Optimization: Optimistic UI
+                    startGraceUntilElapsedMs = null
+                    _connectionState.value = ConnectionState.Disconnecting
                     stopVpn()
                 }
             }
