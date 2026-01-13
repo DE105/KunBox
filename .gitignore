@@ -51,3 +51,4 @@ planning-with-files/
 # 构建脚本临时文件
 buildScript/tasks/*.py
 buildScript/tasks/remove_*.ps1
+buildScript/singbox-build/box_ext.go
