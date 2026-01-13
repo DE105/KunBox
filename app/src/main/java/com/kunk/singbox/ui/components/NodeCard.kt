@@ -135,24 +135,31 @@ fun NodeCard(
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                                 strokeWidth = 2.dp
                             )
-                        } else if (latency != null) {
+                        } else {
+                            val placeholderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                             val latencyColor = remember(latency) {
                                 when {
+                                    latency == null -> placeholderColor
                                     latency < 0 -> Color.Red
-                                    latency < 1000 -> Color(0xFF4CAF50) // Green < 1000ms
-                                    latency < 2000 -> Color(0xFFFFC107) // Orange 1000-2000ms
-                                    else -> Color.Red // > 2000ms or Timeout
+                                    latency < 1000 -> Color(0xFF4CAF50)
+                                    latency < 2000 -> Color(0xFFFFC107)
+                                    else -> Color.Red
                                 }
                             }
                             val latencyText = remember(latency) {
-                                if (latency < 0) "Timeout" else "${latency}ms"
+                                when {
+                                    latency == null -> "---"
+                                    latency < 0 -> "Timeout"
+                                    else -> "${latency}ms"
+                                }
                             }
-                            
+                            val latencyWeight = if (latency == null) FontWeight.Normal else FontWeight.Bold
+
                             Text(
                                 text = latencyText,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = latencyColor,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = latencyWeight
                             )
                         }
                     }
