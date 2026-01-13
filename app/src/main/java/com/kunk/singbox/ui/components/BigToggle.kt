@@ -1,6 +1,7 @@
 package com.kunk.singbox.ui.components
 
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
@@ -9,6 +10,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -33,6 +37,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.kunk.singbox.R
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlin.random.Random
 
 
 @Composable
@@ -81,6 +87,25 @@ fun BigToggle(
     
     // 弹跳动画 - 开启时先弹起再落下
     val bounceOffset = remember { Animatable(0f) }
+
+    // 关闭状态时的浮动动画
+    val floatOffset = remember { Animatable(0f) }
+
+    // 关闭状态时持续浮动
+    LaunchedEffect(isRunning) {
+        if (!isRunning) {
+            while (true) {
+                val targetOffset = Random.nextFloat() * 12f - 6f // -6 到 6 之间随机
+                val duration = Random.nextInt(1500, 2500) // 1.5-2.5秒随机
+                floatOffset.animateTo(
+                    targetValue = targetOffset,
+                    animationSpec = tween(duration, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                )
+            }
+        } else {
+            floatOffset.animateTo(0f, animationSpec = tween(300))
+        }
+    }
     
     LaunchedEffect(shakeKey) {
         if (isRunning) {
@@ -145,23 +170,43 @@ fun BigToggle(
         contentAlignment = Alignment.Center,
         modifier = modifier
     ) {
-        // 动态偏移 - 关闭时下移
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier.offset(y = verticalOffset)
         ) {
-            // Main Button
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(200.dp)
                     .scale(scale)
-                    .offset(y = bounceOffset.value.dp) // 应用弹跳偏移
+                    .offset(y = bounceOffset.value.dp + floatOffset.value.dp)
             ) {
-                // 点击区域和背景 (保持圆形)
+                AnimatedContent(
+                    targetState = isRunning,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(400)) togetherWith
+                        fadeOut(animationSpec = tween(400)) using
+                        SizeTransform(clip = false)
+                    },
+                    label = "IconCrossfade"
+                ) { running ->
+                    val res = if (running) R.drawable.gengar_awake else R.drawable.gengar_sleep
+                    val imageScale = if (running) 0.75f else 0.75f
+
+                    Image(
+                        painter = painterResource(id = res),
+                        contentDescription = if (running) "Running" else "Idle",
+                        modifier = Modifier
+                            .scale(imageScale)
+                            .offset(x = 0.dp, y = 32.dp)
+                            .graphicsLayer {
+                                rotationZ = rotation.value
+                            }
+                    )
+                }
+                
                 Box(
                     modifier = Modifier
-                        .matchParentSize()
+                        .size(200.dp)
                         .clip(CircleShape)
                         .background(backgroundColor)
                         .clickable(
@@ -170,31 +215,6 @@ fun BigToggle(
                             onClick = onClick
                         )
                 )
-
-                val imageRes = if (isRunning) R.drawable.gengar_awake else R.drawable.gengar_sleep
-                val imageSize = if (isRunning) 560.dp else 640.dp
-
-                Crossfade(
-                    targetState = isRunning,
-                    animationSpec = tween(400),
-                    label = "IconCrossfade",
-                    modifier = Modifier.graphicsLayer { clip = false }
-                ) { running ->
-                    val res = if (running) R.drawable.gengar_awake else R.drawable.gengar_sleep
-                    val size = if (running) 560.dp else 640.dp
-                    
-                    Image(
-                        painter = painterResource(id = res),
-                        contentDescription = if (running) "Running" else "Idle",
-                        modifier = Modifier
-                            .size(size)
-                            .offset(x = 0.dp, y = 32.dp)
-                            .graphicsLayer {
-                                rotationZ = rotation.value
-                                clip = false
-                            }
-                    )
-                }
             }
         }
     }

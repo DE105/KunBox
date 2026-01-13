@@ -49,9 +49,9 @@ fun AppRuleItem(
     val context = LocalContext.current
     val mode = rule.outboundMode ?: RuleSetOutboundMode.DIRECT
     val (outboundIcon, color) = when (mode) {
-        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE, RuleSetOutboundMode.GROUP -> Icons.Rounded.Shield to Color(0xFF4CAF50)
-        RuleSetOutboundMode.DIRECT -> Icons.Rounded.Public to Color(0xFF2196F3)
-        RuleSetOutboundMode.BLOCK -> Icons.Rounded.Block to Color(0xFFFF5252)
+        RuleSetOutboundMode.PROXY, RuleSetOutboundMode.NODE, RuleSetOutboundMode.PROFILE, RuleSetOutboundMode.GROUP -> Icons.Rounded.Shield to MaterialTheme.colorScheme.primary
+        RuleSetOutboundMode.DIRECT -> Icons.Rounded.Public to MaterialTheme.colorScheme.tertiary
+        RuleSetOutboundMode.BLOCK -> Icons.Rounded.Block to MaterialTheme.colorScheme.error
     }
     val appIcon = remember(rule.packageName) {
         try {

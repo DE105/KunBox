@@ -68,11 +68,13 @@ sealed class Screen(val route: String) {
 const val NAV_ANIMATION_DURATION = 450
 
 private fun tabIndex(route: String?): Int {
-    return when {
-        route == Screen.Dashboard.route -> 0
-        route == Screen.Nodes.route -> 1
-        route == Screen.Profiles.route -> 2
-        route == Screen.Settings.route -> 3
+    // 先获取该路由所属的 Tab，再返回 Tab 的索引
+    val tab = getTabForRoute(route)
+    return when (tab) {
+        Screen.Dashboard.route -> 0
+        Screen.Nodes.route -> 1
+        Screen.Profiles.route -> 2
+        Screen.Settings.route -> 3
         else -> 0
     }
 }
@@ -123,7 +125,7 @@ fun AppNavigation(navController: NavHostController) {
         slideInHorizontally(initialOffsetX = { it }, animationSpec = slideSpec)
     }
     val exitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-        slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = slideSpec)
+        ExitTransition.None
     }
     val popEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
         EnterTransition.None
@@ -133,11 +135,54 @@ fun AppNavigation(navController: NavHostController) {
     }
 
     val tabEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-        fadeIn(animationSpec = fadeSpec)
+        val fromRoute = initialState.destination.route
+        val toRoute = targetState.destination.route
+        val fromIndex = tabIndex(fromRoute)
+        val toIndex = tabIndex(toRoute)
+        if (toIndex > fromIndex) {
+            slideInHorizontally(initialOffsetX = { it }, animationSpec = slideSpec)
+        } else {
+            slideInHorizontally(initialOffsetX = { -it }, animationSpec = slideSpec)
+        }
     }
 
     val tabExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-        fadeOut(animationSpec = fadeSpec)
+        val fromRoute = initialState.destination.route
+        val toRoute = targetState.destination.route
+        val fromTab = getTabForRoute(fromRoute)
+        val toTab = getTabForRoute(toRoute)
+        // 如果是同一个 Tab 内的导航（进入子页面），底层页面不动
+        if (fromTab == toTab) {
+            ExitTransition.None
+        } else {
+            val fromIndex = tabIndex(fromRoute)
+            val toIndex = tabIndex(toRoute)
+            if (toIndex > fromIndex) {
+                slideOutHorizontally(targetOffsetX = { -it }, animationSpec = slideSpec)
+            } else {
+                slideOutHorizontally(targetOffsetX = { it }, animationSpec = slideSpec)
+            }
+        }
+    }
+
+    // 从子页面返回时，父级页面不需要动画
+    val tabPopEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
+        val fromRoute = initialState.destination.route
+        val toRoute = targetState.destination.route
+        val fromTab = getTabForRoute(fromRoute)
+        val toTab = getTabForRoute(toRoute)
+        // 如果是同一个 Tab 内返回（从子页面返回），父级页面不动
+        if (fromTab == toTab) {
+            EnterTransition.None
+        } else {
+            val fromIndex = tabIndex(fromRoute)
+            val toIndex = tabIndex(toRoute)
+            if (toIndex > fromIndex) {
+                slideInHorizontally(initialOffsetX = { it }, animationSpec = slideSpec)
+            } else {
+                slideInHorizontally(initialOffsetX = { -it }, animationSpec = slideSpec)
+            }
+        }
     }
 
     NavHost(
@@ -149,28 +194,28 @@ fun AppNavigation(navController: NavHostController) {
             route = Screen.Dashboard.route,
             enterTransition = tabEnterTransition,
             exitTransition = tabExitTransition,
-            popEnterTransition = tabEnterTransition,
+            popEnterTransition = tabPopEnterTransition,
             popExitTransition = tabExitTransition
         ) { DashboardScreen(navController) }
         composable(
             route = Screen.Nodes.route,
             enterTransition = tabEnterTransition,
             exitTransition = tabExitTransition,
-            popEnterTransition = tabEnterTransition,
+            popEnterTransition = tabPopEnterTransition,
             popExitTransition = tabExitTransition
         ) { NodesScreen(navController) }
         composable(
             route = Screen.Profiles.route,
             enterTransition = tabEnterTransition,
             exitTransition = tabExitTransition,
-            popEnterTransition = tabEnterTransition,
+            popEnterTransition = tabPopEnterTransition,
             popExitTransition = tabExitTransition
         ) { ProfilesScreen(navController) }
         composable(
             route = Screen.Settings.route,
             enterTransition = tabEnterTransition,
             exitTransition = tabExitTransition,
-            popEnterTransition = tabEnterTransition,
+            popEnterTransition = tabPopEnterTransition,
             popExitTransition = tabExitTransition
         ) { SettingsScreen(navController) }
         

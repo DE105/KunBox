@@ -14,13 +14,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -28,11 +23,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -52,12 +45,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -73,7 +64,6 @@ import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.service.VpnTileService
 import com.kunk.singbox.ui.components.AppNavBar
 import com.kunk.singbox.ui.navigation.AppNavigation
-import com.kunk.singbox.ui.navigation.NAV_ANIMATION_DURATION
 import com.kunk.singbox.ui.theme.OLEDBlack
 import com.kunk.singbox.ui.theme.PureWhite
 import com.kunk.singbox.ui.theme.SingBoxTheme
@@ -278,8 +268,6 @@ fun SingBoxApp() {
 
     SingBoxTheme(appTheme = appTheme) {
         val navController = rememberNavController()
-        var isNavigating by remember { mutableStateOf(false) }
-        var navigationStartTime by remember { mutableStateOf(0L) }
         
         // Handle pending navigation from App Shortcuts
         LaunchedEffect(pendingNavigation) {
@@ -301,19 +289,6 @@ fun SingBoxApp() {
         val currentRoute = navBackStackEntry.value?.destination?.route
         val showBottomBar = currentRoute != null
 
-            // Reset isNavigating after animation completes
-        LaunchedEffect(navigationStartTime) {
-            if (navigationStartTime > 0) {
-                delay(NAV_ANIMATION_DURATION.toLong() + 50)
-                isNavigating = false
-            }
-        }
-        
-        fun startNavigation() {
-            isNavigating = true
-            navigationStartTime = System.currentTimeMillis()
-        }
-        
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
                 snackbarHost = {
@@ -369,10 +344,7 @@ fun SingBoxApp() {
                 },
                 bottomBar = { 
                     if (showBottomBar) {
-                        AppNavBar(
-                            navController = navController,
-                            onNavigationStart = { startNavigation() }
-                        )
+                        AppNavBar(navController = navController)
                     }
                 },
                 contentWindowInsets = WindowInsets(0, 0, 0, 0) // 不自动添加系统栏 insets
@@ -383,37 +355,6 @@ fun SingBoxApp() {
                         .padding(bottom = innerPadding.calculateBottomPadding()) // 只应用底部 padding
                 ) {
                     AppNavigation(navController)
-                }
-            }
-
-            // Global loading overlay during navigation
-            AnimatedVisibility(
-                visible = isNavigating,
-                enter = fadeIn(),
-                exit = fadeOut(animationSpec = tween(durationMillis = 300))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(OLEDBlack.copy(alpha = 0.3f))
-                        .pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    event.changes.forEach { it.consume() }
-                                }
-                            }
-                        }
-                ) {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(2.dp)
-                            .align(Alignment.TopCenter),
-                        color = PureWhite,
-                        trackColor = Color.Transparent,
-                        strokeCap = StrokeCap.Round
-                    )
                 }
             }
         }
