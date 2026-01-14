@@ -1,5 +1,40 @@
 # Changelog
 
+## [2.2.0](https://github.com/roseforljh/KunBox/compare/v2.1.8...v2.2.0) (2026-01-14)
+
+
+### Features
+
+* improve node link parsing and latency test settings ([b19c63e](https://github.com/roseforljh/KunBox/commit/b19c63e1574f141f1996583fddecd324bebf1850))
+* **ipc:** improve VPN state management and add kernel build docs ([0bae618](https://github.com/roseforljh/KunBox/commit/0bae6186598726bf04744d64f8ef84ea49729a40))
+* **latency:** persist node latency data and optimize libbox build ([c62c9c0](https://github.com/roseforljh/KunBox/commit/c62c9c01d592ea0a9354268ace1cbde05f54901c))
+* **nodes:** add latency test progress bar with success/timeout stats ([744eb33](https://github.com/roseforljh/KunBox/commit/744eb330dd2865cf5431cf0d6d1c2353c438e49c))
+* **nodes:** 优化搜索栏设计 ([c84a7e8](https://github.com/roseforljh/KunBox/commit/c84a7e87c469ae1b26e09179b2948d3a1cd258bf))
+* **nodes:** 搜索栏跟随滚动显隐 ([be8ae78](https://github.com/roseforljh/KunBox/commit/be8ae78b22265a893cc16419337f9422dfb06798))
+* **ui:** improve navigation animations and add gengar floating effect ([eacb729](https://github.com/roseforljh/KunBox/commit/eacb729e94542a7c19ab7d2ce7c64a73b29e28f2))
+* **ui:** optimize app selector dialog layout and sort selected apps first ([3ee9e49](https://github.com/roseforljh/KunBox/commit/3ee9e490534a70eb60bbed880de0b77cedcba841))
+* **ui:** sync node selector dialog state with nodes list ([d2e7e7a](https://github.com/roseforljh/KunBox/commit/d2e7e7abe9843e7aa431bbf46cf2d93df2605143))
+
+
+### Bug Fixes
+
+* **ipc:** 修复后台恢复时UI卡住的问题 - 参考NekoBox实现 ([5fcb6f7](https://github.com/roseforljh/KunBox/commit/5fcb6f7762b0a07c14f67962c1ca3b7fb3cf378b))
+* **latency-test:** resolve no available network interface error ([08d8b45](https://github.com/roseforljh/KunBox/commit/08d8b456478198809efc03b6b9739839a6e3c6b7))
+* **nav:** correct route mapping for Diagnostics and Logs pages ([0016b03](https://github.com/roseforljh/KunBox/commit/0016b03dffe9f91397f49a4c081857daefd72875))
+* **rulesets:** initialize defaults with toggleable downloads ([2923af1](https://github.com/roseforljh/KunBox/commit/2923af1ca5046c9ab92afdb9591948b4b6a8e257))
+* **rulesets:** load geosite list via github tree ([0a01fc8](https://github.com/roseforljh/KunBox/commit/0a01fc885998067915e3ed4f36fa1edd211b5ba9))
+* **service:** 修复息屏后返回App时Telegram等应用一直加载的问题 ([d5cc889](https://github.com/roseforljh/KunBox/commit/d5cc8891bae11e38a65e73fb6d281e4b21a2afbc))
+* **subscription:** 兼容订阅剩余/到期信息 ([c44c68d](https://github.com/roseforljh/KunBox/commit/c44c68da7a85a1e2db765936ae61eb8222f3b82f))
+* **tun:** refine app list dialog quick select ([f2f0f3f](https://github.com/roseforljh/KunBox/commit/f2f0f3f5676b55ec19314876e162351bc70d1dd2))
+* **ui:** add smooth crossfade animation for toggle icon transition ([9482e06](https://github.com/roseforljh/KunBox/commit/9482e0621c0322aad4657d61ef51a1bdd469f596))
+* **ui:** adjust ProfileCard layout weight for better text display ([fe2369b](https://github.com/roseforljh/KunBox/commit/fe2369b3da899d7550527d97570071147a3de0e5))
+* **ui:** clean build warnings and consolidate stability notes ([fe669be](https://github.com/roseforljh/KunBox/commit/fe669be56761f250d418db47fa0e03a633cd01d6))
+* **ui:** improve latency display placeholder ([e26c45f](https://github.com/roseforljh/KunBox/commit/e26c45f3d2f8fa8827e668db03c9c3a1953c7891))
+* **ui:** prevent gengar image clipping during crossfade animation ([dc3e93c](https://github.com/roseforljh/KunBox/commit/dc3e93ca1bc7fd00e8a5b4910b0f8e5ea1835fc7))
+* **ui:** toggle fab visibility on scroll ([fc8b2af](https://github.com/roseforljh/KunBox/commit/fc8b2afd5817a17ad6a7be09554263a078284e00))
+* **ui:** 列表到底部时隐藏悬浮按钮 ([708b0ff](https://github.com/roseforljh/KunBox/commit/708b0ff69c2610836b1acdc4abd074723a2416f3))
+* **ui:** 调整 BigToggle 图像显示 ([b3af454](https://github.com/roseforljh/KunBox/commit/b3af4542ff40bde528e808ef2f8e33d964103762))
+
 ## [2.1.8](https://github.com/roseforljh/KunBox/compare/v2.1.7...v2.1.8) (2026-01-10)
 
 
