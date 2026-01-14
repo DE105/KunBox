@@ -157,6 +157,13 @@ fun SingBoxApp() {
         dashboardViewModel.refreshState()
     }
 
+    // 2025-fix-v5: NekoBox 风格 - 在 ON_START 时强制重新绑定 IPC
+    // 参考 NekoBox MainActivity: onStart() 调用 connection.updateConnectionId()
+    // 这确保从后台返回时 IPC 连接是有效的
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        SingBoxRemote.rebind(context)
+    }
+
     // 当语言设置变化时,缓存到 SharedPreferences 供 attachBaseContext 使用
     LaunchedEffect(settings?.appLanguage) {
         settings?.appLanguage?.let { language ->

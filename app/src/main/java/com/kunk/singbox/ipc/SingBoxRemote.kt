@@ -22,9 +22,16 @@ import java.lang.ref.WeakReference
 /**
  * SingBoxRemote - IPC 客户端
  * 
- * 2025-fix-v4: 综合 NekoBox + v2rayNG 的最佳实践
- * - NekoBox: DeathRecipient + 自动重连
- * - v2rayNG: 主动查询机制 (MSG_REGISTER_CLIENT)
+ * 2025-fix-v5: 学习 NekoBox SagerConnection 的完整实现
+ * 
+ * 核心改进:
+ * 1. connectionActive 标志位 - 防止重复绑定/解绑
+ * 2. binderDied 立即重连 - 不使用延迟重试
+ * 3. 前后台切换优化 - 支持连接优先级更新
+ * 4. 连接有效性检测强化 - 主动断开 stale 连接后重连
+ * 
+ * 参考: NekoBox SagerConnection.kt
+ * - https://github.com/MatsuriDayo/NekoBoxForAndroid/blob/main/app/src/main/java/io/nekohasekai/sagernet/bg/SagerConnection.kt
  */
 object SingBoxRemote {
     private const val TAG = "SingBoxRemote"
@@ -52,8 +59,16 @@ object SingBoxRemote {
     @Volatile
     private var service: ISingBoxService? = null
 
+    // 2025-fix-v5: 使用 connectionActive 替代简单的 bound 标志
+    // 参考 NekoBox SagerConnection: connectionActive 在 connect() 时设置，disconnect() 时清除
+    @Volatile
+    private var connectionActive = false
+
     @Volatile
     private var bound = false
+
+    @Volatile
+    private var callbackRegistered = false
 
     @Volatile
     private var binder: IBinder? = null
@@ -94,19 +109,29 @@ object SingBoxRemote {
 
     private val deathRecipient = object : IBinder.DeathRecipient {
         override fun binderDied() {
-            Log.w(TAG, "Binder died, attempting to reconnect...")
+            Log.w(TAG, "Binder died, performing NekoBox-style immediate reconnect")
+            service = null
+            callbackRegistered = false
+            
             mainHandler.post {
-                cleanupConnection()
-                scheduleReconnect()
+                val ctx = contextRef?.get()
+                if (ctx != null && !SagerConnection_restartingApp) {
+                    disconnect(ctx)
+                    connect(ctx)
+                }
             }
         }
     }
+
+    @Volatile
+    private var SagerConnection_restartingApp = false
 
     private fun cleanupConnection() {
         runCatching { binder?.unlinkToDeath(deathRecipient, 0) }
         binder = null
         service = null
         bound = false
+        callbackRegistered = false
     }
 
     private val conn = object : ServiceConnection {
@@ -121,15 +146,21 @@ object SingBoxRemote {
             service = s
             bound = true
 
+            if (s != null && !callbackRegistered) {
+                runCatching {
+                    s.registerCallback(callback)
+                    callbackRegistered = true
+                }
+            }
+
             syncStateFromService(s)
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             Log.w(TAG, "Service disconnected")
-            val s = service
+            unregisterCallback()
             service = null
             bound = false
-            runCatching { s?.unregisterCallback(callback) }
 
             val ctx = contextRef?.get()
             if (ctx != null && hasSystemVpn(ctx)) {
@@ -141,12 +172,20 @@ object SingBoxRemote {
         }
     }
 
-    private fun syncStateFromService(s: ISingBoxService) {
+    private fun unregisterCallback() {
+        val s = service
+        if (s != null && callbackRegistered) {
+            runCatching { s.unregisterCallback(callback) }
+        }
+        callbackRegistered = false
+    }
+
+    private fun syncStateFromService(s: ISingBoxService?) {
+        if (s == null) return
         runCatching {
             val st = SingBoxService.ServiceState.values().getOrNull(s.state)
                 ?: SingBoxService.ServiceState.STOPPED
             updateState(st, s.activeLabel.orEmpty(), s.lastError.orEmpty(), s.isManuallyStopped)
-            s.registerCallback(callback)
             Log.i(TAG, "State synced: $st, running=${_isRunning.value}")
         }.onFailure {
             Log.e(TAG, "Failed to sync state from service", it)
@@ -197,30 +236,59 @@ object SingBoxRemote {
         }
     }
 
+    fun connect(context: Context) {
+        if (connectionActive) {
+            Log.d(TAG, "connect: already active, skip")
+            return
+        }
+        connectionActive = true
+        contextRef = WeakReference(context.applicationContext)
+        reconnectAttempts = 0
+        doBindService(context)
+    }
+
+    fun disconnect(context: Context) {
+        unregisterCallback()
+        if (connectionActive) {
+            runCatching { context.applicationContext.unbindService(conn) }
+        }
+        connectionActive = false
+        runCatching { binder?.unlinkToDeath(deathRecipient, 0) }
+        binder = null
+        service = null
+        bound = false
+    }
+
     fun ensureBound(context: Context) {
         contextRef = WeakReference(context.applicationContext)
 
-        if (bound && service != null) {
+        if (connectionActive && bound && service != null) {
             val isAlive = runCatching { service?.state }.isSuccess
             if (isAlive) return
 
             Log.w(TAG, "Service connection stale, rebinding...")
-            cleanupConnection()
         }
 
-        doBindService(context)
+        if (!connectionActive) {
+            connect(context)
+        } else if (!bound || service == null) {
+            disconnect(context)
+            connect(context)
+        }
     }
 
     /**
      * v2rayNG 风格: 主动查询并同步状态
      * 用于 Activity onResume 时确保 UI 与服务状态一致
+     * 
+     * 2025-fix-v5: 增强版 - 如果连接 stale 则强制重连
      */
     fun queryAndSyncState(context: Context): Boolean {
         contextRef = WeakReference(context.applicationContext)
         reconnectAttempts = 0
 
         val s = service
-        if (bound && s != null) {
+        if (connectionActive && bound && s != null) {
             val synced = runCatching {
                 syncStateFromService(s)
                 true
@@ -229,15 +297,20 @@ object SingBoxRemote {
             if (synced) {
                 Log.i(TAG, "queryAndSyncState: synced from service")
                 return true
+            } else {
+                Log.w(TAG, "queryAndSyncState: sync failed, forcing reconnect")
+                disconnect(context)
+                connect(context)
+                return false
             }
         }
 
         val ctx = contextRef?.get() ?: return false
         val hasVpn = hasSystemVpn(ctx)
 
-        if (hasVpn && !bound) {
-            Log.i(TAG, "queryAndSyncState: system VPN active but not bound, reconnecting")
-            doBindService(ctx)
+        if (hasVpn && !connectionActive) {
+            Log.i(TAG, "queryAndSyncState: system VPN active but not connected, connecting")
+            connect(ctx)
 
             if (_state.value != SingBoxService.ServiceState.RUNNING) {
                 updateState(SingBoxService.ServiceState.RUNNING)
@@ -250,11 +323,11 @@ object SingBoxRemote {
             updateState(SingBoxService.ServiceState.STOPPED)
         }
 
-        if (!bound) {
-            doBindService(ctx)
+        if (!connectionActive) {
+            connect(ctx)
         }
 
-        return bound
+        return connectionActive
     }
 
     /**
@@ -264,7 +337,7 @@ object SingBoxRemote {
         contextRef = WeakReference(context.applicationContext)
         reconnectAttempts = 0
 
-        if (bound && service != null) {
+        if (connectionActive && bound && service != null) {
             val isAlive = runCatching {
                 syncStateFromService(service!!)
                 true
@@ -276,19 +349,17 @@ object SingBoxRemote {
             }
         }
 
-        Log.i(TAG, "Rebind: connection invalid, rebinding...")
-        cleanupConnection()
-        doBindService(context)
+        Log.i(TAG, "Rebind: connection invalid, forcing reconnect")
+        disconnect(context)
+        connect(context)
     }
 
-    fun isBound(): Boolean = bound && service != null
+    fun isBound(): Boolean = connectionActive && bound && service != null
+
+    fun isConnectionActive(): Boolean = connectionActive
 
     fun unbind(context: Context) {
-        if (!bound) return
-        val s = service
-        cleanupConnection()
-        runCatching { s?.unregisterCallback(callback) }
-        runCatching { context.applicationContext.unbindService(conn) }
+        disconnect(context)
     }
 
     fun getLastSyncAge(): Long = System.currentTimeMillis() - lastSyncTimeMs

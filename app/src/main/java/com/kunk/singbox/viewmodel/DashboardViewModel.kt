@@ -491,28 +491,27 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * 2025-fix-v4: 刷新 VPN 状态 (v2rayNG + NekoBox 混合策略)
+     * 2025-fix-v5: 刷新 VPN 状态 (NekoBox + v2rayNG 混合策略)
      * 
-     * v2rayNG 风格: 主动查询服务状态 (MSG_REGISTER_CLIENT)
-     * NekoBox 风格: 系统 VPN 状态作为备用验证
+     * 关键改进: 如果状态同步失败，强制调用 rebind 重新建立连接
      */
     fun refreshState() {
         viewModelScope.launch {
             val context = getApplication<Application>()
             
-            // v2rayNG 风格: 主动查询并同步状态
             val synced = runCatching { SingBoxRemote.queryAndSyncState(context) }.getOrDefault(false)
             
-            if (synced) {
-                // 等待 IPC 绑定完成
-                var retries = 0
-                while (!SingBoxRemote.isBound() && retries < 15) {
-                    delay(100)
-                    retries++
-                }
+            if (!synced) {
+                Log.w(TAG, "refreshState: queryAndSyncState failed, forcing rebind")
+                SingBoxRemote.rebind(context)
             }
 
-            // 根据 SingBoxRemote 的状态更新 UI
+            var retries = 0
+            while (!SingBoxRemote.isBound() && retries < 15) {
+                delay(100)
+                retries++
+            }
+
             val state = SingBoxRemote.state.value
             Log.i(TAG, "refreshState: state=$state, bound=${SingBoxRemote.isBound()}")
             
