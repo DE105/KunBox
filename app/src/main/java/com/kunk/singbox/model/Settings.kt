@@ -85,12 +85,7 @@ data class AppSettings(
     @SerializedName("customNodeOrder") val customNodeOrder: List<String> = emptyList(),
 
     // 版本更新设置
-    @SerializedName("autoCheckUpdate") val autoCheckUpdate: Boolean = true,
-
-    // 自定义配置 JSON
-    @SerializedName("customOutboundsJson") val customOutboundsJson: String = "",
-    @SerializedName("customRouteRulesJson") val customRouteRulesJson: String = "",
-    @SerializedName("customDnsRulesJson") val customDnsRulesJson: String = ""
+    @SerializedName("autoCheckUpdate") val autoCheckUpdate: Boolean = true
 )
 
 enum class LatencyTestMethod(@StringRes val displayNameRes: Int) {

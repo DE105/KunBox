@@ -271,6 +271,11 @@
     <string name="node_filter_keywords_hint">多个关键字用逗号分隔，如：香港, HK, 港</string>
     <string name="node_filter_keywords_tip">提示：关键字匹配节点名称，不区分大小写</string>
 
+    <!-- Node Stats -->
+    <string name="nodes_stat_total">%d 节点</string>
+    <string name="nodes_stat_available">%d 可用</string>
+    <string name="nodes_stat_avg_latency">%dms</string>
+
     <!-- Node Detail -->
     <string name="node_detail_title">服务器配置</string>
     <string name="node_detail_saved">配置已保存</string>
@@ -590,20 +595,6 @@
     <string name="update_status_success_no_changes">更新完成，无变化</string>
     <string name="update_status_partial">更新完成，%1$d个成功，%2$d个失败</string>
     <string name="update_status_complete">更新完成</string>
-
-    <!-- Custom Config -->
-    <string name="custom_config_title">自定义配置</string>
-    <string name="custom_config_subtitle">编辑自定义 JSON 配置</string>
-    <string name="custom_config_view">查看</string>
-    <string name="custom_config_outbounds">Outbounds</string>
-    <string name="custom_config_route_rules">路由规则</string>
-    <string name="custom_config_dns_rules">DNS规则</string>
-    <string name="custom_config_saved">配置已保存</string>
-    <string name="custom_config_invalid_json">JSON 格式无效</string>
-    <string name="custom_config_no_running_config">暂无运行配置，请先启动 VPN</string>
-    <string name="custom_config_outbounds_hint">输入自定义 Outbounds JSON 数组，将合并到生成的配置中</string>
-    <string name="custom_config_route_rules_hint">输入自定义路由规则 JSON 数组，将合并到生成的配置中</string>
-    <string name="custom_config_dns_rules_hint">输入自定义 DNS 规则 JSON 数组，将合并到生成的配置中</string>
 
     <!-- Infinite Date -->
     <string name="date_infinite">无限期</string>
