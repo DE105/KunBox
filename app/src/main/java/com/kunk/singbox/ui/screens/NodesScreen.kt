@@ -33,9 +33,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import kotlinx.coroutines.delay
@@ -52,6 +54,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -142,6 +145,7 @@ fun NodesScreen(
     val testingNodeIds by viewModel.testingNodeIds.collectAsState()
     val nodeFilter by viewModel.nodeFilter.collectAsState()
     val sortType by viewModel.sortType.collectAsState()
+    val testProgress by viewModel.testProgress.collectAsState()
     
     var selectedGroupIndex by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
@@ -481,6 +485,45 @@ fun NodesScreen(
                             )
                         }
                     )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = testProgress != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                testProgress?.let { (completed, total) ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = stringResource(R.string.nodes_testing_progress),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "$completed / $total",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = { if (total > 0) completed.toFloat() / total else 0f },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        )
+                    }
                 }
             }
 

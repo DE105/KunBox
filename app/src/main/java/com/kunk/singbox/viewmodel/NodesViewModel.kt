@@ -242,6 +242,10 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     private val _latencyMessage = MutableStateFlow<String?>(null)
     val latencyMessage: StateFlow<String?> = _latencyMessage.asStateFlow()
 
+    // 批量测速进度 (已完成数 / 总数)
+    private val _testProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+    val testProgress: StateFlow<Pair<Int, Int>?> = _testProgress.asStateFlow()
+
     // 添加节点结果反馈
     private val _addNodeResult = MutableStateFlow<String?>(null)
     val addNodeResult: StateFlow<String?> = _addNodeResult.asStateFlow()
@@ -312,39 +316,51 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
 
     fun testAllLatency() {
         if (_isTesting.value) {
-            // 如果正在测试，则取消测试
             testingJob?.cancel()
             testingJob = null
             _isTesting.value = false
             _testingNodeIds.value = emptySet()
+            _testProgress.value = null
             return
         }
         
         testingJob = viewModelScope.launch {
             _isTesting.value = true
             
-            // 测速期间冻结当前顺序，防止列表跳动
             val currentOrder = nodes.value.map { it.id }
             setCustomNodeOrder(currentOrder)
             setSortType(NodeSortType.CUSTOM)
             
-            // 只测试当前列表显示的节点（已过滤）
             val currentNodes = nodes.value
             val targetIds = currentNodes.map { it.id }
+            val totalCount = targetIds.size
             _testingNodeIds.value = targetIds.toSet()
+            
+            var completedCount = 0
+            var successCount = 0
+            var timeoutCount = 0
+            _testProgress.value = Pair(0, totalCount)
 
             try {
-                // 使用 ConfigRepository 的批量测试功能，它已经在内部实现了并行化
                 configRepository.testAllNodesLatency(targetIds) { finishedNodeId ->
                     _testingNodeIds.value = _testingNodeIds.value - finishedNodeId
+                    completedCount++
+                    val latency = nodes.value.find { it.id == finishedNodeId }?.latencyMs
+                    if (latency != null && latency > 0) {
+                        successCount++
+                    } else {
+                        timeoutCount++
+                    }
+                    _testProgress.value = Pair(completedCount, totalCount)
                 }
-                // 测速完成后自动切换到延迟排序
                 setSortType(NodeSortType.LATENCY)
+                emitToast(getApplication<Application>().getString(R.string.nodes_test_complete_stats, successCount, timeoutCount))
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
                 _isTesting.value = false
                 _testingNodeIds.value = emptySet()
+                _testProgress.value = null
                 testingJob = null
             }
         }
