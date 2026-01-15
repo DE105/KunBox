@@ -1,9 +1,13 @@
 package com.kunk.singbox.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Dns
@@ -38,8 +42,30 @@ fun AppNavBar(
         Screen.Profiles,
         Screen.Settings
     )
-    
-    NavigationBar(
+
+    val gradientColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+
+    Column {
+        // Top gradient line (from center to edges)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            gradientColor,
+                            gradientColor,
+                            Color.Transparent
+                        ),
+                        startX = 0f,
+                        endX = Float.POSITIVE_INFINITY
+                    )
+                )
+        )
+
+        NavigationBar(
         containerColor = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.height(64.dp) // Reduced height
@@ -103,6 +129,7 @@ fun AppNavBar(
                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
+        }
         }
     }
 }
