@@ -52,3 +52,4 @@ planning-with-files/
 buildScript/tasks/*.py
 buildScript/tasks/remove_*.ps1
 buildScript/singbox-build/box_ext.go
+docs/
