@@ -20,6 +20,7 @@ import com.kunk.singbox.utils.parser.Base64Parser
 import com.kunk.singbox.utils.parser.NodeLinkParser
 import com.kunk.singbox.utils.parser.SingBoxParser
 import com.kunk.singbox.utils.parser.SubscriptionManager
+import com.kunk.singbox.utils.KryoSerializer
 import com.kunk.singbox.repository.TrafficRepository
 import java.io.File
 import java.util.UUID
@@ -43,12 +44,83 @@ class ConfigRepository(private val context: Context) {
     companion object {
         private const val TAG = "ConfigRepository"
 
+        // 预编译的 Regex 常量 - 避免重复编译
+        private val REGEX_TRAFFIC = Regex("([\\d.]+)\\s*([KMGTPE]?)B?")
+        private val REGEX_KV_PAIRS = Regex("(?i)\\b(upload|download|total|expire)\\b\\s*[:=]\\s*\"?([^,;\\s\\n\\r}]+)\"?")
+        private val REGEX_SUBSCRIPTION_USERINFO = Regex("(?i)subscription[-_]userinfo\\s*[:=]\\s*\"?([^\"\\n\\r]+)\"?")
+        private val REGEX_TOTAL = Regex("TOT:([\\d.]+[KMGTPE]?)B?")
+        private val REGEX_EXPIRE_DATE = Regex("Expires:(\\d{4}-\\d{2}-\\d{2})")
+        private val REGEX_TRAFFIC_VALUE = Regex("([\\d.]+[KMGTPE]?)B?")
+        private val REGEX_REMAINING = Regex("(?i)(剩余流量|流量剩余|remaining|balance)\\s*[:：]?\\s*([\\d.]+\\s*[KMGTPE]?)\\s*B?")
+        private val REGEX_EXPIRE = Regex("(?i)(套餐到期|到期|expiry|expire)\\s*[:：]?\\s*([^\\s,;]+)")
+        private val REGEX_SANITIZE_UUID = Regex("(?i)uuid\\s*[:=]\\s*[^\\\\n]+")
+        private val REGEX_SANITIZE_PASSWORD = Regex("(?i)password\\s*[:=]\\s*[^\\\\n]+")
+        private val REGEX_SANITIZE_TOKEN = Regex("(?i)token\\s*[:=]\\s*[^\\\\n]+")
+        private val REGEX_FLAG_EMOJI = Regex("[\\uD83C][\\uDDE6-\\uDDFF][\\uD83C][\\uDDE6-\\uDDFF]")
+        private val REGEX_INTERVAL_DIGITS = Regex("^\\d+$")
+        private val REGEX_INTERVAL_DECIMAL = Regex("^\\d+\\.\\d+$")
+        private val REGEX_INTERVAL_UNIT = Regex("^\\d+[smhd]$", RegexOption.IGNORE_CASE)
+        private val REGEX_IPV4 = Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$")
+        private val REGEX_IPV6 = Regex("^[0-9a-fA-F:]+$")
+        private val REGEX_ED_PARAM_START = Regex("""\?ed=\d+(&|$)""")
+        private val REGEX_ED_PARAM_MID = Regex("""&ed=\d+""")
+        private val REGEX_ED_EXTRACT = Regex("""[?&]ed=(\d+)""")
+        private val REGEX_SS_OLD_FORMAT = Regex("(.+):(.+)@(.+):(\\d+)")
+        private val REGEX_WHITESPACE_DASH = Regex("[\\s\\-_]")
+
+        // 预编译的地区检测规则 - 避免每次调用都编译 Regex
+        private data class RegionRule(
+            val flag: String,
+            val chineseKeywords: List<String>,
+            val englishKeywords: List<String>,
+            val wordBoundaryKeywords: List<String> // 需要词边界匹配的短代码
+        )
+
+        private val REGION_RULES = listOf(
+            RegionRule("🇭🇰", listOf("香港"), listOf("hong kong"), listOf("hk")),
+            RegionRule("🇹🇼", listOf("台湾"), listOf("taiwan"), listOf("tw")),
+            RegionRule("🇯🇵", listOf("日本"), listOf("japan", "tokyo"), listOf("jp")),
+            RegionRule("🇸🇬", listOf("新加坡"), listOf("singapore"), listOf("sg")),
+            RegionRule("🇺🇸", listOf("美国"), listOf("united states", "america"), listOf("us", "usa")),
+            RegionRule("🇰🇷", listOf("韩国"), listOf("korea"), listOf("kr")),
+            RegionRule("🇬🇧", listOf("英国"), listOf("britain", "england"), listOf("uk", "gb")),
+            RegionRule("🇩🇪", listOf("德国"), listOf("germany"), listOf("de")),
+            RegionRule("🇫🇷", listOf("法国"), listOf("france"), listOf("fr")),
+            RegionRule("🇨🇦", listOf("加拿大"), listOf("canada"), listOf("ca")),
+            RegionRule("🇦🇺", listOf("澳大利亚"), listOf("australia"), listOf("au")),
+            RegionRule("🇷🇺", listOf("俄罗斯"), listOf("russia"), listOf("ru")),
+            RegionRule("🇮🇳", listOf("印度"), listOf("india"), listOf("in")),
+            RegionRule("🇧🇷", listOf("巴西"), listOf("brazil"), listOf("br")),
+            RegionRule("🇳🇱", listOf("荷兰"), listOf("netherlands"), listOf("nl")),
+            RegionRule("🇹🇷", listOf("土耳其"), listOf("turkey"), listOf("tr")),
+            RegionRule("🇦🇷", listOf("阿根廷"), listOf("argentina"), listOf("ar")),
+            RegionRule("🇲🇾", listOf("马来西亚"), listOf("malaysia"), listOf("my")),
+            RegionRule("🇹🇭", listOf("泰国"), listOf("thailand"), listOf("th")),
+            RegionRule("🇻🇳", listOf("越南"), listOf("vietnam"), listOf("vn")),
+            RegionRule("🇵🇭", listOf("菲律宾"), listOf("philippines"), listOf("ph")),
+            RegionRule("🇮🇩", listOf("印尼"), listOf("indonesia"), listOf("id"))
+        )
+
+        // 预编译词边界 Regex Map
+        private val WORD_BOUNDARY_REGEX_MAP: Map<String, Regex> = REGION_RULES
+            .flatMap { it.wordBoundaryKeywords }
+            .associateWith { word -> Regex("(^|[^a-z])${Regex.escape(word)}([^a-z]|$)") }
+
+        // 地区检测缓存
+        private val regionFlagCache = ConcurrentHashMap<String, String>()
+
+        // stableNodeId 缓存
+        private val nodeIdCache = ConcurrentHashMap<String, String>()
+
         /**
          * 生成稳定的节点 ID（基于 profileId 和 outboundTag 的 UUID）
+         * 使用缓存避免重复计算
          */
         fun stableNodeId(profileId: String, outboundTag: String): String {
             val key = "$profileId|$outboundTag"
-            return java.util.UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)).toString()
+            return nodeIdCache.getOrPut(key) {
+                java.util.UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)).toString()
+            }
         }
 
         // User-Agent 列表，按优先级排序
@@ -140,6 +212,10 @@ class ConfigRepository(private val context: Context) {
     private val profileResetJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
     private val inFlightLatencyTests = ConcurrentHashMap<String, Deferred<Long>>()
 
+    // saveProfiles 防抖
+    @Volatile private var saveProfilesJob: kotlinx.coroutines.Job? = null
+    private val saveDebounceMs = 300L
+
     private val allNodesUiActiveCount = AtomicInteger(0)
     @Volatile private var allNodesLoadedForUi: Boolean = false
     
@@ -165,9 +241,18 @@ class ConfigRepository(private val context: Context) {
     
     private val configDir: File
         get() = File(context.filesDir, "configs").also { it.mkdirs() }
-    
-    private val profilesFile: File
+
+    // Kryo 二进制格式的配置文件
+    private val profilesFileKryo: File
+        get() = File(context.filesDir, "profiles.kryo")
+
+    // JSON 格式的配置文件（用于向后兼容和迁移）
+    private val profilesFileJson: File
         get() = File(context.filesDir, "profiles.json")
+
+    // 优先使用 Kryo 格式，如果不存在则回退到 JSON
+    private val profilesFile: File
+        get() = if (profilesFileKryo.exists()) profilesFileKryo else profilesFileJson
     
     init {
         loadSavedProfiles()
@@ -208,7 +293,28 @@ class ConfigRepository(private val context: Context) {
         configCacheOrder.remove(profileId)
     }
 
+    /**
+     * 保存配置 - 使用防抖机制，合并短时间内的多次调用
+     */
     private fun saveProfiles() {
+        saveProfilesJob?.cancel()
+        saveProfilesJob = scope.launch {
+            delay(saveDebounceMs)
+            saveProfilesInternal()
+        }
+    }
+
+    /**
+     * 立即保存配置 - 跳过防抖，用于关键操作
+     */
+    private fun saveProfilesImmediate() {
+        saveProfilesJob?.cancel()
+        scope.launch {
+            saveProfilesInternal()
+        }
+    }
+
+    private fun saveProfilesInternal() {
         try {
             // 收集所有节点的延迟数据
             val latencies = mutableMapOf<String, Long>()
@@ -223,26 +329,33 @@ class ConfigRepository(private val context: Context) {
                 nodeLatencies = latencies
             )
 
-            val json = gson.toJson(data)
+            // 使用 Kryo 二进制序列化（更快、更小）
+            val success = KryoSerializer.serializeToFile(data, profilesFileKryo)
 
-            // Robust atomic write implementation
-            val tmpFile = File(profilesFile.parent, "${profilesFile.name}.tmp")
-            try {
-                tmpFile.writeText(json)
-                if (tmpFile.exists() && tmpFile.length() > 0) {
-                    if (profilesFile.exists()) {
-                        profilesFile.delete()
-                    }
-                    if (!tmpFile.renameTo(profilesFile)) {
-                        Log.e(TAG, "Rename failed, falling back to copy")
-                        tmpFile.copyTo(profilesFile, overwrite = true)
-                        tmpFile.delete()
-                    }
-                } else {
-                    Log.e(TAG, "Tmp file is empty, skipping save to prevent data corruption")
+            if (success) {
+                // 成功保存 Kryo 格式后，删除旧的 JSON 文件
+                if (profilesFileJson.exists()) {
+                    profilesFileJson.delete()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Internal error during save write", e)
+            } else {
+                // Kryo 失败时回退到 JSON
+                Log.w(TAG, "Kryo serialization failed, falling back to JSON")
+                val json = gson.toJson(data)
+                val tmpFile = File(profilesFileJson.parent, "${profilesFileJson.name}.tmp")
+                try {
+                    tmpFile.writeText(json)
+                    if (tmpFile.exists() && tmpFile.length() > 0) {
+                        if (profilesFileJson.exists()) {
+                            profilesFileJson.delete()
+                        }
+                        if (!tmpFile.renameTo(profilesFileJson)) {
+                            tmpFile.copyTo(profilesFileJson, overwrite = true)
+                            tmpFile.delete()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "JSON fallback also failed", e)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save profiles", e)
@@ -320,32 +433,27 @@ class ConfigRepository(private val context: Context) {
 
     private fun loadSavedProfiles() {
         try {
-            if (profilesFile.exists()) {
-                val json = profilesFile.readText()
-                val savedData = gson.fromJson(json, SavedProfilesData::class.java)
-                
-                // Gson 有时会将泛型列表中的对象反序列化为 LinkedTreeMap，而不是目标对象 (ProfileUi)
-                // 这通常发生在类型擦除或混淆导致类型信息丢失的情况下
-                // 强制转换或重新映射以确保类型正确
-                val safeProfiles = savedData.profiles.map { profile ->
-                    // 强制转换为 Any? 以绕过编译器的类型检查，
-                    // 因为在运行时 profile 可能是 LinkedTreeMap (类型擦除导致)
-                    // 即使声明类型是 ProfileUi
-                    val obj = profile as Any?
-                    if (obj is com.google.gson.internal.LinkedTreeMap<*, *>) {
-                        val jsonStr = gson.toJson(obj)
-                        gson.fromJson(jsonStr, ProfileUi::class.java)
-                    } else {
-                        profile
-                    }
+            val savedData: SavedProfilesData? = when {
+                // 优先尝试 Kryo 格式
+                profilesFileKryo.exists() -> {
+                    KryoSerializer.deserializeFromFile<SavedProfilesData>(profilesFileKryo)
                 }
+                // 回退到 JSON 格式（向后兼容）
+                profilesFileJson.exists() -> {
+                    val json = profilesFileJson.readText()
+                    val savedDataType = object : TypeToken<SavedProfilesData>() {}.type
+                    gson.fromJson<SavedProfilesData>(json, savedDataType)
+                }
+                else -> null
+            }
 
+            if (savedData != null) {
                 // 加载时重置所有配置的更新状态为 Idle，防止因异常退出导致一直显示更新中
-                _profiles.value = safeProfiles.map {
+                _profiles.value = savedData.profiles.map {
                     it.copy(updateStatus = UpdateStatus.Idle)
                 }
                 _activeProfileId.value = savedData.activeProfileId
-                
+
                 // 加载活跃配置的节点
                 savedData.profiles.forEach { profile ->
                     if (profile.id != savedData.activeProfileId) return@forEach
@@ -370,7 +478,7 @@ class ConfigRepository(private val context: Context) {
                 if (allNodesUiActiveCount.get() > 0) {
                     updateAllNodesAndGroups()
                 }
-                
+
                 _activeProfileId.value?.let { activeId ->
                     profileNodes[activeId]?.let { nodes ->
                         _nodes.value = nodes
@@ -392,6 +500,14 @@ class ConfigRepository(private val context: Context) {
                     }
                 } ?: run {
                     Log.w(TAG, "loadSavedProfiles: activeProfileId is null, activeNodeId not restored")
+                }
+
+                // 如果从 JSON 加载成功，自动迁移到 Kryo 格式
+                if (profilesFileJson.exists() && !profilesFileKryo.exists()) {
+                    scope.launch {
+                        saveProfilesInternal()
+                        Log.i(TAG, "Migrated profiles from JSON to Kryo format")
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -419,8 +535,7 @@ class ConfigRepository(private val context: Context) {
      */
     private fun parseTrafficString(value: String): Long {
         val trimmed = value.trim().uppercase()
-        val regex = Regex("([\\d.]+)\\s*([KMGTPE]?)B?")
-        val match = regex.find(trimmed) ?: return 0L
+        val match = REGEX_TRAFFIC.find(trimmed) ?: return 0L
         
         val (numStr, unit) = match.destructured
         val num = numStr.toDoubleOrNull() ?: return 0L
@@ -509,8 +624,7 @@ class ConfigRepository(private val context: Context) {
         }
 
         fun parseKeyValuePairs(text: String) {
-            val kvRegex = Regex("(?i)\\b(upload|download|total|expire)\\b\\s*[:=]\\s*\"?([^,;\\s\\n\\r}]+)\"?")
-            kvRegex.findAll(text).forEach { match ->
+            REGEX_KV_PAIRS.findAll(text).forEach { match ->
                 applyKeyValue(match.groupValues[1], match.groupValues[2])
             }
         }
@@ -542,7 +656,7 @@ class ConfigRepository(private val context: Context) {
                 if (userInfoAltIndex >= 0) {
                     val endIndex = (userInfoAltIndex + 800).coerceAtMost(bodyDecoded.length)
                     val snippet = bodyDecoded.substring(userInfoAltIndex, endIndex)
-                    val inlineMatch = Regex("(?i)subscription[-_]userinfo\\s*[:=]\\s*\"?([^\"\\n\\r]+)\"?").find(snippet)
+                    val inlineMatch = REGEX_SUBSCRIPTION_USERINFO.find(snippet)
                     if (inlineMatch != null) {
                         parseHeaderLike(inlineMatch.groupValues[1])
                     }
@@ -552,7 +666,7 @@ class ConfigRepository(private val context: Context) {
                 val firstLine = bodyDecoded.lines().firstOrNull()?.trim()
                 if (firstLine != null && (firstLine.startsWith("STATUS=") || firstLine.contains("TOT:") || firstLine.contains("Expires:"))) {
                     // 解析 TOT:
-                    val totalMatch = Regex("TOT:([\\d.]+[KMGTPE]?)B?").find(firstLine)
+                    val totalMatch = REGEX_TOTAL.find(firstLine)
                     if (totalMatch != null) {
                         totalSpecified = true
                         total = parseTrafficString(totalMatch.groupValues[1])
@@ -560,7 +674,7 @@ class ConfigRepository(private val context: Context) {
                     }
 
                     // 解析 Expires:
-                    val expireMatch = Regex("Expires:(\\d{4}-\\d{2}-\\d{2})").find(firstLine)
+                    val expireMatch = REGEX_EXPIRE_DATE.find(firstLine)
                     if (expireMatch != null) {
                         expire = parseDateString(expireMatch.groupValues[1])
                         found = true
@@ -581,7 +695,7 @@ class ConfigRepository(private val context: Context) {
                         if (part.contains("Expires:")) return@forEach
 
                         // 提取流量值
-                        val match = Regex("([\\d.]+[KMGTPE]?)B?").find(part)
+                        val match = REGEX_TRAFFIC_VALUE.find(part)
                         if (match != null) {
                             usedAccumulator += parseTrafficString(match.groupValues[1])
                             found = true
@@ -611,19 +725,16 @@ class ConfigRepository(private val context: Context) {
         var remainingBytes: Long? = null
         var expireValue: Long? = null
 
-        val remainingRegex = Regex("(?i)(剩余流量|流量剩余|remaining|balance)\\s*[:：]?\\s*([\\d.]+\\s*[KMGTPE]?)\\s*B?")
-        val expireRegex = Regex("(?i)(套餐到期|到期|expiry|expire)\\s*[:：]?\\s*([^\\s,;]+)")
-
         outbounds.forEach { outbound ->
             val tag = outbound.tag
             if (remainingBytes == null) {
-                val match = remainingRegex.find(tag)
+                val match = REGEX_REMAINING.find(tag)
                 if (match != null) {
                     remainingBytes = parseTrafficString(match.groupValues[2])
                 }
             }
             if (expireValue == null) {
-                val match = expireRegex.find(tag)
+                val match = REGEX_EXPIRE.find(tag)
                 if (match != null) {
                     expireValue = parseExpireValue(match.groupValues[2])
                 }
@@ -744,9 +855,9 @@ class ConfigRepository(private val context: Context) {
             .trim()
         if (s.length > maxLen) s = s.substring(0, maxLen)
 
-        s = s.replace(Regex("(?i)uuid\\s*[:=]\\s*[^\\\\n]+"), "uuid:***")
-        s = s.replace(Regex("(?i)password\\s*[:=]\\s*[^\\\\n]+"), "password:***")
-        s = s.replace(Regex("(?i)token\\s*[:=]\\s*[^\\\\n]+"), "token:***")
+        s = s.replace(REGEX_SANITIZE_UUID, "uuid:***")
+        s = s.replace(REGEX_SANITIZE_PASSWORD, "password:***")
+        s = s.replace(REGEX_SANITIZE_TOKEN, "token:***")
         return s
     }
 
@@ -1119,8 +1230,7 @@ class ConfigRepository(private val context: Context) {
             } else {
                 // 旧格式: BASE64(method:password@server:port)
                 val decoded = String(Base64.decode(mainPart, Base64.URL_SAFE or Base64.NO_PADDING))
-                val regex = Regex("(.+):(.+)@(.+):(\\d+)")
-                val match = regex.find(decoded)
+                val match = REGEX_SS_OLD_FORMAT.find(decoded)
                 if (match != null) {
                     val (method, password, server, port) = match.destructured
                     return Outbound(
@@ -1275,9 +1385,9 @@ class ConfigRepository(private val context: Context) {
                     headers["User-Agent"] = userAgent
 
                     val rawPath = json.path ?: "/"
-                    val edMatch = Regex("""[?&]ed=(\d+)""").find(rawPath)
+                    val edMatch = REGEX_ED_EXTRACT.find(rawPath)
                     val maxEarlyData = edMatch?.groupValues?.get(1)?.toIntOrNull() ?: 2048
-                    val cleanPath = rawPath.replace(Regex("""[?&]ed=\d+"""), "").ifEmpty { "/" }
+                    val cleanPath = rawPath.replace(REGEX_ED_EXTRACT, "").ifEmpty { "/" }
 
                     TransportConfig(
                         type = "ws",
@@ -1383,20 +1493,20 @@ class ConfigRepository(private val context: Context) {
                 "ws" -> {
                     val host = params["host"] ?: sni
                     val rawWsPath = params["path"] ?: "/"
-                    
+
                     // 从路径中提取 ed 参数
                     val earlyDataSize = params["ed"]?.toIntOrNull()
-                        ?: Regex("""(?:\?|&)ed=(\d+)""")
+                        ?: REGEX_ED_EXTRACT
                             .find(rawWsPath)
                             ?.groupValues
                             ?.getOrNull(1)
                             ?.toIntOrNull()
                     val maxEarlyData = earlyDataSize ?: 2048
-                    
+
                     // 从路径中移除 ed 参数，只保留纯路径
                     val cleanPath = rawWsPath
-                        .replace(Regex("""\?ed=\d+(&|$)"""), "")
-                        .replace(Regex("""&ed=\d+"""), "")
+                        .replace(REGEX_ED_PARAM_START, "")
+                        .replace(REGEX_ED_PARAM_MID, "")
                         .trimEnd('?', '&')
                         .ifEmpty { "/" }
                     
@@ -1482,9 +1592,9 @@ class ConfigRepository(private val context: Context) {
                 "ws" -> {
                     val wsHost = params["host"] ?: sni
                     val rawPath = params["path"] ?: "/"
-                    val edMatch = Regex("""[?&]ed=(\d+)""").find(rawPath)
+                    val edMatch = REGEX_ED_EXTRACT.find(rawPath)
                     val maxEarlyData = params["ed"]?.toIntOrNull() ?: edMatch?.groupValues?.get(1)?.toIntOrNull() ?: 2048
-                    val cleanPath = rawPath.replace(Regex("""[?&]ed=\d+"""), "").ifEmpty { "/" }
+                    val cleanPath = rawPath.replace(REGEX_ED_EXTRACT, "").ifEmpty { "/" }
                     
                     val ua = if (fingerprint?.contains("chrome", true) == true) {
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
@@ -1840,56 +1950,44 @@ class ConfigRepository(private val context: Context) {
         // U+1F1E6 是 \uD83C\uDDE6
         // U+1F1FF 是 \uD83C\uDDFF
         // 正则表达式匹配两个连续的区域指示符
-        val regex = Regex("[\\uD83C][\\uDDE6-\\uDDFF][\\uD83C][\\uDDE6-\\uDDFF]")
-        
-        // 另外，有些国旗 Emoji 可能不在这个范围内，或者已经被渲染为 Emoji
-        // 我们也可以尝试匹配常见的国旗 Emoji 字符范围
-        // 或者简单地，如果字符串包含任何 Emoji，我们可能都需要谨慎
-        // 但目前先专注于国旗
-        
-        return regex.containsMatchIn(str)
+        return REGEX_FLAG_EMOJI.containsMatchIn(str)
     }
 
     /**
      * 根据节点名称检测地区标志
-
-     * 使用词边界匹配，避免 "us" 匹配 "music" 等误报
+     *
+     * 使用预编译规则和缓存优化性能
      */
     private fun detectRegionFlag(name: String): String {
+        // 先查缓存
+        regionFlagCache[name]?.let { return it }
+
         val lowerName = name.lowercase()
-        
-        fun matchWord(vararg words: String): Boolean {
-            return words.any { word ->
-                val regex = Regex("(^|[^a-z])${Regex.escape(word)}([^a-z]|$)")
-                regex.containsMatchIn(lowerName)
+
+        for (rule in REGION_RULES) {
+            // 1. 检查中文关键词 (直接 contains)
+            if (rule.chineseKeywords.any { lowerName.contains(it) }) {
+                regionFlagCache[name] = rule.flag
+                return rule.flag
+            }
+
+            // 2. 检查英文关键词 (直接 contains)
+            if (rule.englishKeywords.any { lowerName.contains(it) }) {
+                regionFlagCache[name] = rule.flag
+                return rule.flag
+            }
+
+            // 3. 检查需要词边界的短代码 (使用预编译 Regex)
+            if (rule.wordBoundaryKeywords.any { word ->
+                WORD_BOUNDARY_REGEX_MAP[word]?.containsMatchIn(lowerName) == true
+            }) {
+                regionFlagCache[name] = rule.flag
+                return rule.flag
             }
         }
-        
-        return when {
-            lowerName.contains("香港") || matchWord("hk") || lowerName.contains("hong kong") -> "🇭🇰"
-            lowerName.contains("台湾") || matchWord("tw") || lowerName.contains("taiwan") -> "🇹🇼"
-            lowerName.contains("日本") || matchWord("jp") || lowerName.contains("japan") || lowerName.contains("tokyo") -> "🇯🇵"
-            lowerName.contains("新加坡") || matchWord("sg") || lowerName.contains("singapore") -> "🇸🇬"
-            lowerName.contains("美国") || matchWord("us", "usa") || lowerName.contains("united states") || lowerName.contains("america") -> "🇺🇸"
-            lowerName.contains("韩国") || matchWord("kr") || lowerName.contains("korea") -> "🇰🇷"
-            lowerName.contains("英国") || matchWord("uk", "gb") || lowerName.contains("britain") || lowerName.contains("england") -> "🇬🇧"
-            lowerName.contains("德国") || matchWord("de") || lowerName.contains("germany") -> "🇩🇪"
-            lowerName.contains("法国") || matchWord("fr") || lowerName.contains("france") -> "🇫🇷"
-            lowerName.contains("加拿大") || matchWord("ca") || lowerName.contains("canada") -> "🇨🇦"
-            lowerName.contains("澳大利亚") || matchWord("au") || lowerName.contains("australia") -> "🇦🇺"
-            lowerName.contains("俄罗斯") || matchWord("ru") || lowerName.contains("russia") -> "🇷🇺"
-            lowerName.contains("印度") || matchWord("in") || lowerName.contains("india") -> "🇮🇳"
-            lowerName.contains("巴西") || matchWord("br") || lowerName.contains("brazil") -> "🇧🇷"
-            lowerName.contains("荷兰") || matchWord("nl") || lowerName.contains("netherlands") -> "🇳🇱"
-            lowerName.contains("土耳其") || matchWord("tr") || lowerName.contains("turkey") -> "🇹🇷"
-            lowerName.contains("阿根廷") || matchWord("ar") || lowerName.contains("argentina") -> "🇦🇷"
-            lowerName.contains("马来西亚") || matchWord("my") || lowerName.contains("malaysia") -> "🇲🇾"
-            lowerName.contains("泰国") || matchWord("th") || lowerName.contains("thailand") -> "🇹🇭"
-            lowerName.contains("越南") || matchWord("vn") || lowerName.contains("vietnam") -> "🇻🇳"
-            lowerName.contains("菲律宾") || matchWord("ph") || lowerName.contains("philippines") -> "🇵🇭"
-            lowerName.contains("印尼") || matchWord("id") || lowerName.contains("indonesia") -> "🇮🇩"
-            else -> "🌐"
-        }
+
+        regionFlagCache[name] = "🌐"
+        return "🌐"
     }
     
     fun setActiveProfile(profileId: String, targetNodeId: String? = null) {
@@ -2575,9 +2673,9 @@ class ConfigRepository(private val context: Context) {
         val interval = result.interval
         if (interval != null) {
             val fixedInterval = when {
-                interval.matches(Regex("^\\d+$")) -> "${interval}s"
-                interval.matches(Regex("^\\d+\\.\\d+$")) -> "${interval}s"
-                interval.matches(Regex("^\\d+[smhd]$", RegexOption.IGNORE_CASE)) -> interval.lowercase()
+                REGEX_INTERVAL_DIGITS.matches(interval) -> "${interval}s"
+                REGEX_INTERVAL_DECIMAL.matches(interval) -> "${interval}s"
+                REGEX_INTERVAL_UNIT.matches(interval) -> interval.lowercase()
                 else -> interval
             }
             if (fixedInterval != interval) {
@@ -2627,12 +2725,10 @@ class ConfigRepository(private val context: Context) {
         fun isIpLiteral(value: String): Boolean {
             val v = value.trim()
             if (v.isEmpty()) return false
-            val ipv4 = Regex("^(?:\\d{1,3}\\.){3}\\d{1,3}$")
-            if (ipv4.matches(v)) {
+            if (REGEX_IPV4.matches(v)) {
                 return v.split(".").all { it.toIntOrNull()?.let { n -> n in 0..255 } == true }
             }
-            val ipv6 = Regex("^[0-9a-fA-F:]+$")
-            return v.contains(":") && ipv6.matches(v)
+            return v.contains(":") && REGEX_IPV6.matches(v)
         }
 
         val tls = result.tls
@@ -2687,8 +2783,8 @@ class ConfigRepository(private val context: Context) {
             // 清理路径中的 ed 参数
             val rawPath = transport.path ?: "/"
             val cleanPath = rawPath
-                .replace(Regex("""\?ed=\d+(&|$)"""), "")
-                .replace(Regex("""&ed=\d+"""), "")
+                .replace(REGEX_ED_PARAM_START, "")
+                .replace(REGEX_ED_PARAM_MID, "")
                 .trimEnd('?', '&')
                 .ifEmpty { "/" }
             
@@ -3668,10 +3764,10 @@ class ConfigRepository(private val context: Context) {
             // 尝试多种方式匹配 outbound
             val sourceOutbound = sourceConfig.outbounds?.find { it.tag == node.name }
                 ?: sourceConfig.outbounds?.find { it.tag.equals(node.name, ignoreCase = true) }
-                ?: sourceConfig.outbounds?.find { 
+                ?: sourceConfig.outbounds?.find {
                     // 尝试模糊匹配：去除空格和特殊字符后比较
-                    it.tag.replace(Regex("[\\s\\-_]"), "").equals(
-                        node.name.replace(Regex("[\\s\\-_]"), ""), 
+                    it.tag.replace(REGEX_WHITESPACE_DASH, "").equals(
+                        node.name.replace(REGEX_WHITESPACE_DASH, ""),
                         ignoreCase = true
                     )
                 }

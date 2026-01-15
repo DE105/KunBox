@@ -397,6 +397,9 @@ dependencies {
 
     // YAML parsing
     implementation("org.yaml:snakeyaml:2.2")
+
+    // Kryo - 高性能二进制序列化
+    implementation("com.esotericsoftware:kryo:5.6.2")
     
     // QR Code scanning - ZXing
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")

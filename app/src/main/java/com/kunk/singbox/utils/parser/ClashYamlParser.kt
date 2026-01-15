@@ -42,25 +42,22 @@ class ClashYamlParser : SubscriptionParser {
         val proxiesRaw = rootMap["proxies"] as? List<*> ?: return null
 
         val outbounds = mutableListOf<Outbound>()
-        val typeCounts = mutableMapOf<String, Int>()
-        
+        var skippedCount = 0
+
         for (p in proxiesRaw) {
             val m = p as? Map<*, *> ?: continue
-            
-            // 调试日志：打印所有节点的名称和类型
-            val name = asString(m["name"]) ?: "unknown"
-            val type = asString(m["type"])?.lowercase() ?: "unknown"
-            typeCounts[type] = (typeCounts[type] ?: 0) + 1
-            
+
             val ob = parseProxy(m)
             if (ob != null) {
                 outbounds.add(ob)
             } else {
-                android.util.Log.w("ClashYamlParser", "Skipped proxy: '$name' (type=$type)")
+                skippedCount++
             }
         }
-        
-        android.util.Log.i("ClashYamlParser", "Parsed proxy types distribution: $typeCounts")
+
+        if (skippedCount > 0) {
+            android.util.Log.d("ClashYamlParser", "Parsed ${outbounds.size} proxies, skipped $skippedCount")
+        }
         
         // 解析 proxy-groups
         val proxyGroupsRaw = rootMap["proxy-groups"] as? List<*>
