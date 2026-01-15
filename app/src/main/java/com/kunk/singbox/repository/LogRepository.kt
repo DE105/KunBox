@@ -24,6 +24,13 @@ class LogRepository private constructor() {
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
 
+    // 当前过滤的日志类别（null = 显示全部）
+    private val _currentFilter = MutableStateFlow<String?>(null)
+    val currentFilter: StateFlow<String?> = _currentFilter.asStateFlow()
+
+    // 可用的日志类别列表
+    val availableCategories = listOf("CONN", "VPN", "CFG", "NET", "ERR", "DBG", "INFO")
+
     private val maxLogSize = 500
     private val maxLogLineLength = 2000
     private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
@@ -132,6 +139,57 @@ class LogRepository private constructor() {
         }
         _logs.value = emptyList()
         clearFileBestEffort()
+    }
+
+    /**
+     * 设置日志过滤类别
+     * @param category 类别前缀（如 "CONN", "VPN", "ERR"），null 表示显示全部
+     */
+    fun setFilter(category: String?) {
+        _currentFilter.value = category
+        requestFlush()
+    }
+
+    /**
+     * 获取过滤后的日志
+     */
+    fun getFilteredLogs(): List<String> {
+        val filter = _currentFilter.value
+        val allLogs = synchronized(buffer) { buffer.toList() }
+
+        return if (filter == null) {
+            allLogs
+        } else {
+            allLogs.filter { log ->
+                // 匹配格式: [时间] emoji [类别][级别] ...
+                log.contains("[$filter]")
+            }
+        }
+    }
+
+    /**
+     * 搜索日志
+     * @param keyword 关键词
+     * @return 匹配的日志列表
+     */
+    fun searchLogs(keyword: String): List<String> {
+        if (keyword.isBlank()) return getFilteredLogs()
+
+        val keywordLower = keyword.lowercase()
+        return getFilteredLogs().filter { log ->
+            log.lowercase().contains(keywordLower)
+        }
+    }
+
+    /**
+     * 获取错误日志摘要（用于快速定位问题）
+     */
+    fun getErrorSummary(): List<String> {
+        return synchronized(buffer) {
+            buffer.filter { log ->
+                log.contains("[ERR]") || log.contains("[E]") || log.contains("❌")
+            }.toList()
+        }
     }
 
     fun getLogsAsText(): String {

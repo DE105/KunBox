@@ -10,6 +10,7 @@ import com.kunk.singbox.model.FilterMode
 import com.kunk.singbox.model.NodeFilter
 import com.kunk.singbox.model.NodeSortType
 import com.kunk.singbox.model.NodeUi
+import com.kunk.singbox.model.ProfileUi
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.Job
@@ -208,6 +209,13 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     val allNodes: StateFlow<List<NodeUi>> = configRepository.allNodes
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val profiles: StateFlow<List<ProfileUi>> = configRepository.profiles
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -413,11 +421,14 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         configRepository.setAllNodesUiActive(active)
     }
     
-    fun addNode(content: String) {
+    fun addNode(
+        content: String,
+        targetProfileId: String? = null,
+        newProfileName: String? = null
+    ) {
         viewModelScope.launch {
             val trimmedContent = content.trim()
             
-            // 检查是否是支持的节点链接格式
             val supportedPrefixes = listOf(
                 "vmess://", "vless://", "ss://", "trojan://",
                 "hysteria2://", "hy2://", "hysteria://",
@@ -431,7 +442,11 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
             
-            val result = configRepository.addSingleNode(trimmedContent)
+            val result = configRepository.addSingleNode(
+                link = trimmedContent,
+                targetProfileId = targetProfileId,
+                newProfileName = newProfileName
+            )
             result.onSuccess { node ->
                 val msg = getApplication<Application>().getString(R.string.common_add) + ": ${node.displayName}"
                 _addNodeResult.value = msg

@@ -70,6 +70,8 @@ import com.kunk.singbox.model.WireGuardPeer
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.ui.components.EditableSelectionItem
 import com.kunk.singbox.ui.components.EditableTextItem
+import com.kunk.singbox.ui.components.SelectProfileDialog
+import com.kunk.singbox.ui.components.SelectProfileTarget
 import com.kunk.singbox.ui.components.SettingItem
 import com.kunk.singbox.ui.components.SettingSwitchItem
 import com.kunk.singbox.ui.components.StandardCard
@@ -86,12 +88,12 @@ fun NodeDetailScreen(
 
     val isCreateMode = nodeId.isEmpty() && createProtocol.isNotEmpty()
 
-    // Watch for node changes
     val nodes by configRepository.nodes.collectAsState(initial = emptyList())
     val node = if (!isCreateMode) nodes.find { it.id == nodeId } else null
+    val profiles by configRepository.profiles.collectAsState(initial = emptyList())
 
-    // Initial load
     var editingOutbound by remember { mutableStateOf<Outbound?>(null) }
+    var showSelectProfileDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(nodeId, createProtocol) {
         if (editingOutbound == null) {
@@ -104,6 +106,29 @@ fun NodeDetailScreen(
                 }
             }
         }
+    }
+
+    val createdMsg = stringResource(R.string.node_created)
+    if (showSelectProfileDialog) {
+        SelectProfileDialog(
+            profiles = profiles,
+            onConfirm = { target ->
+                editingOutbound?.let { outbound ->
+                    when (target) {
+                        is SelectProfileTarget.ExistingProfile -> {
+                            configRepository.createNode(outbound, targetProfileId = target.profileId)
+                        }
+                        is SelectProfileTarget.NewProfile -> {
+                            configRepository.createNode(outbound, newProfileName = target.profileName)
+                        }
+                    }
+                    Toast.makeText(context, createdMsg, Toast.LENGTH_SHORT).show()
+                    navController.popBackStack()
+                }
+                showSelectProfileDialog = false
+            },
+            onDismiss = { showSelectProfileDialog = false }
+        )
     }
 
     Scaffold(
@@ -124,17 +149,15 @@ fun NodeDetailScreen(
                 },
                 actions = {
                     val savedMsg = stringResource(R.string.node_detail_saved)
-                    val createdMsg = stringResource(R.string.node_created)
                     IconButton(onClick = {
                         if (editingOutbound != null) {
                             if (isCreateMode) {
-                                configRepository.createNode(editingOutbound!!)
-                                Toast.makeText(context, createdMsg, Toast.LENGTH_SHORT).show()
+                                showSelectProfileDialog = true
                             } else {
                                 configRepository.updateNode(nodeId, editingOutbound!!)
                                 Toast.makeText(context, savedMsg, Toast.LENGTH_SHORT).show()
+                                navController.popBackStack()
                             }
-                            navController.popBackStack()
                         }
                     }) {
                         Icon(Icons.Rounded.Save, contentDescription = stringResource(R.string.common_save), tint = MaterialTheme.colorScheme.onBackground)

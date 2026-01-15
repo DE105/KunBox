@@ -3169,22 +3169,51 @@ class ConfigRepository(private val context: Context) {
      */
     /**
      * 手动创建节点（从空白 Outbound 创建）
-     * 复用 addSingleNode 的逻辑，但直接接收 Outbound 对象
+     * @param outbound 要创建的节点
+     * @param targetProfileId 目标配置ID（如指定则添加到该配置）
+     * @param newProfileName 新配置名称（如指定则创建新配置并添加）
      */
-    fun createNode(outbound: Outbound) {
+    fun createNode(
+        outbound: Outbound,
+        targetProfileId: String? = null,
+        newProfileName: String? = null
+    ) {
         try {
-            // 1. 查找或创建"手动添加"配置
-            val manualProfileName = "Manual"
-            var manualProfile = _profiles.value.find { it.name == manualProfileName && it.type == ProfileType.Imported }
             val profileId: String
             val existingConfig: SingBoxConfig?
+            var targetProfile: ProfileUi? = null
+            val finalProfileName: String
 
-            if (manualProfile != null) {
-                profileId = manualProfile.id
-                existingConfig = loadConfig(profileId)
-            } else {
-                profileId = UUID.randomUUID().toString()
-                existingConfig = null
+            when {
+                targetProfileId != null -> {
+                    targetProfile = _profiles.value.find { it.id == targetProfileId }
+                    if (targetProfile != null) {
+                        profileId = targetProfileId
+                        existingConfig = loadConfig(profileId)
+                        finalProfileName = targetProfile.name
+                    } else {
+                        profileId = UUID.randomUUID().toString()
+                        existingConfig = null
+                        finalProfileName = "Manual"
+                    }
+                }
+                newProfileName != null -> {
+                    profileId = UUID.randomUUID().toString()
+                    existingConfig = null
+                    finalProfileName = newProfileName
+                }
+                else -> {
+                    val manualProfileName = "Manual"
+                    targetProfile = _profiles.value.find { it.name == manualProfileName && it.type == ProfileType.Imported }
+                    if (targetProfile != null) {
+                        profileId = targetProfile.id
+                        existingConfig = loadConfig(profileId)
+                    } else {
+                        profileId = UUID.randomUUID().toString()
+                        existingConfig = null
+                    }
+                    finalProfileName = manualProfileName
+                }
             }
 
             // 2. 合并或创建 outbounds
@@ -3216,32 +3245,28 @@ class ConfigRepository(private val context: Context) {
 
             val newConfig = deduplicateTags(SingBoxConfig(outbounds = newOutbounds))
 
-            // 3. 保存配置文件
             val configFile = File(configDir, "$profileId.json")
             configFile.writeText(gson.toJson(newConfig))
 
-            // 4. 更新内存状态
             cacheConfig(profileId, newConfig)
 
-            // 5. 如果是新配置，添加到 profiles 列表
-            if (manualProfile == null) {
-                manualProfile = ProfileUi(
+            if (targetProfile == null) {
+                targetProfile = ProfileUi(
                     id = profileId,
-                    name = manualProfileName,
+                    name = finalProfileName,
                     type = ProfileType.Imported,
                     url = null,
                     lastUpdated = System.currentTimeMillis(),
                     enabled = true,
                     updateStatus = UpdateStatus.Idle
                 )
-                _profiles.update { it + manualProfile }
+                _profiles.update { it + targetProfile }
             } else {
                 _profiles.update { list ->
                     list.map { if (it.id == profileId) it.copy(lastUpdated = System.currentTimeMillis()) else it }
                 }
             }
 
-            // 6. 激活配置
             setActiveProfile(profileId)
 
             // 优化: 使用协程提取节点，避免 runBlocking 阻塞

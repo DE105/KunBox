@@ -56,9 +56,9 @@ class ClashYamlParser : SubscriptionParser {
         for (p in proxiesRaw) {
             val m = p as? Map<*, *> ?: continue
 
-            val ob = parseProxy(m, globalClientFingerprint, globalTlsMinVersion)
-            if (ob != null) {
-                outbounds.add(ob)
+            val obs = parseProxy(m, globalClientFingerprint, globalTlsMinVersion)
+            if (obs != null && obs.isNotEmpty()) {
+                outbounds.addAll(obs)
             } else {
                 skippedCount++
             }
@@ -116,7 +116,7 @@ class ClashYamlParser : SubscriptionParser {
         return SingBoxConfig(outbounds = outbounds)
     }
 
-    private fun parseProxy(proxyMap: Map<*, *>, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
+    private fun parseProxy(proxyMap: Map<*, *>, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): List<Outbound>? {
         val name = asString(proxyMap["name"]) ?: run {
             android.util.Log.w("ClashYamlParser", "Proxy missing name field: ${proxyMap.keys}")
             return null
@@ -129,10 +129,18 @@ class ClashYamlParser : SubscriptionParser {
         val server = asString(proxyMap["server"])
         val port = asInt(proxyMap["port"])
 
+        // SS + ShadowTLS 插件需要返回多个 outbound
+        if (type == "ss" || type == "shadowsocks") {
+            val outbounds = parseShadowsocksWithPlugin(proxyMap, name, server, port, globalFingerprint)
+            if (outbounds != null && outbounds.isNotEmpty()) {
+                return outbounds
+            }
+            return null
+        }
+
         val outbound = when (type) {
             "vless" -> parseVLess(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
             "vmess" -> parseVMess(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
-            "ss", "shadowsocks" -> parseShadowsocks(proxyMap, name, server, port)
             "trojan" -> parseTrojan(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
             "hysteria2", "hy2" -> parseHysteria2(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
             "hysteria" -> parseHysteria(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
@@ -142,7 +150,7 @@ class ClashYamlParser : SubscriptionParser {
             "wireguard" -> parseWireGuard(proxyMap, name, server, port)
             "http" -> parseHttp(proxyMap, name, server, port, globalFingerprint, globalTlsMinVersion)
             "socks5" -> parseSocks(proxyMap, name, server, port)
-            "shadowtls" -> parseShadowTLS(proxyMap, name, server, port)
+            "shadowtls" -> parseShadowTLS(proxyMap, name, server, port, globalFingerprint)
             else -> null
         }
 
@@ -150,7 +158,7 @@ class ClashYamlParser : SubscriptionParser {
             android.util.Log.w("ClashYamlParser", "Failed to parse $type node '$name'. Server: $server, Port: $port, Map: $proxyMap")
         }
 
-        return outbound
+        return outbound?.let { listOf(it) }
     }
 
     private fun parseVLess(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
@@ -362,25 +370,174 @@ class ClashYamlParser : SubscriptionParser {
         )
     }
 
-    private fun parseShadowsocks(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+    /**
+     * SS + ShadowTLS/obfs 插件解析
+     * 
+     * Clash 格式 (plugin: shadow-tls):
+     *   - type: ss
+     *     plugin: shadow-tls
+     *     plugin-opts:
+     *       host: example.com
+     *       password: xxx
+     *       version: 3
+     * 
+     * sing-box 需要两个 outbound:
+     *   1. shadowtls outbound (连接实际服务器)
+     *   2. shadowsocks outbound (通过 detour 指向 shadowtls)
+     */
+    private fun parseShadowsocksWithPlugin(
+        map: Map<*, *>, 
+        name: String, 
+        server: String?, 
+        port: Int?,
+        globalFingerprint: String?
+    ): List<Outbound>? {
         if (server == null || port == null) return null
         val cipher = asString(map["cipher"]) ?: return null
         val password = asString(map["password"]) ?: return null
-        val plugin = asString(map["plugin"])
+        val plugin = asString(map["plugin"])?.lowercase()
         val pluginOpts = map["plugin-opts"] as? Map<*, *>
-
-        // 处理 obfs-local / v2ray-plugin
-        // Sing-box 原生不支持这些 plugin，但如果是 simple-obfs http/tls，勉强可以用 transport 模拟？
-        // 这里暂时只支持基础 SS，复杂的 plugin 可能需要转换逻辑
         
-        return Outbound(
-            type = "shadowsocks",
-            tag = name,
-            server = server,
-            serverPort = port,
-            method = cipher,
-            password = password
-        )
+        val multiplex = parseSmux(map)
+        val udpEnabled = asBool(map["udp"]) != false
+        
+        when (plugin) {
+            "shadow-tls", "shadowtls" -> {
+                if (pluginOpts == null) {
+                    android.util.Log.w("ClashYamlParser", "SS node '$name' has shadow-tls plugin but no plugin-opts")
+                    return null
+                }
+                
+                val stlsPassword = asString(pluginOpts["password"]) ?: return null
+                val stlsVersion = asInt(pluginOpts["version"]) ?: 3
+                val stlsHost = asString(pluginOpts["host"]) ?: server
+                val fingerprint = asString(map["client-fingerprint"]) ?: globalFingerprint
+                
+                val shadowTlsTag = "${name}_shadowtls"
+                
+                val shadowTlsOutbound = Outbound(
+                    type = "shadowtls",
+                    tag = shadowTlsTag,
+                    server = server,
+                    serverPort = port,
+                    version = stlsVersion,
+                    password = stlsPassword,
+                    tls = TlsConfig(
+                        enabled = true,
+                        serverName = stlsHost,
+                        utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                    )
+                )
+                
+                val ssOutbound = Outbound(
+                    type = "shadowsocks",
+                    tag = name,
+                    method = cipher,
+                    password = password,
+                    detour = shadowTlsTag,
+                    multiplex = multiplex,
+                    network = if (!udpEnabled) "tcp" else null
+                )
+                
+                return listOf(ssOutbound, shadowTlsOutbound)
+            }
+            
+            "obfs", "obfs-local", "simple-obfs" -> {
+                val obfsMode = asString(pluginOpts?.get("mode"))?.lowercase()
+                val obfsHost = asString(pluginOpts?.get("host")) ?: server
+                
+                val transport = when (obfsMode) {
+                    "http" -> TransportConfig(
+                        type = "http",
+                        host = listOf(obfsHost)
+                    )
+                    "tls" -> null
+                    else -> null
+                }
+                
+                return listOf(Outbound(
+                    type = "shadowsocks",
+                    tag = name,
+                    server = server,
+                    serverPort = port,
+                    method = cipher,
+                    password = password,
+                    multiplex = multiplex,
+                    transport = transport,
+                    network = if (!udpEnabled) "tcp" else null
+                ))
+            }
+            
+            "v2ray-plugin" -> {
+                val mode = asString(pluginOpts?.get("mode"))?.lowercase() ?: "websocket"
+                val tlsEnabled = asBool(pluginOpts?.get("tls")) == true
+                val host = asString(pluginOpts?.get("host")) ?: server
+                val path = asString(pluginOpts?.get("path")) ?: "/"
+                val fingerprint = asString(map["client-fingerprint"]) ?: globalFingerprint
+                
+                val transport = when (mode) {
+                    "websocket", "ws" -> TransportConfig(
+                        type = "ws",
+                        path = path,
+                        headers = mapOf("Host" to host)
+                    )
+                    "quic" -> TransportConfig(type = "quic")
+                    "grpc" -> TransportConfig(
+                        type = "grpc",
+                        serviceName = asString(pluginOpts?.get("grpc-service-name")) ?: ""
+                    )
+                    else -> null
+                }
+                
+                val tlsConfig = if (tlsEnabled) {
+                    TlsConfig(
+                        enabled = true,
+                        serverName = host,
+                        utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
+                    )
+                } else null
+                
+                return listOf(Outbound(
+                    type = "shadowsocks",
+                    tag = name,
+                    server = server,
+                    serverPort = port,
+                    method = cipher,
+                    password = password,
+                    multiplex = multiplex,
+                    transport = transport,
+                    tls = tlsConfig,
+                    network = if (!udpEnabled) "tcp" else null
+                ))
+            }
+            
+            null, "" -> {
+                return listOf(Outbound(
+                    type = "shadowsocks",
+                    tag = name,
+                    server = server,
+                    serverPort = port,
+                    method = cipher,
+                    password = password,
+                    multiplex = multiplex,
+                    network = if (!udpEnabled) "tcp" else null
+                ))
+            }
+            
+            else -> {
+                android.util.Log.w("ClashYamlParser", "SS node '$name' has unsupported plugin: $plugin")
+                return listOf(Outbound(
+                    type = "shadowsocks",
+                    tag = name,
+                    server = server,
+                    serverPort = port,
+                    method = cipher,
+                    password = password,
+                    multiplex = multiplex,
+                    network = if (!udpEnabled) "tcp" else null
+                ))
+            }
+        }
     }
 
     private fun parseTrojan(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {
@@ -739,10 +896,12 @@ class ClashYamlParser : SubscriptionParser {
         )
     }
 
-    private fun parseShadowTLS(map: Map<*, *>, name: String, server: String?, port: Int?): Outbound? {
+    private fun parseShadowTLS(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null): Outbound? {
         if (server == null || port == null) return null
         val password = asString(map["password"]) ?: return null
         val version = asInt(map["version"]) ?: 3
+        val sni = asString(map["sni"]) ?: server
+        val fingerprint = asString(map["client-fingerprint"]) ?: globalFingerprint
         
         return Outbound(
             type = "shadowtls",
@@ -753,7 +912,8 @@ class ClashYamlParser : SubscriptionParser {
             password = password,
             tls = TlsConfig(
                 enabled = true,
-                serverName = asString(map["sni"]) ?: server
+                serverName = sni,
+                utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
             )
         )
     }
@@ -798,6 +958,7 @@ class ClashYamlParser : SubscriptionParser {
         is String -> v
         is Number -> v.toString()
         is Boolean -> v.toString()
+        is List<*> -> v.firstOrNull()?.toString()
         else -> null
     }
 

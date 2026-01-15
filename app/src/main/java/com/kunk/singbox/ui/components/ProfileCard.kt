@@ -277,6 +277,11 @@ fun ProfileCard(
                     onDismissRequest = { showMenu = false },
                     modifier = Modifier
                         .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(12.dp)
+                        )
                         .width(100.dp)
                 ) {
                     DropdownMenuItem(

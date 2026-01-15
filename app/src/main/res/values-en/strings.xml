@@ -239,6 +239,9 @@
     <string name="nodes_filter">Filter</string>
     <string name="nodes_add">Add Node</string>
     <string name="nodes_add_hint">Enter node link (vmess://, vless://, ss://, etc)...</string>
+    <string name="nodes_add_to_profile">Add to Profile</string>
+    <string name="nodes_add_create_new_profile">Create New Profile</string>
+    <string name="nodes_add_new_profile_name_hint">Enter new profile name...</string>
     <string name="nodes_export_link">Export Link</string>
     <string name="nodes_copied_to_clipboard">Copied to clipboard</string>
     <string name="nodes_clear_latency">Clear Latency</string>

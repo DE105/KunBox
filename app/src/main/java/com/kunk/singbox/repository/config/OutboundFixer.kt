@@ -229,7 +229,9 @@ object OutboundFixer {
                 plugin = fixed.plugin,
                 pluginOpts = fixed.pluginOpts,
                 udpOverTcp = fixed.udpOverTcp,
-                multiplex = fixed.multiplex
+                multiplex = fixed.multiplex,
+                detour = fixed.detour,
+                network = fixed.network
             )
 
             "hysteria", "hysteria2" -> Outbound(
@@ -309,9 +311,11 @@ object OutboundFixer {
             "shadowtls" -> Outbound(
                 type = fixed.type,
                 tag = fixed.tag,
+                server = fixed.server,
+                serverPort = fixed.serverPort,
                 version = fixed.version,
                 password = fixed.password,
-                detour = fixed.detour
+                tls = fixed.tls
             )
 
             else -> fixed

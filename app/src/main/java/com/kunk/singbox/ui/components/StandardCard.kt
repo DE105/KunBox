@@ -26,7 +26,7 @@ fun StandardCard(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline),
             content = content
         )
     } else {
@@ -36,7 +36,7 @@ fun StandardCard(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline),
             content = content
         )
     }

@@ -32,19 +32,38 @@ interface SubscriptionParser {
 object DnsResolveCache {
     private const val TAG = "DnsResolveCache"
 
-    // 域名 -> IP 地址缓存
-    private val cache = ConcurrentHashMap<String, String>()
+    /**
+     * 缓存条目，包含 IP 和时间戳
+     */
+    private data class CacheEntry(val ip: String, val timestamp: Long)
+
+    // 域名 -> 缓存条目（包含 IP 和时间戳）
+    private val cache = ConcurrentHashMap<String, CacheEntry>()
 
     // 解析失败的域名（避免重复尝试）
     private val failedDomains = ConcurrentHashMap<String, Long>()
+
+    // 缓存有效期 (30 分钟) - DNS 记录通常有较长的 TTL
+    private const val CACHE_TTL_MS = 30 * 60 * 1000L
 
     // 失败重试间隔 (5 分钟)
     private const val RETRY_INTERVAL_MS = 5 * 60 * 1000L
 
     /**
      * 获取缓存的 IP 地址
+     * 如果缓存已过期，返回 null
      */
-    fun getResolvedIp(domain: String): String? = cache[domain]
+    fun getResolvedIp(domain: String): String? {
+        val entry = cache[domain] ?: return null
+        val currentTime = System.currentTimeMillis()
+        return if (currentTime - entry.timestamp < CACHE_TTL_MS) {
+            entry.ip
+        } else {
+            // 缓存过期，移除并返回 null
+            cache.remove(domain)
+            null
+        }
+    }
 
     /**
      * 预解析域名列表
@@ -53,9 +72,16 @@ object DnsResolveCache {
      */
     suspend fun preResolve(domains: List<String>): Int = withContext(Dispatchers.IO) {
         val currentTime = System.currentTimeMillis()
+
+        // 先清理过期的失败记录
+        failedDomains.entries.removeIf { currentTime - it.value >= RETRY_INTERVAL_MS }
+
         val toResolve = domains.filter { domain ->
-            // 跳过已缓存的
-            if (cache.containsKey(domain)) return@filter false
+            // 跳过有效缓存的
+            val entry = cache[domain]
+            if (entry != null && currentTime - entry.timestamp < CACHE_TTL_MS) {
+                return@filter false
+            }
             // 跳过最近失败的
             val failedTime = failedDomains[domain]
             if (failedTime != null && currentTime - failedTime < RETRY_INTERVAL_MS) {
@@ -76,7 +102,7 @@ object DnsResolveCache {
                     val addresses = InetAddress.getAllByName(domain)
                     val ip = addresses.firstOrNull()?.hostAddress
                     if (ip != null) {
-                        cache[domain] = ip
+                        cache[domain] = CacheEntry(ip, currentTime)
                         Log.d(TAG, "Resolved $domain -> $ip")
                         1
                     } else {

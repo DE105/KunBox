@@ -21,41 +21,37 @@ object NetworkClient {
     // 连接池配置：保持 5 个空闲连接，存活 5 分钟
     private val connectionPool = ConnectionPool(5, 5, TimeUnit.MINUTES)
 
-    // 重试拦截器：应对 VPN 启动时的短暂网络抖动
+    /**
+     * 轻量级重试拦截器
+     *
+     * 优化说明:
+     * - 移除了 Thread.sleep() 阻塞等待，避免阻塞 OkHttp 线程池
+     * - 仅对可重试的网络错误进行一次快速重试
+     * - 复杂的重试逻辑应在业务层使用协程处理
+     */
     private val retryInterceptor = Interceptor { chain ->
-        var request = chain.request()
-        var response: Response? = null
-        var exception: IOException? = null
-        var tryCount = 0
-        val maxRetries = 2
+        val request = chain.request()
 
-        while (tryCount <= maxRetries) {
-            try {
-                response = chain.proceed(request)
-                // 如果成功，直接返回
-                if (response.isSuccessful) {
-                    return@Interceptor response
+        try {
+            chain.proceed(request)
+        } catch (e: IOException) {
+            // 仅对连接相关的瞬时错误进行一次快速重试，不等待
+            val isRetryable = e.message?.let { msg ->
+                msg.contains("Connection reset", ignoreCase = true) ||
+                msg.contains("Connection refused", ignoreCase = true) ||
+                msg.contains("timeout", ignoreCase = true)
+            } ?: false
+
+            if (isRetryable) {
+                try {
+                    chain.proceed(request)
+                } catch (retryException: IOException) {
+                    throw retryException
                 }
-                // 如果是 404 等业务错误，不需要重试，直接返回
-                // 但如果是 502/503/504 等网关错误，可能需要重试？
-                // 这里为了简单，只针对 IOException 进行重试，HTTP 错误码由业务层处理
-                return@Interceptor response
-            } catch (e: IOException) {
-                exception = e
-                tryCount++
-                if (tryCount <= maxRetries) {
-                    // 简单的退避策略：等待 1 秒
-                    try {
-                        Thread.sleep(1000)
-                    } catch (_: InterruptedException) {
-                        break
-                    }
-                }
+            } else {
+                throw e
             }
         }
-        
-        // 重试耗尽，抛出最后一次异常
-        throw exception ?: IOException("Unknown network error")
     }
 
     val client: OkHttpClient by lazy {

@@ -93,6 +93,8 @@ import androidx.navigation.NavController
 import com.kunk.singbox.model.FilterMode
 import com.kunk.singbox.model.NodeSortType
 import com.kunk.singbox.viewmodel.NodesViewModel
+import com.kunk.singbox.ui.components.AddNodeDialog
+import com.kunk.singbox.ui.components.AddNodeTarget
 import com.kunk.singbox.ui.components.InputDialog
 import com.kunk.singbox.ui.components.NodeFilterDialog
 import com.kunk.singbox.ui.components.SingleSelectDialog
@@ -138,6 +140,7 @@ fun NodesScreen(
     val nodeFilter by viewModel.nodeFilter.collectAsState()
     val sortType by viewModel.sortType.collectAsState()
     val testProgress by viewModel.testProgress.collectAsState()
+    val profiles by viewModel.profiles.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
@@ -190,12 +193,23 @@ fun NodesScreen(
     }
 
     if (showAddNodeDialog) {
-        InputDialog(
-            title = stringResource(R.string.nodes_add),
-            placeholder = stringResource(R.string.nodes_add_hint),
-            confirmText = stringResource(R.string.common_add),
-            onConfirm = {
-                viewModel.addNode(it)
+        AddNodeDialog(
+            profiles = profiles,
+            onConfirm = { nodeLink, target ->
+                when (target) {
+                    is AddNodeTarget.ExistingProfile -> {
+                        viewModel.addNode(
+                            content = nodeLink,
+                            targetProfileId = target.profileId
+                        )
+                    }
+                    is AddNodeTarget.NewProfile -> {
+                        viewModel.addNode(
+                            content = nodeLink,
+                            newProfileName = target.profileName
+                        )
+                    }
+                }
                 showAddNodeDialog = false
             },
             onDismiss = { showAddNodeDialog = false }

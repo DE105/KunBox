@@ -239,6 +239,9 @@
     <string name="nodes_filter">筛选</string>
     <string name="nodes_add">添加节点</string>
     <string name="nodes_add_hint">输入节点链接 (vmess://, vless://, ss://, etc)...</string>
+    <string name="nodes_add_to_profile">添加到配置</string>
+    <string name="nodes_add_create_new_profile">创建新配置</string>
+    <string name="nodes_add_new_profile_name_hint">输入新配置名称...</string>
     <string name="nodes_export_link">导出链接</string>
     <string name="nodes_copied_to_clipboard">已复制到剪贴板</string>
     <string name="nodes_clear_latency">清空延迟</string>
