@@ -182,6 +182,62 @@ object BoxWrapperManager {
         }
     }
 
+    /**
+     * 进入睡眠模式 - 设备空闲 (Doze) 时调用
+     * 比 pause() 更激进，尝试调用 libbox 的 sleep() 方法
+     *
+     * @return true 如果成功
+     */
+    fun sleep(): Boolean {
+        val bs = boxServiceRef ?: return false
+        return try {
+            // 尝试调用 BoxService.sleep() (如果存在)
+            val sleepMethod = bs.javaClass.methods.find {
+                it.name == "sleep" && it.parameterCount == 0
+            }
+            if (sleepMethod != null) {
+                sleepMethod.invoke(bs)
+                _isPaused.value = true
+                Log.i(TAG, "sleep() via BoxService success")
+                true
+            } else {
+                // 回退到 pause()
+                pause()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "sleep() failed: ${e.message}, falling back to pause()")
+            pause()
+        }
+    }
+
+    /**
+     * 从睡眠中唤醒 - 设备退出空闲 (Doze) 模式时调用
+     * 尝试调用 libbox 的 wake() 方法
+     *
+     * @return true 如果成功
+     */
+    fun wake(): Boolean {
+        val bs = boxServiceRef ?: return false
+        return try {
+            // 尝试调用 BoxService.wake() (如果存在)
+            val wakeMethod = bs.javaClass.methods.find {
+                it.name == "wake" && it.parameterCount == 0
+            }
+            if (wakeMethod != null) {
+                wakeMethod.invoke(bs)
+                _isPaused.value = false
+                Log.i(TAG, "wake() via BoxService success")
+                true
+            } else {
+                // 回退到 resume()
+                resume()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "wake() failed: ${e.message}, falling back to resume()")
+            resume()
+        }
+    }
+
     // ==================== 流量统计 ====================
 
     /**

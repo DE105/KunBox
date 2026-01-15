@@ -48,6 +48,7 @@ import com.kunk.singbox.repository.TrafficRepository
 import com.kunk.singbox.utils.DefaultNetworkListener
 import com.kunk.singbox.core.LibboxCompat
 import com.kunk.singbox.core.BoxWrapperManager
+import com.kunk.singbox.core.SelectorManager
 import com.kunk.singbox.service.network.NetworkManager
 import com.kunk.singbox.service.network.TrafficMonitor
 import com.kunk.singbox.utils.L
@@ -214,6 +215,32 @@ class SingBoxService : VpnService() {
             val m = Libbox::class.java.methods.firstOrNull { it.name == "clearRunningService" && it.parameterTypes.size == 1 }
             m?.invoke(null, svc)
         } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * 初始化 SelectorManager - 记录 PROXY selector 的 outbound 列表
+     * 用于后续热切换时判断是否在同一 selector group 内
+     */
+    private fun initSelectorManager(configContent: String) {
+        try {
+            val config = gson.fromJson(configContent, SingBoxConfig::class.java) ?: return
+            val proxySelector = config.outbounds?.find {
+                it.type == "selector" && it.tag.equals("PROXY", ignoreCase = true)
+            }
+
+            if (proxySelector == null) {
+                Log.w(TAG, "No PROXY selector found in config")
+                return
+            }
+
+            val outboundTags = proxySelector.outbounds?.filter { it.isNotBlank() } ?: emptyList()
+            val selectedTag = proxySelector.default ?: outboundTags.firstOrNull()
+
+            SelectorManager.recordSelectorSignature(outboundTags, selectedTag)
+            Log.i(TAG, "SelectorManager initialized: ${outboundTags.size} outbounds, selected=$selectedTag")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to init SelectorManager", e)
         }
     }
 
@@ -571,6 +598,9 @@ class SingBoxService : VpnService() {
                 L.error("HotSwitch", "Failed: no suitable method")
                 return false
             }
+
+            // 更新 SelectorManager 的选中状态
+            SelectorManager.selectOutboundViaWrapper(nodeTag)
 
             L.result("HotSwitch", true, "Switched to $nodeTag")
             requestNotificationUpdate(force = true)
@@ -986,9 +1016,8 @@ class SingBoxService : VpnService() {
                             }
                         }
                         PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
-                            // 2025-fix-v4: 参考 NekoBox 的极简 Doze 处理
-                            // NekoBox 只在进入 Doze 时调用 sleep()，退出时只调用 wake()
-                            // 不调用 resetConnectionsOptimal()，避免触发网络变化广播
+                            // 参考 NekoBox 的 Doze 处理
+                            // 进入 Doze 时调用 sleep()，退出时调用 wake()
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                                 val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
                                 val isIdleMode = powerManager?.isDeviceIdleMode == true
@@ -996,31 +1025,12 @@ class SingBoxService : VpnService() {
                                 if (isIdleMode) {
                                     Log.i(TAG, "[Doze Enter] Device entering idle mode")
                                     serviceScope.launch {
-                                        try {
-                                            if (BoxWrapperManager.isAvailable()) {
-                                                BoxWrapperManager.pause()
-                                            } else {
-                                                boxService?.pause()
-                                            }
-                                            Log.i(TAG, "[Doze Enter] Called pause()")
-                                        } catch (e: Exception) {
-                                            Log.w(TAG, "[Doze Enter] pause() failed: ${e.message}")
-                                        }
+                                        handleDeviceIdle()
                                     }
                                 } else {
-                                    // 2025-fix-v4: 只调用 wake()，不做任何连接重置
                                     Log.i(TAG, "[Doze Exit] Device exiting idle mode")
                                     serviceScope.launch {
-                                        try {
-                                            if (BoxWrapperManager.isAvailable()) {
-                                                BoxWrapperManager.resume()
-                                            } else {
-                                                boxService?.wake()
-                                            }
-                                            Log.i(TAG, "[Doze Exit] Called wake() - no connection reset")
-                                        } catch (e: Exception) {
-                                            Log.w(TAG, "[Doze Exit] wake() failed: ${e.message}")
-                                        }
+                                        handleDeviceWake()
                                     }
                                 }
                             }
@@ -1126,16 +1136,69 @@ class SingBoxService : VpnService() {
     }
 
     /**
+     * 设备进入空闲模式 (Doze) 时调用
+     *
+     * 参考 NekoBox 实现:
+     * - 调用 BoxWrapperManager.sleep() 通知 sing-box 核心进入省电模式
+     * - 核心会暂停不必要的后台活动，减少电量消耗
+     */
+    private suspend fun handleDeviceIdle() {
+        if (!isRunning) return
+
+        try {
+            val success = BoxWrapperManager.sleep()
+            if (success) {
+                Log.i(TAG, "[Doze] Device idle - called sleep() successfully")
+            } else {
+                Log.w(TAG, "[Doze] Device idle - sleep() returned false, trying pause()")
+                BoxWrapperManager.pause()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[Doze] handleDeviceIdle failed", e)
+        }
+    }
+
+    /**
+     * 设备退出空闲模式 (Doze) 时调用
+     *
+     * 参考 NekoBox 实现:
+     * - 调用 BoxWrapperManager.wake() 通知 sing-box 核心恢复正常模式
+     * - 根据设置决定是否重置连接
+     */
+    private suspend fun handleDeviceWake() {
+        if (!isRunning) return
+
+        try {
+            val success = BoxWrapperManager.wake()
+            if (success) {
+                Log.i(TAG, "[Doze] Device wake - called wake() successfully")
+            } else {
+                Log.w(TAG, "[Doze] Device wake - wake() returned false, trying resume()")
+                BoxWrapperManager.resume()
+            }
+
+            // 根据设置决定是否重置连接
+            val settings = SettingsRepository.getInstance(applicationContext).settings.value
+            if (settings.wakeResetConnections) {
+                Log.i(TAG, "[Doze] wakeResetConnections enabled, resetting connections")
+                resetConnectionsOptimal(reason = "doze_exit", skipDebounce = false)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[Doze] handleDeviceWake failed", e)
+        }
+    }
+
+    /**
      * 屏幕唤醒时的健康检查
-     * 
+     *
      * 2025-fix-v4: 参考 NekoBox 的极简实现
      * NekoBox 在屏幕解锁时几乎不做任何操作，只依赖 Doze 退出时的 wake() 调用
-     * 
+     *
      * 根因分析：
      * - 之前的实现在屏幕解锁时调用 resetNetwork()，这会触发系统网络变化广播
      * - Telegram 等应用监听网络变化，收到广播后会重新加载
      * - NekoBox 不在屏幕解锁时做任何网络操作，所以没有这个问题
-     * 
+     *
      * 修复策略：
      * - 只做基本的健康检查（VPN 接口和 boxService 是否有效）
      * - 只调用 wake() 通知核心设备唤醒，不做任何网络重置
@@ -2970,6 +3033,9 @@ private val platformInterface = object : PlatformInterface {
                     }
                 }
 
+                // 初始化 SelectorManager - 记录 selector 信息用于热切换
+                initSelectorManager(configContent)
+
                 // 立即重置 isStarting 标志,确保UI能正确显示已连接状态
                 isStarting = false
 
@@ -3200,6 +3266,9 @@ private val platformInterface = object : PlatformInterface {
 
         // 释放 BoxWrapperManager
         BoxWrapperManager.release()
+
+        // 清除 SelectorManager 状态
+        SelectorManager.clear()
 
         Log.i(TAG, "stopVpn(stopService=$stopService) isManuallyStopped=$isManuallyStopped")
 
