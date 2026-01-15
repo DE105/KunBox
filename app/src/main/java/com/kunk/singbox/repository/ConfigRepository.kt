@@ -7,7 +7,9 @@ import android.os.Build
 import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import com.google.gson.JsonSyntaxException
+import com.google.gson.reflect.TypeToken
 import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.ipc.SingBoxRemote
@@ -940,24 +942,55 @@ class ConfigRepository(private val context: Context) {
     }
     
     /**
-     * 解析订阅响应
+     * 从配置中只提取节点信息，忽略规则配置
+     * 防止因 sing-box 规则版本更新导致解析失败
      */
+    private fun extractOutboundsOnly(config: SingBoxConfig): SingBoxConfig {
+        val outbounds = config.outbounds ?: config.proxies ?: emptyList()
+        return SingBoxConfig(outbounds = outbounds)
+    }
+
+    /**
+     * 从 JSON 字符串中宽松提取 outbounds 节点列表
+     * 只解析 outbounds/proxies 字段，忽略其他可能不兼容的字段（如 route、dns 等）
+     * 防止因 sing-box 规则版本更新导致整体解析失败
+     */
+    private fun extractOutboundsFromJson(jsonContent: String): List<Outbound>? {
+        val trimmed = jsonContent.trim()
+        if (!trimmed.startsWith("{")) return null
+
+        return try {
+            val jsonObject = JsonParser.parseString(trimmed).asJsonObject
+
+            // 优先尝试 outbounds 字段
+            val outboundsElement = jsonObject.get("outbounds") ?: jsonObject.get("proxies")
+            if (outboundsElement != null && outboundsElement.isJsonArray) {
+                val outboundListType = object : TypeToken<List<Outbound>>() {}.type
+                val outbounds: List<Outbound> = gson.fromJson(outboundsElement, outboundListType)
+                if (outbounds.isNotEmpty()) {
+                    return outbounds
+                }
+            }
+            null
+        } catch (e: Exception) {
+            Log.w(TAG, "extractOutboundsFromJson failed: ${e.message}")
+            null
+        }
+    }
+
     private fun parseSubscriptionResponse(content: String): SingBoxConfig? {
         val normalizedContent = normalizeImportedContent(content)
 
-        // 1. 尝试直接解析为 sing-box JSON
+        // 1. 尝试直接解析为 sing-box JSON (只提取节点信息，使用宽松解析避免规则字段不兼容)
         try {
-            val config = gson.fromJson(normalizedContent, SingBoxConfig::class.java)
-            // 兼容 outbounds 在 proxies 字段的情况
-            val outbounds = config.outbounds ?: config.proxies
+            val outbounds = extractOutboundsFromJson(normalizedContent)
             if (outbounds != null && outbounds.isNotEmpty()) {
-                // 如果是从 proxies 字段读取的，需要将其移动到 outbounds 字段
-                return if (config.outbounds == null) config.copy(outbounds = outbounds) else config
+                return SingBoxConfig(outbounds = outbounds)
             } else {
                 Log.w(TAG, "Parsed as JSON but outbounds/proxies is empty/null. content snippet: ${sanitizeSubscriptionSnippet(normalizedContent)}")
             }
-        } catch (e: JsonSyntaxException) {
-            Log.w(TAG, "Failed to parse as JSON: ${e.message}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract outbounds from JSON: ${e.message}")
             // 继续尝试其他格式
         }
 
@@ -965,35 +998,34 @@ class ConfigRepository(private val context: Context) {
         try {
             val yamlConfig = parseClashYamlConfig(normalizedContent)
             if (yamlConfig?.outbounds != null && yamlConfig.outbounds.isNotEmpty()) {
-                return yamlConfig
+                return extractOutboundsOnly(yamlConfig)
             }
         } catch (_: Exception) {
         }
-        
+
         // 2. 尝试 Base64 解码后解析
         try {
             val decoded = tryDecodeBase64(normalizedContent)
             if (decoded.isNullOrBlank()) {
                 throw IllegalStateException("base64 decode failed")
             }
-            
-            // 尝试解析解码后的内容为 JSON
+
+            // 尝试解析解码后的内容为 JSON (使用宽松解析只提取节点)
             try {
-                val config = gson.fromJson(decoded, SingBoxConfig::class.java)
-                val outbounds = config.outbounds ?: config.proxies
+                val outbounds = extractOutboundsFromJson(decoded)
                 if (outbounds != null && outbounds.isNotEmpty()) {
-                    return if (config.outbounds == null) config.copy(outbounds = outbounds) else config
+                    return SingBoxConfig(outbounds = outbounds)
                 } else {
                     Log.w(TAG, "Parsed decoded Base64 as JSON but outbounds is empty/null")
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to parse decoded Base64 as JSON: ${e.message}")
+                Log.w(TAG, "Failed to extract outbounds from decoded Base64 JSON: ${e.message}")
             }
 
             try {
                 val yamlConfig = parseClashYamlConfig(decoded)
                 if (yamlConfig?.outbounds != null && yamlConfig.outbounds.isNotEmpty()) {
-                    return yamlConfig
+                    return extractOutboundsOnly(yamlConfig)
                 }
             } catch (_: Exception) {
             }
@@ -1027,20 +1059,17 @@ class ConfigRepository(private val context: Context) {
                 if (outbounds.isNotEmpty()) {
                     // 创建一个包含这些节点的配置
                     return SingBoxConfig(
-                        outbounds = outbounds + listOf(
-                            Outbound(type = "direct", tag = "direct"),
-                            Outbound(type = "block", tag = "block")
-                        )
+                        outbounds = outbounds
                     )
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        
+
         return null
     }
-    
+
     /**
      * 解析单个节点链接
      */

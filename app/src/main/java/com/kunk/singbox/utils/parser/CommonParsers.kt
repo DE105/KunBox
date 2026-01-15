@@ -1,27 +1,77 @@
 package com.kunk.singbox.utils.parser
 
 import android.util.Base64
+import android.util.Log
 import com.google.gson.Gson
+import com.google.gson.JsonParser
+import com.google.gson.reflect.TypeToken
 import com.kunk.singbox.model.Outbound
 import com.kunk.singbox.model.SingBoxConfig
 
 /**
  * Sing-box JSON 格式解析器
+ * 参考 NekoBox 的导入逻辑：只提取 outbounds 节点，忽略规则配置
+ * 防止因 sing-box 规则版本更新导致解析失败
  */
 class SingBoxParser(private val gson: Gson) : SubscriptionParser {
+    companion object {
+        private const val TAG = "SingBoxParser"
+    }
+
     override fun canParse(content: String): Boolean {
         val trimmed = content.trim()
-        return (trimmed.startsWith("{") && trimmed.endsWith("}")) || 
+        return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
                (trimmed.startsWith("[") && trimmed.endsWith("]"))
     }
 
     override fun parse(content: String): SingBoxConfig? {
+        val trimmed = content.trim()
+
+        // 如果是数组格式，直接解析为 outbounds 列表
+        if (trimmed.startsWith("[")) {
+            return parseAsOutboundArray(trimmed)
+        }
+
+        // 对象格式：只提取 outbounds 字段，忽略其他可能不兼容的字段
+        return parseAsConfigObject(trimmed)
+    }
+
+    /**
+     * 解析 JSON 数组格式（直接是 outbounds 列表）
+     */
+    private fun parseAsOutboundArray(content: String): SingBoxConfig? {
         return try {
-            val config = gson.fromJson(content, SingBoxConfig::class.java)
-            if (config.outbounds != null && config.outbounds.isNotEmpty()) {
-                config
+            val outboundListType = object : TypeToken<List<Outbound>>() {}.type
+            val outbounds: List<Outbound> = gson.fromJson(content, outboundListType)
+            if (outbounds.isNotEmpty()) {
+                SingBoxConfig(outbounds = outbounds)
             } else null
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse as outbound array: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * 解析 JSON 对象格式，只提取 outbounds/proxies 字段
+     */
+    private fun parseAsConfigObject(content: String): SingBoxConfig? {
+        return try {
+            val jsonObject = JsonParser.parseString(content).asJsonObject
+
+            // 优先尝试 outbounds 字段，其次 proxies
+            val outboundsElement = jsonObject.get("outbounds") ?: jsonObject.get("proxies")
+
+            if (outboundsElement != null && outboundsElement.isJsonArray) {
+                val outboundListType = object : TypeToken<List<Outbound>>() {}.type
+                val outbounds: List<Outbound> = gson.fromJson(outboundsElement, outboundListType)
+                if (outbounds.isNotEmpty()) {
+                    return SingBoxConfig(outbounds = outbounds)
+                }
+            }
+            null
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract outbounds from JSON: ${e.message}")
             null
         }
     }
@@ -51,26 +101,15 @@ class Base64Parser(private val nodeParser: (String) -> Outbound?) : Subscription
             // 格式通常是: ss://...#remarks 或 ss://...?plugin=...
             // NodeLinkParser 已经处理了 #remarks (作为 tag)
             // 这里主要关注是否需要预处理一些非标准格式，目前 NodeLinkParser 应该足够健壮
-            
+
             val outbound = nodeParser(trimmedLine)
             if (outbound != null) {
                 outbounds.add(outbound)
             }
         }
-        
+
         if (outbounds.isEmpty()) return null
-        
-        // 4. 添加默认出站
-        if (outbounds.none { it.tag == "direct" }) {
-            outbounds.add(Outbound(type = "direct", tag = "direct"))
-        }
-        if (outbounds.none { it.tag == "block" }) {
-            outbounds.add(Outbound(type = "block", tag = "block"))
-        }
-        if (outbounds.none { it.tag == "dns-out" }) {
-            outbounds.add(Outbound(type = "dns", tag = "dns-out"))
-        }
-        
+
         return SingBoxConfig(outbounds = outbounds)
     }
 

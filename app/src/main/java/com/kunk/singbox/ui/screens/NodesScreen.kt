@@ -4,10 +4,8 @@ import com.kunk.singbox.R
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +21,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -40,7 +37,6 @@ import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Bolt
@@ -58,14 +54,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -146,11 +139,6 @@ fun NodesScreen(
     val sortType by viewModel.sortType.collectAsState()
     val testProgress by viewModel.testProgress.collectAsState()
 
-    val groups = remember(nodes) {
-        listOf("全部") + nodes.map { it.group }.distinct().sorted()
-    }
-
-    var selectedGroupIndex by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
     val isTesting by viewModel.isTesting.collectAsState()
@@ -162,26 +150,12 @@ fun NodesScreen(
         }
     }
 
-    // 当groups变化时重置索引，避免越界
-    LaunchedEffect(groups) {
-        if (selectedGroupIndex >= groups.size) {
-            selectedGroupIndex = 0
-        }
-    }
-
     val filteredNodes by remember {
         androidx.compose.runtime.derivedStateOf {
-            val groupFiltered = if (selectedGroupIndex == 0 || groups.isEmpty()) {
+            if (searchQuery.isBlank()) {
                 nodes
             } else {
-                val selectedGroup = groups.getOrNull(selectedGroupIndex)
-                if (selectedGroup == null) nodes else nodes.filter { it.group == selectedGroup }
-            }
-
-            if (searchQuery.isBlank()) {
-                groupFiltered
-            } else {
-                groupFiltered.filter { node ->
+                nodes.filter { node ->
                     node.displayName.contains(searchQuery, ignoreCase = true)
                 }
             }
@@ -442,7 +416,7 @@ fun NodesScreen(
                 )
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 筛选按钮（替换原来的启动按钮）
+                    // 筛选按钮
                     IconButton(onClick = { showFilterDialog = true }) {
                         val hasFilter = nodeFilter.filterMode != FilterMode.NONE
                         Icon(
@@ -457,39 +431,14 @@ fun NodesScreen(
                 }
             }
 
-            // 2. Group Tabs
-            ScrollableTabRow(
-                selectedTabIndex = selectedGroupIndex,
-                contentColor = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.background(MaterialTheme.colorScheme.background),
-                edgePadding = 16.dp,
-                divider = {},
-                indicator = {}
-            ) {
-                groups.forEachIndexed { index, title ->
-                    Tab(
-                        selected = selectedGroupIndex == index,
-                        onClick = { selectedGroupIndex = index },
-                        modifier = Modifier.pointerInput(Unit) {
-                            detectTapGestures(
-                                onLongPress = {
-                                    Toast.makeText(context, context.getString(R.string.nodes_group_auto_generated), Toast.LENGTH_LONG).show()
-                                },
-                                onTap = {
-                                    selectedGroupIndex = index
-                                }
-                            )
-                        },
-                        text = {
-                            Text(
-                                text = title,
-                                color = if (selectedGroupIndex == index) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (selectedGroupIndex == index) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    )
-                }
-            }
+            // 2. Search Bar (在标题下方)
+            NodeSearchBar(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                isExpanded = isSearchExpanded,
+                onToggle = { isSearchExpanded = !isSearchExpanded },
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
 
             AnimatedVisibility(
                 visible = testProgress != null,
@@ -600,31 +549,13 @@ fun NodesScreen(
                     )
                 }
             }
-
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = isFabVisible,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(start = 16.dp, end = 16.dp, top = 12.dp)
-                ) {
-                    ExpandableNodeSearchBar(
-                        query = searchQuery,
-                        onQueryChange = { searchQuery = it },
-                        isExpanded = isSearchExpanded,
-                        onToggle = {
-                            isSearchExpanded = !isSearchExpanded
-                        }
-                    )
-                }
-            }
         }
+    }
     }
 }
 
 @Composable
-private fun ExpandableNodeSearchBar(
+private fun NodeSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     isExpanded: Boolean,

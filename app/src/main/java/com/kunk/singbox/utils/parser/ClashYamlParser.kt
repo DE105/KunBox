@@ -107,17 +107,6 @@ class ClashYamlParser : SubscriptionParser {
         // 如果没有解析出任何代理节点，返回 null
         if (outbounds.isEmpty()) return null
 
-        // 添加默认出站
-        if (outbounds.none { it.tag == "direct" }) {
-            outbounds.add(Outbound(type = "direct", tag = "direct"))
-        }
-        if (outbounds.none { it.tag == "block" }) {
-            outbounds.add(Outbound(type = "block", tag = "block"))
-        }
-        if (outbounds.none { it.tag == "dns-out" }) {
-            outbounds.add(Outbound(type = "dns", tag = "dns-out"))
-        }
-
         return SingBoxConfig(outbounds = outbounds)
     }
 
