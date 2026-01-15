@@ -41,6 +41,7 @@ class LatencyTester(
     suspend fun testNode(
         nodeId: String,
         outbound: Outbound,
+        allOutbounds: List<Outbound> = emptyList(),
         onResult: ((Long) -> Unit)? = null
     ): Long {
         // 检查是否已有相同测试在进行
@@ -58,7 +59,7 @@ class LatencyTester(
         try {
             val result = withContext(Dispatchers.IO) {
                 try {
-                    val latency = singBoxCore.testOutboundLatency(outbound)
+                    val latency = singBoxCore.testOutboundLatency(outbound, allOutbounds)
                     onResult?.invoke(latency)
                     latency
                 } catch (e: Exception) {

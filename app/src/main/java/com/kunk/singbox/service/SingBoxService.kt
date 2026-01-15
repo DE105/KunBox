@@ -50,6 +50,7 @@ import com.kunk.singbox.core.LibboxCompat
 import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.service.network.NetworkManager
 import com.kunk.singbox.service.network.TrafficMonitor
+import com.kunk.singbox.utils.L
 import io.nekohasekai.libbox.*
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.*
@@ -272,7 +273,8 @@ class SingBoxService : VpnService() {
                         try {
                             val outbound = byTag[tag] ?: return@async
                             val rtt = try {
-                                core.testOutboundLatency(outbound)
+                                // 传入完整的 outbounds 列表，用于解析依赖（如 SS+ShadowTLS）
+                                core.testOutboundLatency(outbound, outbounds)
                             } catch (_: Exception) {
                                 -1L
                             }
@@ -506,21 +508,18 @@ class SingBoxService : VpnService() {
 
         try {
             val selectorTag = "PROXY"
-            Log.i(TAG, "[HotSwitch] Starting hot switch to node: $nodeTag")
-            runCatching {
-                LogRepository.getInstance().addLog("INFO SingBoxService: hotSwitchNode tag=$nodeTag")
-            }
+            L.connection("HotSwitch", "Starting switch to: $nodeTag")
 
             // Step 1: 唤醒核心，确保它准备好处理新连接
             try {
                 boxService?.wake()
-                Log.i(TAG, "[HotSwitch Step 1/2] Called boxService.wake()")
+                L.step("HotSwitch", 1, 2, "Called boxService.wake()")
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to wake boxService: ${e.message}")
+                L.warn("HotSwitch", "Failed to wake boxService: ${e.message}")
             }
 
             // Step 2: 优先使用 BoxWrapperManager 切换节点
-            Log.i(TAG, "[HotSwitch Step 2/2] Calling selectOutbound...")
+            L.step("HotSwitch", 2, 2, "Calling selectOutbound...")
 
             var switchSuccess = false
 
@@ -528,7 +527,7 @@ class SingBoxService : VpnService() {
             if (BoxWrapperManager.isAvailable()) {
                 switchSuccess = BoxWrapperManager.selectOutbound(nodeTag)
                 if (switchSuccess) {
-                    Log.i(TAG, "[HotSwitch] Hot switch via BoxWrapperManager.selectOutbound")
+                    L.debug("HotSwitch", "Via BoxWrapperManager")
                 }
             }
 
@@ -539,7 +538,7 @@ class SingBoxService : VpnService() {
                     if (method != null) {
                         val result = method.invoke(boxService, nodeTag) as? Boolean ?: false
                         if (result) {
-                            Log.i(TAG, "[HotSwitch] Hot switch accepted by boxService.selectOutbound")
+                            L.debug("HotSwitch", "Via boxService.selectOutbound")
                             switchSuccess = true
                         }
                     }
@@ -560,28 +559,24 @@ class SingBoxService : VpnService() {
                             client.selectOutbound(selectorTag.lowercase(), nodeTag)
                             switchSuccess = true
                         }
-                        Log.i(TAG, "[HotSwitch] Hot switch accepted by CommandClient.selectOutbound")
+                        L.debug("HotSwitch", "Via CommandClient")
                     } catch (e: Exception) {
-                        Log.w(TAG, "CommandClient.selectOutbound failed: PROXY=${firstError?.message}, proxy=${e.message}")
+                        L.warn("HotSwitch", "CommandClient failed: ${e.message}")
                     }
                 }
             }
 
             if (!switchSuccess) {
-                Log.e(TAG, "[HotSwitch] Failed: no suitable method or method failed")
+                L.error("HotSwitch", "Failed: no suitable method")
                 return false
             }
 
-            Log.i(TAG, "[HotSwitch] Completed successfully - sing-box will handle connection cleanup")
-
-            runCatching {
-                LogRepository.getInstance().addLog("SUCCESS SingBoxService: Hot switch to $nodeTag completed")
-            }
+            L.result("HotSwitch", true, "Switched to $nodeTag")
             requestNotificationUpdate(force = true)
             return true
 
         } catch (e: Exception) {
-            Log.e(TAG, "Hot switch failed with unexpected exception", e)
+            L.error("HotSwitch", "Unexpected exception", e)
             return false
         }
     }
@@ -808,11 +803,11 @@ class SingBoxService : VpnService() {
      * 用于处理网络栈重置无效的严重情况
      */
     private suspend fun restartVpnService(reason: String) = withContext(Dispatchers.Main) {
-        Log.i(TAG, "Restarting VPN service: $reason")
+        L.vpn("Restart", "Restarting: $reason")
 
         // 保存当前配置路径
         val configPath = lastConfigPath ?: run {
-            Log.w(TAG, "Cannot restart: no config path available")
+            L.warn("Restart", "Cannot restart: no config path")
             return@withContext
         }
 
@@ -833,9 +828,9 @@ class SingBoxService : VpnService() {
             // 重新启动
             startVpn(configPath)
 
-            Log.i(TAG, "VPN service restarted successfully")
+            L.result("Restart", true, "VPN restarted")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to restart VPN service", e)
+            L.error("Restart", "Failed to restart VPN", e)
             setLastError("Failed to restart VPN: ${e.message}")
         }
     }
@@ -3000,7 +2995,15 @@ private val platformInterface = object : PlatformInterface {
 
             } catch (e: CancellationException) {
                 Log.i(TAG, "startVpn cancelled")
-                // Do not treat cancellation as failure. stopVpn() is already responsible for cleanup.
+                // 2025-fix: 如果不是由 stopVpn 触发的取消，需要重置状态
+                // 防止状态卡在 STARTING 导致 UI 显示"连接中"但实际未连接
+                if (!isStopping) {
+                    Log.w(TAG, "startVpn cancelled but not by stopVpn, resetting state to STOPPED")
+                    isRunning = false
+                    withContext(Dispatchers.Main.immediate) {
+                        updateServiceState(ServiceState.STOPPED)
+                    }
+                }
                 return@launch
             } catch (e: Exception) {
                 var reason = "Failed to start VPN: ${e.javaClass.simpleName}: ${e.message}"
@@ -3070,6 +3073,13 @@ private val platformInterface = object : PlatformInterface {
             } finally {
                 isStarting = false
                 startVpnJob = null
+                // 2025-fix: 确保状态一致性
+                // 如果 finally 执行时不在 RUNNING 且不在 STOPPING，强制重置为 STOPPED
+                // 这防止了各种边缘情况导致状态卡在 STARTING
+                if (!isRunning && !isStopping && serviceState == ServiceState.STARTING) {
+                    Log.w(TAG, "startVpn finally: state still STARTING but not running, forcing STOPPED")
+                    updateServiceState(ServiceState.STOPPED)
+                }
                 // Ensure tile state is refreshed after start attempt finishes
                 updateTileState()
                 runCatching {

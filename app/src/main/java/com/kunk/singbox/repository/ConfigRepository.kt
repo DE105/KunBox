@@ -32,7 +32,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
@@ -160,6 +159,16 @@ class ConfigRepository(private val context: Context) {
     private val settingsRepository = SettingsRepository.getInstance(context)
 
     /**
+     * 缓存的设置值 - 避免在同步方法中使用 runBlocking
+     *
+     * 优化说明:
+     * - 通过 StateFlow 订阅设置变化，自动更新缓存
+     * - getClient() 等同步方法可直接读取缓存，无需阻塞
+     */
+    @Volatile
+    private var cachedSettings: AppSettings? = null
+
+    /**
      * 获取实际使用的 TUN 栈模式
      * 针对特定不支持 System 模式的设备强制使用 gVisor
      * 否则返回用户选择的模式
@@ -179,8 +188,9 @@ class ConfigRepository(private val context: Context) {
     // client 改为动态获取，以支持可配置的超时
     // 使用不带重试的 Client，避免订阅获取时超时时间被重试机制延长
     // 当 VPN 运行时，使用代理客户端让请求走 sing-box 代理
+    // 优化: 使用缓存的 settings 值，避免 runBlocking 阻塞
     private fun getClient(): okhttp3.OkHttpClient {
-        val settings = runBlocking { settingsRepository.settings.first() }
+        val settings = cachedSettings ?: AppSettings() // 使用缓存，无阻塞；首次为空时使用默认值
         val timeout = settings.subscriptionUpdateTimeout.toLong()
 
         // 检测 VPN 是否正在运行，如果是则使用代理
@@ -282,6 +292,13 @@ class ConfigRepository(private val context: Context) {
         // 注册 Kryo 版本迁移器
         registerKryoMigrators()
         loadSavedProfiles()
+
+        // 订阅设置变化，自动更新缓存 (性能优化: 避免 getClient 中使用 runBlocking)
+        scope.launch {
+            settingsRepository.settings.collect { settings ->
+                cachedSettings = settings
+            }
+        }
     }
 
     /**
@@ -414,14 +431,24 @@ class ConfigRepository(private val context: Context) {
         _allNodes.value = all
     }
 
-    private fun loadAllNodesSnapshot(): List<NodeUi> {
-        val result = ArrayList<NodeUi>()
+    /**
+     * 加载所有节点快照
+     *
+     * 优化说明:
+     * - 改为 suspend 函数，移除 runBlocking 阻塞
+     * - 使用协程并行处理多个配置文件，提升性能
+     */
+    private suspend fun loadAllNodesSnapshot(): List<NodeUi> = withContext(Dispatchers.IO) {
         val profiles = _profiles.value
-        for (p in profiles) {
-            val cfg = loadConfig(p.id) ?: continue
-            result.addAll(runBlocking { extractNodesFromConfig(cfg, p.id) })
-        }
-        return result
+        if (profiles.isEmpty()) return@withContext emptyList()
+
+        // 并行提取各配置的节点
+        profiles.map { p ->
+            async {
+                val cfg = loadConfig(p.id) ?: return@async emptyList()
+                extractNodesFromConfig(cfg, p.id)
+            }
+        }.awaitAll().flatten()
     }
 
     fun setAllNodesUiActive(active: Boolean) {
@@ -512,52 +539,43 @@ class ConfigRepository(private val context: Context) {
                 savedNodeLatencies.clear()
                 savedNodeLatencies.putAll(savedData.nodeLatencies)
 
-                // 加载活跃配置的节点
+                // 加载活跃配置的节点 (异步执行，避免阻塞 init)
                 savedData.profiles.forEach { profile ->
                     if (profile.id != savedData.activeProfileId) return@forEach
                     val configFile = File(configDir, "${profile.id}.json")
                     if (configFile.exists()) {
-                        try {
-                            val configJson = configFile.readText()
-                            val config = gson.fromJson(configJson, SingBoxConfig::class.java)
-                            val nodes = runBlocking { extractNodesFromConfig(config, profile.id) }
-                            // 恢复延迟数据
-                            val nodesWithLatency = nodes.map { node ->
-                                val latency = savedData.nodeLatencies[node.id]
-                                if (latency != null) node.copy(latencyMs = latency) else node
-                            }
-                            profileNodes[profile.id] = nodesWithLatency
-                            cacheConfig(profile.id, config)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to load config for profile: ${profile.id}", e)
-                        }
-                    }
-                }
-                if (allNodesUiActiveCount.get() > 0) {
-                    updateAllNodesAndGroups()
-                }
+                        // 优化: 使用协程异步加载节点，避免 runBlocking 阻塞
+                        scope.launch {
+                            try {
+                                val configJson = configFile.readText()
+                                val config = gson.fromJson(configJson, SingBoxConfig::class.java)
+                                val nodes = extractNodesFromConfig(config, profile.id)
+                                // 恢复延迟数据
+                                val nodesWithLatency = nodes.map { node ->
+                                    val latency = savedData.nodeLatencies[node.id]
+                                    if (latency != null) node.copy(latencyMs = latency) else node
+                                }
+                                profileNodes[profile.id] = nodesWithLatency
+                                cacheConfig(profile.id, config)
 
-                _activeProfileId.value?.let { activeId ->
-                    profileNodes[activeId]?.let { nodes ->
-                        _nodes.value = nodes
-                        val restored = savedData.activeNodeId
-                        _activeNodeId.value = when {
-                            !restored.isNullOrBlank() && nodes.any { it.id == restored } -> {
-                                restored
-                            }
-                            nodes.isNotEmpty() -> {
-                                nodes.first().id
-                            }
-                            else -> {
-                                Log.w(TAG, "loadSavedProfiles: No nodes available, activeNodeId set to null")
-                                null
+                                // 更新 UI 状态
+                                if (profile.id == _activeProfileId.value) {
+                                    _nodes.value = nodesWithLatency
+                                    val restored = savedData.activeNodeId
+                                    _activeNodeId.value = when {
+                                        !restored.isNullOrBlank() && nodesWithLatency.any { it.id == restored } -> restored
+                                        nodesWithLatency.isNotEmpty() -> nodesWithLatency.first().id
+                                        else -> null
+                                    }
+                                }
+                                if (allNodesUiActiveCount.get() > 0) {
+                                    updateAllNodesAndGroups()
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to load config for profile: ${profile.id}", e)
                             }
                         }
-                    } ?: run {
-                        Log.w(TAG, "loadSavedProfiles: profileNodes[$activeId] is null, activeNodeId not restored")
                     }
-                } ?: run {
-                    Log.w(TAG, "loadSavedProfiles: activeProfileId is null, activeNodeId not restored")
                 }
 
                 // 如果从 JSON 加载成功，自动迁移到 Kryo 格式
@@ -1277,7 +1295,12 @@ class ConfigRepository(private val context: Context) {
             "shadowtls", "ssh", "anytls", "http", "socks"
         )
 
-        val validOutbounds = outbounds.filter { it.type in proxyTypes }
+        // 收集所有被其他 outbound 作为 detour 引用的 tag（这些是辅助 outbound，不应显示为独立节点）
+        val detourTags = outbounds.mapNotNull { it.detour }.toSet()
+
+        val validOutbounds = outbounds.filter { 
+            it.type in proxyTypes && it.tag !in detourTags
+        }
         if (validOutbounds.isEmpty()) return@withContext emptyList()
 
         val total = validOutbounds.size
@@ -1754,7 +1777,9 @@ class ConfigRepository(private val context: Context) {
                     }
 
                     val fixedOutbound = buildOutboundForRuntime(outbound)
-                    val latency = singBoxCore.testOutboundLatency(fixedOutbound)
+                    // 传入完整的 outbounds 列表，用于解析依赖（如 SS+ShadowTLS）
+                    val allOutbounds = config.outbounds?.map { buildOutboundForRuntime(it) } ?: emptyList()
+                    val latency = singBoxCore.testOutboundLatency(fixedOutbound, allOutbounds)
 
                     _nodes.update { list ->
                         list.map {
@@ -3197,8 +3222,6 @@ class ConfigRepository(private val context: Context) {
 
             // 4. 更新内存状态
             cacheConfig(profileId, newConfig)
-            val nodes = runBlocking { extractNodesFromConfig(newConfig, profileId) }
-            profileNodes[profileId] = nodes
 
             // 5. 如果是新配置，添加到 profiles 列表
             if (manualProfile == null) {
@@ -3218,20 +3241,30 @@ class ConfigRepository(private val context: Context) {
                 }
             }
 
-            // 6. 更新全局节点状态
-            updateAllNodesAndGroups()
-
-            // 7. 激活配置并选中新节点
+            // 6. 激活配置
             setActiveProfile(profileId)
-            val addedNode = nodes.find { it.name == finalTag }
-            if (addedNode != null) {
-                _activeNodeId.value = addedNode.id
+
+            // 优化: 使用协程提取节点，避免 runBlocking 阻塞
+            // 将节点提取和后续处理放在协程中异步执行
+            scope.launch {
+                val nodes = extractNodesFromConfig(newConfig, profileId)
+                profileNodes[profileId] = nodes
+
+                // 更新 UI 状态
+                if (_activeProfileId.value == profileId) {
+                    _nodes.value = nodes
+                }
+                updateAllNodesAndGroups()
+
+                // 选中新节点
+                val addedNode = nodes.find { it.name == finalTag }
+                if (addedNode != null) {
+                    _activeNodeId.value = addedNode.id
+                }
+
+                saveProfiles()
+                Log.i(TAG, "Created node: $finalTag in profile $profileId")
             }
-
-            // 8. 保存配置
-            saveProfiles()
-
-            Log.i(TAG, "Created node: $finalTag in profile $profileId")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create node", e)
         }
@@ -3249,11 +3282,6 @@ class ConfigRepository(private val context: Context) {
         // 更新内存中的配置
         cacheConfig(profileId, newConfig)
 
-        // 重新提取节点列表
-        val newNodes = runBlocking { extractNodesFromConfig(newConfig, profileId) }
-        profileNodes[profileId] = newNodes
-        updateAllNodesAndGroups()
-
         // 保存文件
         try {
             val configFile = File(configDir, "$profileId.json")
@@ -3262,57 +3290,80 @@ class ConfigRepository(private val context: Context) {
             e.printStackTrace()
         }
 
-        // 如果是当前活跃配置，更新UI状态
-        if (_activeProfileId.value == profileId) {
-            _nodes.value = newNodes
+        // 优化: 使用协程提取节点，避免 runBlocking 阻塞
+        scope.launch {
+            val newNodes = extractNodesFromConfig(newConfig, profileId)
+            profileNodes[profileId] = newNodes
+            updateAllNodesAndGroups()
 
-            // 如果删除的是当前选中节点，重置选中
-            if (_activeNodeId.value == nodeId) {
-                _activeNodeId.value = newNodes.firstOrNull()?.id
+            // 如果是当前活跃配置，更新UI状态
+            if (_activeProfileId.value == profileId) {
+                _nodes.value = newNodes
+
+                // 如果删除的是当前选中节点，重置选中
+                if (_activeNodeId.value == nodeId) {
+                    _activeNodeId.value = newNodes.firstOrNull()?.id
+                }
             }
+
+            saveProfiles()
         }
-        
-        saveProfiles()
     }
 
     /**
-     * 添加单个节点
-     * 如果存在"手动添加"配置，则将节点添加到该配置中
-     * 如果不存在，则创建新的"手动添加"配置
+     * 添加单个节点到指定配置
      *
      * @param link 节点链接（vmess://, vless://, ss://, etc）
+     * @param targetProfileId 目标配置ID，null则创建新配置或使用默认配置
+     * @param newProfileName 新配置名称，当targetProfileId为null时使用
      * @return 成功返回添加的节点，失败返回错误信息
      */
-    suspend fun addSingleNode(link: String): Result<NodeUi> = withContext(Dispatchers.IO) {
+    suspend fun addSingleNode(
+        link: String,
+        targetProfileId: String? = null,
+        newProfileName: String? = null
+    ): Result<NodeUi> = withContext(Dispatchers.IO) {
         try {
-            // 1. 使用 ConfigRepository 统一的 parseNodeLink 解析链接，确保解析逻辑一致
             val outbound = parseNodeLink(link.trim())
                 ?: return@withContext Result.failure(Exception("Failed to parse node link"))
             
-            // 2. 查找或创建"手动添加"配置
-            val manualProfileName = "Manual"
-            var manualProfile = _profiles.value.find { it.name == manualProfileName && it.type == ProfileType.Imported }
             val profileId: String
             val existingConfig: SingBoxConfig?
+            var isNewProfile = false
             
-            if (manualProfile != null) {
-                // 使用已有的"手动添加"配置
-                profileId = manualProfile.id
-                existingConfig = loadConfig(profileId)
-            } else {
-                // 创建新的"手动添加"配置
-                profileId = UUID.randomUUID().toString()
-                existingConfig = null
+            when {
+                targetProfileId != null -> {
+                    val profile = _profiles.value.find { it.id == targetProfileId }
+                    if (profile == null) {
+                        return@withContext Result.failure(Exception("Profile not found"))
+                    }
+                    profileId = targetProfileId
+                    existingConfig = loadConfig(profileId)
+                }
+                newProfileName != null -> {
+                    profileId = UUID.randomUUID().toString()
+                    existingConfig = null
+                    isNewProfile = true
+                }
+                else -> {
+                    val manualProfileName = "Manual"
+                    val manualProfile = _profiles.value.find { it.name == manualProfileName && it.type == ProfileType.Imported }
+                    if (manualProfile != null) {
+                        profileId = manualProfile.id
+                        existingConfig = loadConfig(profileId)
+                    } else {
+                        profileId = UUID.randomUUID().toString()
+                        existingConfig = null
+                        isNewProfile = true
+                    }
+                }
             }
             
-            // 3. 合并或创建 outbounds
             val newOutbounds = mutableListOf<Outbound>()
             existingConfig?.outbounds?.let { existing ->
-                // 添加现有的非系统 outbounds
                 newOutbounds.addAll(existing.filter { it.type !in listOf("direct", "block", "dns") })
             }
             
-            // 检查是否有同名节点，如有则添加后缀
             var finalTag = outbound.tag
             var counter = 1
             while (newOutbounds.any { it.tag == finalTag }) {
@@ -3322,7 +3373,6 @@ class ConfigRepository(private val context: Context) {
             val finalOutbound = if (finalTag != outbound.tag) outbound.copy(tag = finalTag) else outbound
             newOutbounds.add(finalOutbound)
             
-            // 添加系统 outbounds
             if (newOutbounds.none { it.tag == "direct" }) {
                 newOutbounds.add(Outbound(type = "direct", tag = "direct"))
             }
@@ -3333,48 +3383,41 @@ class ConfigRepository(private val context: Context) {
                 newOutbounds.add(Outbound(type = "dns", tag = "dns-out"))
             }
             
-            // 确保没有其他重复
             val newConfig = deduplicateTags(SingBoxConfig(outbounds = newOutbounds))
             
-            // 4. 保存配置文件
             val configFile = File(configDir, "$profileId.json")
             configFile.writeText(gson.toJson(newConfig))
             
-            // 5. 更新内存状态
             cacheConfig(profileId, newConfig)
             val nodes = extractNodesFromConfig(newConfig, profileId)
             profileNodes[profileId] = nodes
             
-            // 6. 如果是新配置，添加到 profiles 列表
-            if (manualProfile == null) {
-                manualProfile = ProfileUi(
+            if (isNewProfile || existingConfig == null) {
+                val profileName = newProfileName ?: "Manual"
+                val newProfile = ProfileUi(
                     id = profileId,
-                    name = manualProfileName,
+                    name = profileName,
                     type = ProfileType.Imported,
                     url = null,
                     lastUpdated = System.currentTimeMillis(),
                     enabled = true,
                     updateStatus = UpdateStatus.Idle
                 )
-                _profiles.update { it + manualProfile }
+                _profiles.update { it + newProfile }
             } else {
-                // 更新 lastUpdated
                 _profiles.update { list ->
                     list.map { if (it.id == profileId) it.copy(lastUpdated = System.currentTimeMillis()) else it }
                 }
             }
             
-            // 7. 更新全局节点状态
             updateAllNodesAndGroups()
             
-            // 8. 激活配置并选中新节点
             setActiveProfile(profileId)
             val addedNode = nodes.find { it.name == finalTag }
             if (addedNode != null) {
                 _activeNodeId.value = addedNode.id
             }
             
-            // 9. 保存配置
             saveProfiles()
             
             Log.i(TAG, "Added single node: $finalTag to profile $profileId")
@@ -3403,21 +3446,6 @@ class ConfigRepository(private val context: Context) {
 
         // 更新内存中的配置
         cacheConfig(profileId, newConfig)
-        
-        val oldNodes = profileNodes[profileId] ?: _nodes.value
-        val latencyById = oldNodes.associate { it.id to it.latencyMs }
-        val updatedNodeId = stableNodeId(profileId, newName)
-        val originalLatency = oldNodes.find { it.id == nodeId }?.latencyMs
-
-        // 重新提取节点列表
-        val newNodes = runBlocking { extractNodesFromConfig(newConfig, profileId) }
-        val mergedNodes = newNodes.map { nodeItem ->
-            val storedLatency = latencyById[nodeItem.id]
-                ?: if (nodeItem.id == updatedNodeId) originalLatency else null
-            if (storedLatency != null) nodeItem.copy(latencyMs = storedLatency) else nodeItem
-        }
-        profileNodes[profileId] = mergedNodes
-        updateAllNodesAndGroups()
 
         // 保存文件
         try {
@@ -3427,20 +3455,37 @@ class ConfigRepository(private val context: Context) {
             e.printStackTrace()
         }
 
-        // 如果是当前活跃配置，更新UI状态
-        if (_activeProfileId.value == profileId) {
-            _nodes.value = mergedNodes
+        val oldNodes = profileNodes[profileId] ?: _nodes.value
+        val latencyById = oldNodes.associate { it.id to it.latencyMs }
+        val updatedNodeId = stableNodeId(profileId, newName)
+        val originalLatency = oldNodes.find { it.id == nodeId }?.latencyMs
 
-            // 如果重命名的是当前选中节点，更新 activeNodeId
-            if (_activeNodeId.value == nodeId) {
-                val newNode = mergedNodes.find { it.name == newName }
-                if (newNode != null) {
-                    _activeNodeId.value = newNode.id
+        // 优化: 使用协程提取节点，避免 runBlocking 阻塞
+        scope.launch {
+            val newNodes = extractNodesFromConfig(newConfig, profileId)
+            val mergedNodes = newNodes.map { nodeItem ->
+                val storedLatency = latencyById[nodeItem.id]
+                    ?: if (nodeItem.id == updatedNodeId) originalLatency else null
+                if (storedLatency != null) nodeItem.copy(latencyMs = storedLatency) else nodeItem
+            }
+            profileNodes[profileId] = mergedNodes
+            updateAllNodesAndGroups()
+
+            // 如果是当前活跃配置，更新UI状态
+            if (_activeProfileId.value == profileId) {
+                _nodes.value = mergedNodes
+
+                // 如果重命名的是当前选中节点，更新 activeNodeId
+                if (_activeNodeId.value == nodeId) {
+                    val newNode = mergedNodes.find { it.name == newName }
+                    if (newNode != null) {
+                        _activeNodeId.value = newNode.id
+                    }
                 }
             }
+
+            saveProfiles()
         }
-        
-        saveProfiles()
     }
 
     /**
@@ -3461,23 +3506,8 @@ class ConfigRepository(private val context: Context) {
 
         // 更新内存中的配置
         cacheConfig(profileId, newConfig)
-        
-        val oldNodes = profileNodes[profileId] ?: _nodes.value
-        val latencyById = oldNodes.associate { it.id to it.latencyMs }
-        val updatedNodeId = stableNodeId(profileId, newOutbound.tag)
-        val originalLatency = oldNodes.find { it.id == nodeId }?.latencyMs
 
-        // 重新提取节点列表
-        val newNodes = runBlocking { extractNodesFromConfig(newConfig, profileId) }
-        val mergedNodes = newNodes.map { nodeItem ->
-            val storedLatency = latencyById[nodeItem.id]
-                ?: if (nodeItem.id == updatedNodeId) originalLatency else null
-            if (storedLatency != null) nodeItem.copy(latencyMs = storedLatency) else nodeItem
-        }
-        profileNodes[profileId] = mergedNodes
-        updateAllNodesAndGroups()
-
-        // 保存文件
+        // 先保存文件（同步操作，确保数据持久化）
         try {
             val configFile = File(configDir, "$profileId.json")
             configFile.writeText(gson.toJson(newConfig))
@@ -3485,20 +3515,41 @@ class ConfigRepository(private val context: Context) {
             e.printStackTrace()
         }
 
-        // 如果是当前活跃配置，更新UI状态
-        if (_activeProfileId.value == profileId) {
-            _nodes.value = mergedNodes
+        // 保存延迟数据供协程使用
+        val oldNodes = profileNodes[profileId] ?: _nodes.value
+        val latencyById = oldNodes.associate { it.id to it.latencyMs }
+        val updatedNodeId = stableNodeId(profileId, newOutbound.tag)
+        val originalLatency = oldNodes.find { it.id == nodeId }?.latencyMs
+        val isActiveProfile = _activeProfileId.value == profileId
+        val isActiveNode = _activeNodeId.value == nodeId
+        val newTag = newOutbound.tag
 
-            // 如果更新的是当前选中节点，尝试恢复选中状态
-            if (_activeNodeId.value == nodeId) {
-                val newNode = mergedNodes.find { it.name == newOutbound.tag }
-                if (newNode != null) {
-                    _activeNodeId.value = newNode.id
+        // 异步提取节点列表和更新 UI
+        scope.launch {
+            val newNodes = extractNodesFromConfig(newConfig, profileId)
+            val mergedNodes = newNodes.map { nodeItem ->
+                val storedLatency = latencyById[nodeItem.id]
+                    ?: if (nodeItem.id == updatedNodeId) originalLatency else null
+                if (storedLatency != null) nodeItem.copy(latencyMs = storedLatency) else nodeItem
+            }
+            profileNodes[profileId] = mergedNodes
+            updateAllNodesAndGroups()
+
+            // 如果是当前活跃配置，更新UI状态
+            if (isActiveProfile) {
+                _nodes.value = mergedNodes
+
+                // 如果更新的是当前选中节点，尝试恢复选中状态
+                if (isActiveNode) {
+                    val newNode = mergedNodes.find { it.name == newTag }
+                    if (newNode != null) {
+                        _activeNodeId.value = newNode.id
+                    }
                 }
             }
+
+            saveProfiles()
         }
-        
-        saveProfiles()
     }
 
     /**
