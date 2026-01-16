@@ -50,6 +50,31 @@ class RuleSetRepository(private val context: Context) {
     }
 
     /**
+     * 快速检查所有启用的规则集是否有本地缓存
+     * 用于 VPN 启动优化: 快速返回，不阻塞启动
+     * @return true 如果所有启用的规则集都有本地缓存
+     */
+    suspend fun hasLocalCache(): Boolean = withContext(Dispatchers.IO) {
+        val settings = settingsRepository.settings.first()
+
+        // 检查广告拦截规则集
+        if (settings.blockAds) {
+            if (!getRuleSetFile(AD_BLOCK_TAG).exists()) {
+                return@withContext false
+            }
+        }
+
+        // 检查自定义远程规则集
+        settings.ruleSets.filter { it.enabled && it.type == RuleSetType.REMOTE }.forEach { ruleSet ->
+            if (!getRuleSetFile(ruleSet.tag).exists()) {
+                return@withContext false
+            }
+        }
+
+        true
+    }
+
+    /**
      * 确保所有需要的规则集都已就绪（本地存在）
      * 如果不存在，尝试从 assets 复制或下载
      * @param forceUpdate 是否强制更新（忽略过期时间）
