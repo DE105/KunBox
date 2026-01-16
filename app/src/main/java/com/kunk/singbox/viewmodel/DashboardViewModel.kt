@@ -488,6 +488,18 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
         }
+
+        // 2025-fix: 监听服务端节点切换，同步更新主进程的 activeNodeId
+        // 解决通知栏切换节点后首页显示旧节点的问题
+        viewModelScope.launch {
+            SingBoxRemote.activeLabel
+                .filter { it.isNotBlank() }
+                .distinctUntilChanged()
+                .collect { nodeName ->
+                    Log.d(TAG, "activeLabel changed from service: $nodeName")
+                    configRepository.syncActiveNodeFromProxySelection(nodeName)
+                }
+        }
     }
 
     /**

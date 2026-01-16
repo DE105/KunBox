@@ -477,6 +477,9 @@ class SingBoxService : VpnService() {
             override fun requestNotificationUpdate(force: Boolean) {
                 this@SingBoxService.requestNotificationUpdate(force)
             }
+            override fun notifyRemoteStateUpdate(force: Boolean) {
+                this@SingBoxService.requestRemoteStateUpdate(force)
+            }
             override fun startServiceIntent(intent: Intent) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(intent)
@@ -541,6 +544,8 @@ class SingBoxService : VpnService() {
             commandManager.start(boxService).onFailure { e ->
                 Log.e(TAG, "Failed to start Command Server/Client", e)
             }
+            // 更新 serviceSelectorManager 的 commandClient (修复热切换不生效的问题)
+            serviceSelectorManager.updateCommandClient(commandManager.getCommandClient())
         }
 
         override fun startRouteGroupAutoSelect(configContent: String) {

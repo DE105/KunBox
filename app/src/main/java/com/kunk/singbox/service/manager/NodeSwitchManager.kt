@@ -19,7 +19,16 @@ class NodeSwitchManager(
 ) {
     companion object {
         private const val TAG = "NodeSwitchManager"
+        private const val SWITCH_DEBOUNCE_MS = 800L // 防抖间隔
     }
+
+    // 防抖：上次切换时间戳
+    @Volatile
+    private var lastSwitchTimeMs: Long = 0
+
+    // 防抖：是否正在切换中
+    @Volatile
+    private var isSwitching: Boolean = false
 
     interface Callbacks {
         val isRunning: Boolean
@@ -27,6 +36,7 @@ class NodeSwitchManager(
         fun getConfigPath(): String
         fun setRealTimeNodeName(name: String?)
         fun requestNotificationUpdate(force: Boolean)
+        fun notifyRemoteStateUpdate(force: Boolean)
         fun startServiceIntent(intent: Intent)
     }
 
@@ -65,6 +75,7 @@ class NodeSwitchManager(
                 callbacks?.setRealTimeNodeName(displayName)
                 runCatching { configRepository.syncActiveNodeFromProxySelection(displayName) }
                 callbacks?.requestNotificationUpdate(force = false)
+                callbacks?.notifyRemoteStateUpdate(force = true)
             } else {
                 Log.w(TAG, "Hot switch failed for $nodeTag, falling back to restart")
                 val configPath = callbacks?.getConfigPath() ?: return@launch
@@ -79,6 +90,7 @@ class NodeSwitchManager(
 
     /**
      * 切换到下一个节点
+     * 优化：直接使用内存中的节点列表，先执行切换再异步更新状态
      */
     fun switchNextNode(
         serviceClass: Class<*>,
@@ -90,39 +102,59 @@ class NodeSwitchManager(
             return
         }
 
+        // 防抖检查：如果正在切换中或距离上次切换时间太短，忽略请求
+        val now = System.currentTimeMillis()
+        if (isSwitching) {
+            Log.d(TAG, "switchNextNode: already switching, ignored")
+            return
+        }
+        if (now - lastSwitchTimeMs < SWITCH_DEBOUNCE_MS) {
+            Log.d(TAG, "switchNextNode: debounce, ignored (${now - lastSwitchTimeMs}ms < ${SWITCH_DEBOUNCE_MS}ms)")
+            return
+        }
+
+        // 同步获取节点信息（从内存），避免协程切换开销
+        val configRepository = ConfigRepository.getInstance(context)
+        val nodes = configRepository.nodes.value
+        if (nodes.isEmpty()) {
+            Log.w(TAG, "switchNextNode: no nodes available")
+            return
+        }
+
+        val activeNodeId = configRepository.activeNodeId.value
+        val currentIndex = nodes.indexOfFirst { it.id == activeNodeId }
+        val nextIndex = (currentIndex + 1) % nodes.size
+        val nextNode = nodes[nextIndex]
+
+        Log.i(TAG, "switchNextNode: switching from ${nodes.getOrNull(currentIndex)?.name} to ${nextNode.name}")
+
+        isSwitching = true
+        lastSwitchTimeMs = now
+
         serviceScope.launch {
-            val configRepository = ConfigRepository.getInstance(context)
-            configRepository.reloadProfiles()
-
-            val nodes = configRepository.nodes.value
-            if (nodes.isEmpty()) {
-                Log.w(TAG, "switchNextNode: no nodes available after reload")
-                return@launch
-            }
-
-            val activeNodeId = configRepository.activeNodeId.value
-            val currentIndex = nodes.indexOfFirst { it.id == activeNodeId }
-            val nextIndex = (currentIndex + 1) % nodes.size
-            val nextNode = nodes[nextIndex]
-
-            Log.i(TAG, "switchNextNode: switching from ${nodes.getOrNull(currentIndex)?.name} to ${nextNode.name}")
-
-            configRepository.setActiveNodeIdOnly(nextNode.id)
-
-            val success = callbacks?.hotSwitchNode(nextNode.name) == true
-            if (success) {
-                callbacks?.setRealTimeNodeName(nextNode.name)
-                runCatching { configRepository.syncActiveNodeFromProxySelection(nextNode.name) }
-                callbacks?.requestNotificationUpdate(force = true)
-                Log.i(TAG, "switchNextNode: hot switch successful")
-            } else {
-                Log.w(TAG, "switchNextNode: hot switch failed, falling back to restart")
-                val configPath = callbacks?.getConfigPath() ?: return@launch
-                val restartIntent = Intent(context, serviceClass).apply {
-                    action = actionStart
-                    putExtra(extraConfigPath, configPath)
+            try {
+                val success = callbacks?.hotSwitchNode(nextNode.name) == true
+                if (success) {
+                    callbacks?.setRealTimeNodeName(nextNode.name)
+                    callbacks?.requestNotificationUpdate(force = true)
+                    callbacks?.notifyRemoteStateUpdate(force = true)
+                    // 异步更新持久化状态，不阻塞切换
+                    runCatching {
+                        configRepository.setActiveNodeIdOnly(nextNode.id)
+                        configRepository.syncActiveNodeFromProxySelection(nextNode.name)
+                    }
+                    Log.i(TAG, "switchNextNode: hot switch successful")
+                } else {
+                    Log.w(TAG, "switchNextNode: hot switch failed, falling back to restart")
+                    val configPath = callbacks?.getConfigPath() ?: return@launch
+                    val restartIntent = Intent(context, serviceClass).apply {
+                        action = actionStart
+                        putExtra(extraConfigPath, configPath)
+                    }
+                    callbacks?.startServiceIntent(restartIntent)
                 }
-                callbacks?.startServiceIntent(restartIntent)
+            } finally {
+                isSwitching = false
             }
         }
     }
