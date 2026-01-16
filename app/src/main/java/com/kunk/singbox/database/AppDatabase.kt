@@ -5,19 +5,23 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kunk.singbox.database.dao.ActiveStateDao
 import com.kunk.singbox.database.dao.NodeDao
 import com.kunk.singbox.database.dao.NodeLatencyDao
 import com.kunk.singbox.database.dao.ProfileDao
+import com.kunk.singbox.database.dao.SettingsDao
 import com.kunk.singbox.database.entity.ActiveStateEntity
 import com.kunk.singbox.database.entity.NodeEntity
 import com.kunk.singbox.database.entity.NodeLatencyEntity
 import com.kunk.singbox.database.entity.ProfileEntity
+import com.kunk.singbox.database.entity.SettingsEntity
 
 /**
  * 应用数据库
  *
- * 使用 Room 存储 Profile 和 Node 数据，替代 Kryo 文件存储
+ * 使用 Room 存储 Profile、Node 和 Settings 数据
  *
  * 优势：
  * - 支持高效的查询和过滤
@@ -30,9 +34,10 @@ import com.kunk.singbox.database.entity.ProfileEntity
         ProfileEntity::class,
         NodeEntity::class,
         ActiveStateEntity::class,
-        NodeLatencyEntity::class
+        NodeLatencyEntity::class,
+        SettingsEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -42,6 +47,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun nodeDao(): NodeDao
     abstract fun activeStateDao(): ActiveStateDao
     abstract fun nodeLatencyDao(): NodeLatencyDao
+    abstract fun settingsDao(): SettingsDao
 
     companion object {
         private const val DATABASE_NAME = "singbox.db"
@@ -61,8 +67,25 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DATABASE_NAME
             )
-                .fallbackToDestructiveMigration()
+                .allowMainThreadQueries() // 设置加载需要同步读取
+                .addMigrations(MIGRATION_1_2)
                 .build()
+        }
+
+        /**
+         * 数据库迁移: v1 -> v2 (添加 settings 表)
+         */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS settings (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        version INTEGER NOT NULL,
+                        data TEXT NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+            }
         }
 
         /**

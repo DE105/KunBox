@@ -33,8 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * 设置仓库 - 提供设置的读写接口
  *
- * 内部使用 SettingsStore (Kryo 序列化) 存储设置
- * 相比旧的 DataStore + Gson 方案，性能提升 10x+
+ * 内部使用 SettingsStore (Room 数据库) 存储设置
  */
 class SettingsRepository(private val context: Context) {
 

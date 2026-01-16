@@ -173,7 +173,7 @@ class SubscriptionManager(private val parsers: List<SubscriptionParser>) {
 
         /**
          * 生成节点去重 key
-         * 基于 server:port:type 组合，相同组合视为重复节点
+         * 基于 type://server:port + 认证信息，相同组合视为重复节点
          */
         private fun getDeduplicationKey(outbound: Outbound): String? {
             val server = outbound.server ?: return null
@@ -185,7 +185,9 @@ class SubscriptionManager(private val parsers: List<SubscriptionParser>) {
                 return null
             }
 
-            return "$type://$server:$port"
+            // 加入认证信息区分同服务器不同账号的节点
+            val credential = outbound.password ?: outbound.uuid ?: ""
+            return "$type://$credential@$server:$port"
         }
 
         /**

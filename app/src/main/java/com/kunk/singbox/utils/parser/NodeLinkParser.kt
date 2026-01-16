@@ -18,15 +18,40 @@ import com.google.gson.Gson
 class NodeLinkParser(private val gson: Gson) {
 
     /**
-     * 预处理 URI 字符串，对 fragment 中的空格进行 URL 编码
-     * 解决 java.net.URI 无法解析包含未编码空格的 URI 问题
+     * 预处理 URI 字符串，清理常见格式问题
+     * - 对 fragment 和 query 中的空格进行 URL 编码
+     * - 移除参数名和值周围的空格 (security =tls -> security=tls)
      */
     private fun sanitizeUri(link: String): String {
-        val hashIndex = link.indexOf('#')
-        if (hashIndex == -1) return link
-        val base = link.substring(0, hashIndex + 1)
-        val fragment = link.substring(hashIndex + 1)
-        return base + fragment.replace(" ", "%20")
+        var result = link
+
+        // 分离 fragment
+        val hashIndex = result.indexOf('#')
+        var fragment = ""
+        if (hashIndex != -1) {
+            fragment = result.substring(hashIndex + 1)
+            result = result.substring(0, hashIndex)
+        }
+
+        // 清理 query 部分的空格
+        val questionIndex = result.indexOf('?')
+        if (questionIndex != -1) {
+            val base = result.substring(0, questionIndex)
+            val query = result.substring(questionIndex + 1)
+            // 移除参数中 = 和 & 周围的空格
+            val cleanedQuery = query
+                .replace(Regex("\\s*=\\s*"), "=")
+                .replace(Regex("\\s*&\\s*"), "&")
+                .replace(" ", "%20")
+            result = "$base?$cleanedQuery"
+        }
+
+        // 重新附加 fragment
+        if (fragment.isNotEmpty()) {
+            result = "$result#${fragment.replace(" ", "%20")}"
+        }
+
+        return result
     }
 
     fun parse(link: String): Outbound? {

@@ -406,12 +406,12 @@ class DataExportRepository(private val context: Context) {
     private suspend fun importProfile(profileData: ProfileExportData, overwrite: Boolean): Int {
         val profile = profileData.profile
         val config = profileData.config
-        
+
         // 检查是否已存在同名或同ID的配置
         val existingProfiles = configRepository.profiles.value
         val existingById = existingProfiles.find { it.id == profile.id }
         val existingByName = existingProfiles.find { it.name == profile.name }
-        
+
         if (existingById != null || existingByName != null) {
             if (!overwrite) {
                 throw Exception("Profile already exists")
@@ -422,54 +422,21 @@ class DataExportRepository(private val context: Context) {
                 configRepository.deleteProfile(existingId)
             }
         }
-        
+
         // 保存配置文件
         val configFile = File(configDir, "${profile.id}.json")
         configFile.writeText(gson.toJson(config))
-        
-        // 手动更新 profiles.json 以包含新配置
-        // 这样做是为了保持 Profile ID 不变，从而保证 Node ID 不变
-        // Node ID = UUID(profileId + nodeName)，如果 profileId 改变，appRules 中的引用就会失效
-        
-        val profilesFile = File(context.filesDir, "profiles.json")
-        val currentData = if (profilesFile.exists()) {
-            try {
-                gson.fromJson(profilesFile.readText(), SavedProfilesData::class.java)
-            } catch (e: Exception) {
-                SavedProfilesData(emptyList(), null, null)
-            }
-        } else {
-            SavedProfilesData(emptyList(), null, null)
-        }
-        
-        // 使用导入的 ProfileUi 数据，强制使用原始 ID
+
+        // 使用 ConfigRepository 直接导入 profile 到 Room 数据库
         val newProfile = profile.copy(
             id = profile.id,
             lastUpdated = System.currentTimeMillis(),
             updateStatus = UpdateStatus.Idle
         )
-        
-        val newProfilesList = currentData.profiles.toMutableList()
-        // 移除旧的同 ID 配置（如果有）
-        newProfilesList.removeAll { it.id == profile.id }
-        newProfilesList.add(newProfile)
-        
-        val newData = currentData.copy(profiles = newProfilesList)
-        
-        // 原子写入 profiles.json
-        val tmpFile = File(profilesFile.parent, "${profilesFile.name}.tmp")
-        tmpFile.writeText(gson.toJson(newData))
-        if (profilesFile.exists()) profilesFile.delete()
-        tmpFile.renameTo(profilesFile)
-        
-        // 触发 ConfigRepository 重新加载
-        try {
-            configRepository.reloadProfiles()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to reload profiles", e)
-            throw Exception("Failed to refresh config after import, please restart app")
-        }
-        
+
+        // 直接调用 ConfigRepository 添加 profile
+        configRepository.importProfileDirectly(newProfile, config)
+
         // 计算节点数量
         val nodeCount = config.outbounds?.count { outbound ->
             outbound.type in listOf(
@@ -478,7 +445,7 @@ class DataExportRepository(private val context: Context) {
                 "shadowtls", "ssh", "anytls"
             )
         } ?: 0
-        
+
         return nodeCount
     }
 }
