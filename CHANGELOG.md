@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.4.0](https://github.com/roseforljh/KunBox/compare/v2.3.1...v2.4.0) (2026-01-17)
+
+
+### Features
+
+* **core:** add kernel-level hot reload for config changes ([4a059bc](https://github.com/roseforljh/KunBox/commit/4a059bcefe2fdd9c9aa21701b5e9306137c46b2e))
+* **routing:** smart domain recognition + fix domain routing priority ([63bbfc4](https://github.com/roseforljh/KunBox/commit/63bbfc4674a8bfb86e91c7bb148c28ccf8133e71))
+
+
+### Bug Fixes
+
+* **config:** node state persistence and profile node memory ([7ae5d66](https://github.com/roseforljh/KunBox/commit/7ae5d66e02f6132a537cbe7077d9cb083f14e00a))
+* **parser:** handle multiple links in clipboard import ([b69d0d2](https://github.com/roseforljh/KunBox/commit/b69d0d252e8a55878a8a2ee1fc9bd21f900c124d))
+* **service:** notification bar node switch not working ([fdc36b6](https://github.com/roseforljh/KunBox/commit/fdc36b66496f274e9644f2e52b88aca8de9cc54b))
+* **service:** notification not dismissed when app removed from recents ([a6f55c0](https://github.com/roseforljh/KunBox/commit/a6f55c05e98a17a0a0f2935484793f3d3655b5c3))
+* **shortcut:** node selection and VPN toggle not working from app shortcut ([6099561](https://github.com/roseforljh/KunBox/commit/60995613c0dd048cc3c1249d3bb0173f1b173c55))
+* **vpn:** hot reload failure causes network loss ([42d4d14](https://github.com/roseforljh/KunBox/commit/42d4d1438f242bdb0a8cf4cb0f24aa6e5399f10c))
+* **vpn:** per-app proxy settings not applied to TUN interface ([09d1605](https://github.com/roseforljh/KunBox/commit/09d1605d374c0e331e443f19382b61d98dfdbb36))
+
 ## [2.3.1](https://github.com/roseforljh/KunBox/compare/v2.3.0...v2.3.1) (2026-01-15)
 
 
