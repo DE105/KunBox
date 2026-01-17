@@ -12,8 +12,12 @@ import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.kunk.singbox.R
+import com.kunk.singbox.ipc.SingBoxRemote
+import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
@@ -64,7 +68,8 @@ object AppUpdateChecker {
             val currentVersion = getCurrentVersion(context)
             Log.d(TAG, "Current version: $currentVersion")
 
-            val release = fetchLatestRelease()
+            val client = getClient(context)
+            val release = fetchLatestRelease(client)
             if (release == null) {
                 Log.w(TAG, "Failed to fetch latest release")
                 return@withContext UpdateCheckResult.Error("Failed to fetch release info")
@@ -116,8 +121,9 @@ object AppUpdateChecker {
 
     /**
      * 从 GitHub API 获取最新 Release
+     * 如果 VPN 正在运行，使用代理访问 GitHub API
      */
-    private fun fetchLatestRelease(): GitHubRelease? {
+    private fun fetchLatestRelease(client: OkHttpClient): GitHubRelease? {
         val request = Request.Builder()
             .url(GITHUB_API_URL)
             .header("Accept", "application/vnd.github.v3+json")
@@ -125,7 +131,7 @@ object AppUpdateChecker {
             .build()
 
         return try {
-            val response = NetworkClient.client.newCall(request).execute()
+            val response = client.newCall(request).execute()
             if (response.isSuccessful) {
                 response.body?.string()?.let { json ->
                     gson.fromJson(json, GitHubRelease::class.java)
@@ -137,6 +143,22 @@ object AppUpdateChecker {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to fetch release", e)
             null
+        }
+    }
+
+    /**
+     * 获取用于更新检查的 OkHttpClient
+     * VPN 运行时使用代理，否则直连
+     */
+    private suspend fun getClient(context: Context): OkHttpClient {
+        val isVpnRunning = SingBoxRemote.isRunning.value
+        return if (isVpnRunning) {
+            val settings = SettingsRepository.getInstance(context).settings.first()
+            val proxyPort = settings.proxyPort
+            Log.d(TAG, "VPN is running, using proxy on port $proxyPort for update check")
+            NetworkClient.createClientWithProxy(proxyPort, 15, 20, 20)
+        } else {
+            NetworkClient.client
         }
     }
 

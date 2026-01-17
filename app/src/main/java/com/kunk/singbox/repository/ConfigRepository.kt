@@ -517,15 +517,19 @@ class ConfigRepository(private val context: Context) {
     }
 
     private fun updateLatencyInAllNodes(nodeId: String, latency: Long) {
-        // 同步更新 savedNodeLatencies，确保退出节点页面再进入时延时数据仍然可用
-        if (latency > 0) {
-            savedNodeLatencies[nodeId] = latency
-        } else {
-            savedNodeLatencies[nodeId] = -1L
-        }
+        val latencyValue = if (latency > 0) latency else -1L
+        savedNodeLatencies[nodeId] = latencyValue
         _allNodes.update { list ->
             list.map {
-                if (it.id == nodeId) it.copy(latencyMs = if (latency > 0) latency else -1L) else it
+                if (it.id == nodeId) it.copy(latencyMs = latencyValue) else it
+            }
+        }
+        // 持久化到 Room 数据库
+        scope.launch {
+            try {
+                nodeLatencyDao.upsert(nodeId, latencyValue)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to persist latency for $nodeId", e)
             }
         }
     }

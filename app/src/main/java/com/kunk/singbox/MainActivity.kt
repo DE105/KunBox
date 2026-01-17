@@ -172,9 +172,27 @@ fun SingBoxApp() {
         }
     }
 
-    // 自动检查更新
+    // 自动检查更新 - 当 VPN 连接后检查，或 App 启动 10 秒后检查（直连尝试）
+    val isVpnRunningForUpdate by SingBoxRemote.isRunning.collectAsState()
+    var updateChecked by remember { mutableStateOf(false) }
+
+    LaunchedEffect(settings?.autoCheckUpdate, isVpnRunningForUpdate) {
+        if (settings?.autoCheckUpdate != true || updateChecked) return@LaunchedEffect
+
+        if (isVpnRunningForUpdate) {
+            // VPN 已连接，延迟 1 秒后通过代理检查
+            kotlinx.coroutines.delay(1000L)
+            updateChecked = true
+            com.kunk.singbox.utils.AppUpdateChecker.checkAndNotify(context)
+        }
+    }
+
+    // 兜底：如果 10 秒后 VPN 仍未连接，尝试直连检查
     LaunchedEffect(settings?.autoCheckUpdate) {
-        if (settings?.autoCheckUpdate == true) {
+        if (settings?.autoCheckUpdate != true) return@LaunchedEffect
+        kotlinx.coroutines.delay(10000L)
+        if (!updateChecked) {
+            updateChecked = true
             com.kunk.singbox.utils.AppUpdateChecker.checkAndNotify(context)
         }
     }
