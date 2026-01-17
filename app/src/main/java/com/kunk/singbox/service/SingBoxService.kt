@@ -1692,7 +1692,7 @@ class SingBoxService : VpnService() {
         }
 
         // Give a tiny breath for logs to flush
-        try { Thread.sleep(50) } catch (_: Exception) {}
+        try { Thread.sleep(50) } catch (e: Exception) { Log.w(TAG, "Sleep interrupted during force kill", e) }
 
         Runtime.getRuntime().halt(0)
     }

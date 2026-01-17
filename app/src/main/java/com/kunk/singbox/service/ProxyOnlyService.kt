@@ -573,11 +573,12 @@ class ProxyOnlyService : Service() {
         cleanupScope.launch(NonCancellable) {
             try {
                 jobToJoin?.join()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to close command server", e)
             }
 
             runCatching {
-                try { serviceToClose?.close() } catch (_: Exception) {}
+                try { serviceToClose?.close() } catch (e: Exception) { Log.w(TAG, "Failed to close box service", e) }
             }
 
             withContext(Dispatchers.Main) {
@@ -650,7 +651,9 @@ class ProxyOnlyService : Service() {
             val manager = getSystemService(NotificationManager::class.java)
             try {
                 manager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to delete legacy notification channel", e)
+            }
 
             val channel = NotificationChannel(
                 CHANNEL_ID,

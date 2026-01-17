@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import java.io.File
@@ -447,5 +448,18 @@ class DataExportRepository(private val context: Context) {
         } ?: 0
 
         return nodeCount
+    }
+
+    /**
+     * 清理资源，取消协程 scope
+     * 
+     * 注意：由于 DataExportRepository 是单例且生命周期与 Application 相同，
+     * 通常不需要手动调用此方法。此方法主要用于：
+     * 1. 测试场景中清理资源
+     * 2. 极端内存压力下的紧急清理
+     */
+    fun cleanup() {
+        repositoryScope.cancel()
+        Log.i(TAG, "DataExportRepository cleanup completed")
     }
 }

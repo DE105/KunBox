@@ -11,6 +11,7 @@ import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.Toast
@@ -144,7 +145,9 @@ class VpnTileService : TileService() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     tile.subtitle = null
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w("VpnTileService", "Failed to set tile subtitle", e)
+            }
             tile.updateTile()
             
             // 异步执行停止逻辑

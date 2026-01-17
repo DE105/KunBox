@@ -80,6 +80,9 @@ class ConfigRepository(private val context: Context) {
         private val REGEX_SS_OLD_FORMAT = Regex("(.+):(.+)@(.+):(\\d+)")
         private val REGEX_WHITESPACE_DASH = Regex("[\\s\\-_]")
 
+        private val TYPE_SAVED_PROFILES_DATA = object : TypeToken<SavedProfilesData>() {}.type
+        private val TYPE_OUTBOUND_LIST = object : TypeToken<List<Outbound>>() {}.type
+
         // 预编译的地区检测规则 - 避免每次调用都编译 Regex
         private data class RegionRule(
             val flag: String,
@@ -118,11 +121,27 @@ class ConfigRepository(private val context: Context) {
             .flatMap { it.wordBoundaryKeywords }
             .associateWith { word -> Regex("(^|[^a-z])${Regex.escape(word)}([^a-z]|$)") }
 
-        // 地区检测缓存
-        private val regionFlagCache = ConcurrentHashMap<String, String>()
+        // LRU 缓存大小限制，防止节点数量过多时内存膨胀
+        private const val MAX_REGION_FLAG_CACHE_SIZE = 2000
+        private const val MAX_NODE_ID_CACHE_SIZE = 2000
 
-        // stableNodeId 缓存
-        private val nodeIdCache = ConcurrentHashMap<String, String>()
+        // 地区检测缓存 - 使用 LRU 淘汰机制
+        private val regionFlagCache: MutableMap<String, String> = Collections.synchronizedMap(
+            object : LinkedHashMap<String, String>(MAX_REGION_FLAG_CACHE_SIZE, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
+                    return size > MAX_REGION_FLAG_CACHE_SIZE
+                }
+            }
+        )
+
+        // stableNodeId 缓存 - 使用 LRU 淘汰机制
+        private val nodeIdCache: MutableMap<String, String> = Collections.synchronizedMap(
+            object : LinkedHashMap<String, String>(MAX_NODE_ID_CACHE_SIZE, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
+                    return size > MAX_NODE_ID_CACHE_SIZE
+                }
+            }
+        )
 
         /**
          * 生成稳定的节点 ID（基于 profileId 和 outboundTag 的 UUID）
@@ -130,11 +149,14 @@ class ConfigRepository(private val context: Context) {
          */
         fun stableNodeId(profileId: String, outboundTag: String): String {
             val key = "$profileId|$outboundTag"
-            return nodeIdCache.getOrPut(key) {
-                StringBuilderPool.use { sb ->
+            synchronized(nodeIdCache) {
+                nodeIdCache[key]?.let { return it }
+                val id = StringBuilderPool.use { sb ->
                     sb.append(profileId).append('|').append(outboundTag)
                     java.util.UUID.nameUUIDFromBytes(sb.toString().toByteArray(Charsets.UTF_8)).toString()
                 }
+                nodeIdCache[key] = id
+                return id
             }
         }
 
@@ -550,8 +572,7 @@ class ConfigRepository(private val context: Context) {
             val savedData: SavedProfilesData? = if (profilesFileJson.exists()) {
                 Log.i(TAG, "Migrating profiles from JSON to Room...")
                 val json = profilesFileJson.readText()
-                val savedDataType = object : TypeToken<SavedProfilesData>() {}.type
-                gson.fromJson<SavedProfilesData>(json, savedDataType)
+                gson.fromJson<SavedProfilesData>(json, TYPE_SAVED_PROFILES_DATA)
             } else {
                 null
             }
@@ -1189,7 +1210,9 @@ class ConfigRepository(private val context: Context) {
                 val decoded = Base64.decode(s, flags)
                 val text = String(decoded)
                 if (text.isNotBlank()) return text
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.v(TAG, "Base64 decode attempt failed with flags=$flags", e)
+            }
         }
         return null
     }
@@ -1218,8 +1241,7 @@ class ConfigRepository(private val context: Context) {
             // 优先尝试 outbounds 字段
             val outboundsElement = jsonObject.get("outbounds") ?: jsonObject.get("proxies")
             if (outboundsElement != null && outboundsElement.isJsonArray) {
-                val outboundListType = object : TypeToken<List<Outbound>>() {}.type
-                val outbounds: List<Outbound> = gson.fromJson(outboundsElement, outboundListType)
+                val outbounds: List<Outbound> = gson.fromJson(outboundsElement, TYPE_OUTBOUND_LIST)
                 if (outbounds.isNotEmpty()) {
                     return outbounds
                 }
@@ -4137,5 +4159,24 @@ class ConfigRepository(private val context: Context) {
         }
         // 如果都失败，返回原始端口（让 sing-box 报错）
         return startPort
+    }
+
+    /**
+     * 清理资源，取消协程 scope
+     * 
+     * 注意：由于 ConfigRepository 是单例且生命周期与 Application 相同，
+     * 通常不需要手动调用此方法。此方法主要用于：
+     * 1. 测试场景中清理资源
+     * 2. 极端内存压力下的紧急清理
+     */
+    fun cleanup() {
+        scope.cancel()
+        regionFlagCache.clear()
+        nodeIdCache.clear()
+        configCache.clear()
+        profileNodes.clear()
+        savedNodeLatencies.clear()
+        inFlightLatencyTests.clear()
+        Log.i(TAG, "ConfigRepository cleanup completed")
     }
 }

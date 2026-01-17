@@ -16,6 +16,7 @@ import com.kunk.singbox.model.SingBoxConfig
 class SingBoxParser(private val gson: Gson) : SubscriptionParser {
     companion object {
         private const val TAG = "SingBoxParser"
+        private val OUTBOUND_LIST_TYPE = object : TypeToken<List<Outbound>>() {}.type
     }
 
     override fun canParse(content: String): Boolean {
@@ -41,8 +42,7 @@ class SingBoxParser(private val gson: Gson) : SubscriptionParser {
      */
     private fun parseAsOutboundArray(content: String): SingBoxConfig? {
         return try {
-            val outboundListType = object : TypeToken<List<Outbound>>() {}.type
-            val outbounds: List<Outbound> = gson.fromJson(content, outboundListType)
+            val outbounds: List<Outbound> = gson.fromJson(content, OUTBOUND_LIST_TYPE)
             if (outbounds.isNotEmpty()) {
                 SingBoxConfig(outbounds = outbounds)
             } else null
@@ -63,8 +63,7 @@ class SingBoxParser(private val gson: Gson) : SubscriptionParser {
             val outboundsElement = jsonObject.get("outbounds") ?: jsonObject.get("proxies")
 
             if (outboundsElement != null && outboundsElement.isJsonArray) {
-                val outboundListType = object : TypeToken<List<Outbound>>() {}.type
-                val outbounds: List<Outbound> = gson.fromJson(outboundsElement, outboundListType)
+                val outbounds: List<Outbound> = gson.fromJson(outboundsElement, OUTBOUND_LIST_TYPE)
                 if (outbounds.isNotEmpty()) {
                     return SingBoxConfig(outbounds = outbounds)
                 }

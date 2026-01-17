@@ -453,13 +453,13 @@ class SingBoxCore private constructor(private val context: Context) {
                     }
                 }
             } finally {
-                try { service?.close() } catch (_: Exception) {}
+                try { service?.close() } catch (e: Exception) { Log.w(TAG, "Failed to close service", e) }
                 // 清理临时数据库文件,防止泄漏
                 try {
                     File(testDbPath).delete()
                     File("$testDbPath-shm").delete() // SQLite WAL 模式的共享内存文件
                     File("$testDbPath-wal").delete() // SQLite WAL 日志文件
-                } catch (_: Exception) {}
+                } catch (e: Exception) { Log.w(TAG, "Failed to delete temp db files", e) }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Local HTTP proxy setup failed", e)
@@ -470,7 +470,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 try {
                     connectivityManager.bindProcessToNetwork(previousNetwork)
                     Log.d(TAG, "Restored process network binding")
-                } catch (_: Exception) {}
+                } catch (e: Exception) { Log.w(TAG, "Failed to restore network binding", e) }
             }
         }
     }
@@ -592,7 +592,7 @@ class SingBoxCore private constructor(private val context: Context) {
                 batchOutbounds.forEach { onResult(it.tag, -1L) }
                 // 恢复网络绑定后返回
                 if (!vpnRunning) {
-                    try { connectivityManager.bindProcessToNetwork(previousNetwork) } catch (_: Exception) {}
+                    try { connectivityManager.bindProcessToNetwork(previousNetwork) } catch (e: Exception) { Log.w(TAG, "Failed to restore network binding after port allocation failure", e) }
                 }
                 return
             }
@@ -814,19 +814,19 @@ class SingBoxCore private constructor(private val context: Context) {
                 Log.e(TAG, "Batch test failed", e)
                 batchOutbounds.forEach { onResult(it.tag, -1L) }
             } finally {
-                try { service?.close() } catch (_: Exception) {}
+                try { service?.close() } catch (e: Exception) { Log.w(TAG, "Failed to close batch test service", e) }
                 // 清理临时数据库文件,防止泄漏
                 try {
                     File(batchTestDbPath).delete()
                     File("$batchTestDbPath-shm").delete() // SQLite WAL 模式的共享内存文件
                     File("$batchTestDbPath-wal").delete() // SQLite WAL 日志文件
-                } catch (_: Exception) {}
+                } catch (e: Exception) { Log.w(TAG, "Failed to delete batch test temp db files", e) }
                 // 恢复进程网络绑定状态
                 if (!vpnRunning) {
                     try {
                         connectivityManager.bindProcessToNetwork(previousNetwork)
                         Log.d(TAG, "Batch test: Restored process network binding")
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) { Log.w(TAG, "Batch test: Failed to restore network binding", e) }
                 }
             }
         }
@@ -933,7 +933,7 @@ class SingBoxCore private constructor(private val context: Context) {
                     val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
                     maybeWarmupNative(url)
                 }
-            } catch (_: Exception) { }
+            } catch (e: Exception) { Log.w(TAG, "Warmup native test failed", e) }
             // 提高并发数以加快批量测速
             val semaphore = Semaphore(permits = 10)
             coroutineScope {

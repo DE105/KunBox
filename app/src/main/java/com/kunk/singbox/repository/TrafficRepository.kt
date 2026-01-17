@@ -24,6 +24,7 @@ class TrafficRepository private constructor(private val context: Context) {
     companion object {
         private const val TAG = "TrafficRepository"
         private const val FILE_NAME = "traffic_stats.json"
+        private val TRAFFIC_STATS_MAP_TYPE = object : TypeToken<Map<String, NodeTrafficStats>>() {}.type
 
         @Volatile
         private var instance: TrafficRepository? = null
@@ -49,8 +50,7 @@ class TrafficRepository private constructor(private val context: Context) {
         if (!statsFile.exists()) return
         try {
             val json = statsFile.readText()
-            val type = object : TypeToken<Map<String, NodeTrafficStats>>() {}.type
-            val loaded: Map<String, NodeTrafficStats>? = gson.fromJson(json, type)
+            val loaded: Map<String, NodeTrafficStats>? = gson.fromJson(json, TRAFFIC_STATS_MAP_TYPE)
             if (loaded != null) {
                 trafficMap.putAll(loaded)
             }

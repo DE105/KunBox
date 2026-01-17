@@ -32,6 +32,8 @@ object AppUpdateChecker {
     private const val PREFS_NAME = "app_update_prefs"
     private const val KEY_LAST_NOTIFIED_VERSION = "last_notified_version"
 
+    private val gson = Gson()
+
     data class GitHubRelease(
         @SerializedName("tag_name") val tagName: String,
         @SerializedName("name") val name: String,
@@ -126,7 +128,7 @@ object AppUpdateChecker {
             val response = NetworkClient.client.newCall(request).execute()
             if (response.isSuccessful) {
                 response.body?.string()?.let { json ->
-                    Gson().fromJson(json, GitHubRelease::class.java)
+                    gson.fromJson(json, GitHubRelease::class.java)
                 }
             } else {
                 Log.w(TAG, "GitHub API returned ${response.code}")

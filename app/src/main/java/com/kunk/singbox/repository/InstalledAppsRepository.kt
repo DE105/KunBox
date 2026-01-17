@@ -70,14 +70,9 @@ class InstalledAppsRepository private constructor(private val context: Context) 
                     total = total
                 )
 
+                // 性能优化: 批量更新进度，每 20 个应用更新一次，减少 recomposition 次数
+                val batchSize = 20
                 allApps.forEachIndexed { index, app ->
-                    // 更新进度
-                    _loadingState.value = LoadingState.Loading(
-                        progress = (index + 1).toFloat() / total,
-                        current = index + 1,
-                        total = total
-                    )
-
                     // 加载应用信息
                     val appName = try {
                         app.loadLabel(pm).toString()
@@ -92,6 +87,15 @@ class InstalledAppsRepository private constructor(private val context: Context) 
                             isSystemApp = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
                         )
                     )
+
+                    // 批量更新进度：每 batchSize 个应用或最后一个应用时更新
+                    if ((index + 1) % batchSize == 0 || index == total - 1) {
+                        _loadingState.value = LoadingState.Loading(
+                            progress = (index + 1).toFloat() / total,
+                            current = index + 1,
+                            total = total
+                        )
+                    }
                 }
 
                 // 排序并保存结果
