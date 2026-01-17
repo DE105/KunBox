@@ -1395,6 +1395,7 @@ class SingBoxService : VpnService() {
     /**
      * 执行内核级热重载
      * 在 VPN 运行时重载配置，不销毁 VPN 服务
+     * 失败时 Toast 报错并关闭 VPN，让用户手动重新打开
      */
     private fun performHotReload(configContent: String) {
         if (!isRunning) {
@@ -1405,6 +1406,10 @@ class SingBoxService : VpnService() {
         serviceScope.launch {
             try {
                 Log.i(TAG, "[HotReload] Starting kernel-level hot reload...")
+
+                // 更新 CoreManager 的设置，确保后续操作使用最新设置
+                val settings = SettingsRepository.getInstance(applicationContext).settings.first()
+                coreManager.setCurrentSettings(settings)
 
                 val result = coreManager.hotReloadConfig(configContent, preserveSelector = true)
 
@@ -1419,17 +1424,32 @@ class SingBoxService : VpnService() {
                         // Update notification
                         requestNotificationUpdate(force = true)
                     } else {
-                        Log.w(TAG, "[HotReload] Kernel hot reload not available, fallback needed")
-                        LogRepository.getInstance().addLog("WARN [HotReload] Kernel reload not available")
+                        handleHotReloadFailure("Kernel hot reload not available")
                     }
                 }.onFailure { e ->
-                    Log.e(TAG, "[HotReload] Failed: ${e.message}", e)
-                    LogRepository.getInstance().addLog("ERROR [HotReload] Failed: ${e.message}")
+                    handleHotReloadFailure("Hot reload failed: ${e.message}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "performHotReload error", e)
+                handleHotReloadFailure("Hot reload error: ${e.message}")
             }
         }
+    }
+
+    private fun handleHotReloadFailure(errorMsg: String) {
+        Log.e(TAG, "[HotReload] $errorMsg, stopping VPN")
+        LogRepository.getInstance().addLog("ERROR [HotReload] $errorMsg")
+        
+        serviceScope.launch(Dispatchers.Main) {
+            android.widget.Toast.makeText(
+                applicationContext,
+                errorMsg,
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+        
+        isManuallyStopped = false
+        stopVpn(stopService = true)
     }
 
     /**
