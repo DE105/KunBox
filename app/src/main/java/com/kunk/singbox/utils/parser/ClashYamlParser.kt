@@ -633,9 +633,9 @@ class ClashYamlParser : SubscriptionParser {
         val upMbps = asInt(map["up"]) ?: asInt(map["up-mbps"])
         val downMbps = asInt(map["down"]) ?: asInt(map["down-mbps"])
 
-        // 端口跳跃
-        val ports = asString(map["ports"])
-        val hopInterval = asString(map["hop-interval"])
+        // 端口跳跃 - 空字符串需要转换为 null，否则 sing-box 验证会失败
+        val ports = asString(map["ports"])?.takeIf { it.isNotBlank() }
+        val hopInterval = asString(map["hop-interval"])?.takeIf { it.isNotBlank() }
 
         return Outbound(
             type = "hysteria2",

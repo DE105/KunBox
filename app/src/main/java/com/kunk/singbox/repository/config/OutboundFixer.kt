@@ -145,22 +145,30 @@ object OutboundFixer {
             result = result.copy(security = null)
         }
 
-        // Hysteria/Hysteria2: 补充缺省带宽
+        // Hysteria/Hysteria2: 补充缺省带宽，清理空字符串字段
         if (result.type == "hysteria" || result.type == "hysteria2") {
             val up = result.upMbps
             val down = result.downMbps
             val defaultMbps = 50
-            if (up == null || down == null) {
-                result = result.copy(
-                    upMbps = up ?: defaultMbps,
-                    downMbps = down ?: defaultMbps
-                )
-            }
+            val cleanedPorts = result.ports?.takeIf { it.isNotBlank() }
+            val cleanedHopInterval = result.hopInterval?.takeIf { it.isNotBlank() }
+            result = result.copy(
+                upMbps = up ?: defaultMbps,
+                downMbps = down ?: defaultMbps,
+                ports = cleanedPorts,
+                hopInterval = cleanedHopInterval
+            )
         }
 
         // 补齐 VMess packetEncoding 缺省值
         if (result.type == "vmess" && result.packetEncoding.isNullOrBlank()) {
             result = result.copy(packetEncoding = "xudp")
+        }
+
+        // 清理 TLS 配置中的空 ALPN 列表（sing-box 不接受空数组）
+        val currentTls = result.tls
+        if (currentTls != null && currentTls.alpn?.isEmpty() == true) {
+            result = result.copy(tls = currentTls.copy(alpn = null))
         }
 
         return result
