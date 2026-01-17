@@ -16,16 +16,15 @@ object InboundBuilder {
         val inbounds = mutableListOf<Inbound>()
 
         // 1. 添加混合入站 (Mixed Port)
+        // 注意：sing-box 1.11.0+ 弃用了 inbound 中的 sniff/sniff_override_destination 字段
+        // 现在通过 route.rules 中的 action: "sniff" 规则来启用协议嗅探
         if (settings.proxyPort > 0) {
             inbounds.add(
                 Inbound(
                     type = "mixed",
                     tag = "mixed-in",
                     listen = if (settings.allowLan) "0.0.0.0" else "127.0.0.1",
-                    listenPort = settings.proxyPort,
-                    sniff = true,
-                    sniffOverrideDestination = true,
-                    sniffTimeout = "300ms"
+                    listenPort = settings.proxyPort
                 )
             )
         }
@@ -38,27 +37,20 @@ object InboundBuilder {
                     interfaceName = settings.tunInterfaceName,
                     inet4AddressRaw = listOf("172.19.0.1/30"),
                     mtu = settings.tunMtu,
-                    autoRoute = false, // Handled by Android VpnService
-                    strictRoute = false, // Can cause issues on some Android versions
+                    autoRoute = false,
+                    strictRoute = false,
                     stack = effectiveTunStack.name.lowercase(),
                     endpointIndependentNat = settings.endpointIndependentNat,
-                    gso = true, // GSO 优化，需要 libbox 1.11+
-                    sniff = true,
-                    sniffOverrideDestination = true,
-                    sniffTimeout = "300ms"
+                    gso = true
                 )
             )
         } else if (settings.proxyPort <= 0) {
-            // 如果禁用 TUN 且未设置自定义端口，则添加默认混合入站
             inbounds.add(
                 Inbound(
                     type = "mixed",
                     tag = "mixed-in",
                     listen = "127.0.0.1",
-                    listenPort = 2080,
-                    sniff = true,
-                    sniffOverrideDestination = true,
-                    sniffTimeout = "300ms"
+                    listenPort = 2080
                 )
             )
         }

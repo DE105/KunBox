@@ -2398,7 +2398,7 @@ class ConfigRepository(private val context: Context) {
             }
         }
 
-        return settings.customRules
+        val rules = settings.customRules
             .filter { it.enabled }
             .filter {
                 it.type == RuleType.DOMAIN ||
@@ -2416,6 +2416,7 @@ class ConfigRepository(private val context: Context) {
                 }
 
                 val outbound = resolveOutboundTag(mode, rule.outboundValue)
+                Log.d(TAG, "CustomDomainRule: type=${rule.type}, value=${rule.value}, mode=$mode, outboundValue=${rule.outboundValue}, resolved=$outbound")
                 when (rule.type) {
                     RuleType.DOMAIN -> RouteRule(domain = values, outbound = outbound)
                     RuleType.DOMAIN_SUFFIX -> RouteRule(domainSuffix = values, outbound = outbound)
@@ -2423,6 +2424,8 @@ class ConfigRepository(private val context: Context) {
                     else -> null
                 }
             }
+        Log.d(TAG, "buildCustomDomainRules: generated ${rules.size} rules")
+        return rules
     }
 
     /**
@@ -2744,7 +2747,55 @@ class ConfigRepository(private val context: Context) {
             )
         )
 
-        // 优化：代理类域名的 DNS 处理
+        // 自定义域名规则的 DNS 处理（优先级最高，必须在规则集之前）
+        val customDomainRulesForDns = settings.customRules.filter { it.enabled }.filter {
+            it.type == RuleType.DOMAIN || it.type == RuleType.DOMAIN_SUFFIX || it.type == RuleType.DOMAIN_KEYWORD
+        }
+        Log.d(TAG, "buildRunDns: customDomainRulesForDns.size=${customDomainRulesForDns.size}, fakeDnsEnabled=${settings.fakeDnsEnabled}")
+
+        if (customDomainRulesForDns.isNotEmpty()) {
+            val proxyDomains = mutableListOf<String>()
+            val proxySuffixes = mutableListOf<String>()
+            val directDomains = mutableListOf<String>()
+            val directSuffixes = mutableListOf<String>()
+
+            customDomainRulesForDns.forEach { rule ->
+                val values = rule.value.split("\n", "\r", ",", "，").map { it.trim() }.filter { it.isNotEmpty() }
+                val isProxy = when (rule.outboundMode ?: when (rule.outbound) {
+                    OutboundTag.DIRECT -> RuleSetOutboundMode.DIRECT
+                    OutboundTag.BLOCK -> RuleSetOutboundMode.BLOCK
+                    OutboundTag.PROXY -> RuleSetOutboundMode.PROXY
+                }) {
+                    RuleSetOutboundMode.DIRECT, RuleSetOutboundMode.BLOCK -> false
+                    else -> true
+                }
+                Log.d(TAG, "DNS rule: type=${rule.type}, value=${rule.value}, outboundMode=${rule.outboundMode}, isProxy=$isProxy")
+
+                when (rule.type) {
+                    RuleType.DOMAIN -> if (isProxy) proxyDomains.addAll(values) else directDomains.addAll(values)
+                    RuleType.DOMAIN_SUFFIX -> if (isProxy) proxySuffixes.addAll(values) else directSuffixes.addAll(values)
+                    RuleType.DOMAIN_KEYWORD -> if (isProxy) proxySuffixes.addAll(values) else directSuffixes.addAll(values)
+                    else -> {}
+                }
+            }
+
+            val proxyServerTag = if (settings.fakeDnsEnabled) "fakeip-dns" else "remote"
+            Log.d(TAG, "DNS custom domains: proxyDomains=$proxyDomains, proxySuffixes=$proxySuffixes, directDomains=$directDomains, directSuffixes=$directSuffixes, server=$proxyServerTag")
+            if (proxyDomains.isNotEmpty()) {
+                dnsRules.add(DnsRule(domain = proxyDomains.distinct(), server = proxyServerTag))
+            }
+            if (proxySuffixes.isNotEmpty()) {
+                dnsRules.add(DnsRule(domainSuffix = proxySuffixes.distinct(), server = proxyServerTag))
+            }
+            if (directDomains.isNotEmpty()) {
+                dnsRules.add(DnsRule(domain = directDomains.distinct(), server = "local"))
+            }
+            if (directSuffixes.isNotEmpty()) {
+                dnsRules.add(DnsRule(domainSuffix = directSuffixes.distinct(), server = "local"))
+            }
+        }
+
+        // 规则集的 DNS 处理（在自定义规则之后）
         val proxyRuleSets = mutableListOf<String>()
         val possibleProxyTags = listOf(
             "geosite-geolocation-!cn", "geosite-google", "geosite-openai", 
@@ -2754,13 +2805,11 @@ class ConfigRepository(private val context: Context) {
             "geosite-disney", "geosite-microsoft", "geosite-amazon"
         )
         possibleProxyTags.forEach { tag ->
-            // 只添加有效且存在的规则集
             if (validRuleSets.any { it.tag == tag }) proxyRuleSets.add(tag)
         }
 
         if (proxyRuleSets.isNotEmpty()) {
             if (settings.fakeDnsEnabled) {
-                // 如果开启了 FakeIP，代理域名必须返回 FakeIP 以支持域名分流规则
                 dnsRules.add(
                     DnsRule(
                         ruleSet = proxyRuleSets,
@@ -2768,7 +2817,6 @@ class ConfigRepository(private val context: Context) {
                     )
                 )
             } else {
-                // 未开启 FakeIP，则使用远程 DNS
                 dnsRules.add(
                     DnsRule(
                         ruleSet = proxyRuleSets,
@@ -2778,7 +2826,6 @@ class ConfigRepository(private val context: Context) {
             }
         }
 
-        // 优化：直连/绕过类域名的 DNS 强制走 local
         val directRuleSets = mutableListOf<String>()
         if (validRuleSets.any { it.tag == "geosite-cn" }) directRuleSets.add("geosite-cn")
         
@@ -2935,6 +2982,14 @@ class ConfigRepository(private val context: Context) {
             when (ruleSet.outboundMode) {
                 RuleSetOutboundMode.NODE -> resolveNodeRefToId(ruleSet.outboundValue)?.let { requiredNodeIds.add(it) }
                 RuleSetOutboundMode.PROFILE -> ruleSet.outboundValue?.let { requiredProfileIds.add(it) }
+                else -> {}
+            }
+        }
+        // 收集自定义域名规则中引用的节点
+        settings.customRules.filter { it.enabled }.forEach { rule ->
+            when (rule.outboundMode) {
+                RuleSetOutboundMode.NODE -> resolveNodeRefToId(rule.outboundValue)?.let { requiredNodeIds.add(it) }
+                RuleSetOutboundMode.PROFILE -> rule.outboundValue?.let { requiredProfileIds.add(it) }
                 else -> {}
             }
         }
@@ -3201,8 +3256,6 @@ class ConfigRepository(private val context: Context) {
             emptyList()
         }
 
-        val dnsTrafficRule = listOf(RouteRule(protocolRaw = listOf("dns"), outbound = "dns-out"))
-
         val adBlockEnabled = settings.blockAds && validRuleSets.any { it.tag == "geosite-category-ads-all" }
         val adBlockRules = if (adBlockEnabled) {
             listOf(RouteRule(ruleSet = listOf("geosite-category-ads-all"), outbound = "block"))
@@ -3218,11 +3271,18 @@ class ConfigRepository(private val context: Context) {
             DefaultRule.PROXY -> listOf(RouteRule(outbound = selectorTag))
         }
 
+        // sing-box 1.10+ 需要显式添加 sniff action 规则来启用协议嗅探
+        // 这是域名分流生效的关键：通过嗅探 TLS/HTTP 协议获取原始域名
+        val sniffRule = listOf(RouteRule(action = "sniff"))
+        
+        // DNS 劫持规则：将 DNS 流量重定向到 sing-box DNS 模块处理
+        val hijackDnsRule = listOf(RouteRule(protocolRaw = listOf("dns"), action = "hijack-dns"))
+
         val allRules = when (settings.routingMode) {
-            RoutingMode.GLOBAL_PROXY -> dnsTrafficRule + adBlockRules
-            RoutingMode.GLOBAL_DIRECT -> dnsTrafficRule + adBlockRules + listOf(RouteRule(outbound = "direct"))
+            RoutingMode.GLOBAL_PROXY -> sniffRule + hijackDnsRule + adBlockRules
+            RoutingMode.GLOBAL_DIRECT -> sniffRule + hijackDnsRule + adBlockRules + listOf(RouteRule(outbound = "direct"))
             RoutingMode.RULE -> {
-                dnsTrafficRule + adBlockRules + quicRule + bypassLanRules + appRoutingRules + customDomainRules + customRuleSetRules + defaultRuleCatchAll
+                sniffRule + hijackDnsRule + adBlockRules + quicRule + bypassLanRules + customDomainRules + appRoutingRules + customRuleSetRules + defaultRuleCatchAll
             }
         }
 

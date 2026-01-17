@@ -252,7 +252,6 @@ private fun DomainRuleEditorDialog(
     onConfirm: (CustomRule) -> Unit,
     onDelete: (() -> Unit)? = null
 ) {
-    var type by remember { mutableStateOf(initialRule?.type ?: RuleType.DOMAIN_SUFFIX) }
     var value by remember { mutableStateOf(initialRule?.value ?: "") }
 
     fun generateRuleNameFromValue(raw: String): String {
@@ -270,10 +269,37 @@ private fun DomainRuleEditorDialog(
         }
     }
 
+    fun parseSmartDomainType(input: String): RuleType {
+        val trimmed = input.trim()
+        return when {
+            trimmed.startsWith("=") -> RuleType.DOMAIN
+            trimmed.contains("*") -> RuleType.DOMAIN_KEYWORD
+            else -> RuleType.DOMAIN_SUFFIX
+        }
+    }
+
+    fun cleanDomainValue(input: String): String {
+        val trimmed = input.trim()
+        return when {
+            trimmed.startsWith("=") -> trimmed.removePrefix("=").trim()
+            trimmed.contains("*") -> trimmed.replace("*", "").trim()
+            else -> trimmed
+        }
+    }
+
+    fun getSmartTypeHint(input: String): String {
+        val trimmed = input.trim()
+        return when {
+            trimmed.startsWith("=") -> "精确匹配"
+            trimmed.contains("*") -> "关键字匹配"
+            trimmed.isNotEmpty() -> "后缀匹配 (含子域名)"
+            else -> ""
+        }
+    }
+
     var outboundMode by remember { mutableStateOf(initialRule?.outboundMode ?: legacyMode(initialRule?.outbound)) }
     var outboundValue by remember { mutableStateOf(initialRule?.outboundValue) }
 
-    var showTypeDialog by remember { mutableStateOf(false) }
     var showOutboundDialog by remember { mutableStateOf(false) }
     var showTargetSelectionDialog by remember { mutableStateOf(false) }
     var showNodeSelectionDialog by remember { mutableStateOf(false) }
@@ -297,22 +323,6 @@ private fun DomainRuleEditorDialog(
     }
 
     fun toNodeRef(node: com.kunk.singbox.model.NodeUi): String = "${node.sourceProfileId}::${node.name}"
-
-    val allowedTypes = listOf(RuleType.DOMAIN, RuleType.DOMAIN_SUFFIX, RuleType.DOMAIN_KEYWORD)
-
-    if (showTypeDialog) {
-        val options = allowedTypes.map { stringResource(it.displayNameRes) }
-        SingleSelectDialog(
-            title = stringResource(R.string.custom_rules_type),
-            options = options,
-            selectedIndex = allowedTypes.indexOf(type).coerceAtLeast(0),
-            onSelect = { index ->
-                type = allowedTypes[index]
-                showTypeDialog = false
-            },
-            onDismiss = { showTypeDialog = false }
-        )
-    }
 
     if (showOutboundDialog) {
         val options = RuleSetOutboundMode.entries.map { stringResource(it.displayNameRes) }
@@ -401,24 +411,21 @@ private fun DomainRuleEditorDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showTypeDialog = true }
-                        .padding(vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(stringResource(R.string.custom_rules_type), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(stringResource(type.displayNameRes), color = MaterialTheme.colorScheme.onSurface)
-                }
-
                 StyledTextField(
                     label = stringResource(R.string.custom_rules_content),
                     value = value,
                     onValueChange = { value = it },
-                    placeholder = "Separate with newlines or commas" // TODO: add to strings.xml if needed
+                    placeholder = "google.com / =exact.com / *keyword*"
                 )
+                
+                val smartHint = getSmartTypeHint(value)
+                if (smartHint.isNotEmpty()) {
+                    Text(
+                        text = "识别为: $smartHint",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
 
                 Row(
                     modifier = Modifier
@@ -480,9 +487,12 @@ private fun DomainRuleEditorDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val finalValue = value.trim()
-                    if (finalValue.isEmpty()) return@TextButton
+                    val rawValue = value.trim()
+                    if (rawValue.isEmpty()) return@TextButton
 
+                    val smartType = parseSmartDomainType(rawValue)
+                    val finalValue = cleanDomainValue(rawValue)
+                    
                     val finalName = generateRuleNameFromValue(finalValue)
                     if (finalName.isEmpty()) return@TextButton
 
@@ -500,7 +510,7 @@ private fun DomainRuleEditorDialog(
                     val rule = CustomRule(
                         id = initialRule?.id ?: java.util.UUID.randomUUID().toString(),
                         name = finalName,
-                        type = type,
+                        type = smartType,
                         value = finalValue,
                         outbound = legacyOutbound,
                         outboundMode = outboundMode,

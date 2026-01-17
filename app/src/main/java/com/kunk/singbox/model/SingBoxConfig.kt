@@ -309,6 +309,7 @@ data class RouteConfig(
 
 @Keep
 data class RouteRule(
+    @SerializedName("action") val action: String? = null,
     @SerializedName("protocol") val protocolRaw: Any? = null,
     @SerializedName("domain") val domain: List<String>? = null,
     @SerializedName("domain_suffix") val domainSuffix: List<String>? = null,
@@ -316,6 +317,7 @@ data class RouteRule(
     @SerializedName("geosite") val geosite: List<String>? = null,
     @SerializedName("geoip") val geoip: List<String>? = null,
     @SerializedName("ip_cidr") val ipCidr: List<String>? = null,
+    @SerializedName("ip_is_private") val ipIsPrivate: Boolean? = null,
     @SerializedName("port") val port: List<Int>? = null,
     @SerializedName("port_range") val portRange: List<String>? = null,
     @SerializedName("rule_set") val ruleSet: List<String>? = null,
