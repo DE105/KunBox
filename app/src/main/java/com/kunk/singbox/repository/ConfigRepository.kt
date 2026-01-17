@@ -2022,7 +2022,7 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
-    suspend fun testAllNodesLatency(targetNodeIds: List<String>? = null, onNodeComplete: ((String) -> Unit)? = null) = withContext(Dispatchers.IO) {
+    suspend fun testAllNodesLatency(targetNodeIds: List<String>? = null, onNodeComplete: ((nodeId: String, latencyMs: Long) -> Unit)? = null) = withContext(Dispatchers.IO) {
         val allNodes = _nodes.value
         val nodes = if (targetNodeIds != null) {
             allNodes.filter { it.id in targetNodeIds }
@@ -2066,7 +2066,7 @@ class ConfigRepository(private val context: Context) {
             
             updateLatencyInAllNodes(info.nodeId, latency)
 
-            onNodeComplete?.invoke(info.nodeId)
+            onNodeComplete?.invoke(info.nodeId, latencyValue)
         }
 
         saveProfiles()

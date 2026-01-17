@@ -336,11 +336,10 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
             _testProgress.value = Pair(0, totalCount)
 
             try {
-                configRepository.testAllNodesLatency(targetIds) { finishedNodeId ->
+                configRepository.testAllNodesLatency(targetIds) { finishedNodeId, latencyMs ->
                     _testingNodeIds.value = _testingNodeIds.value - finishedNodeId
                     completedCount++
-                    val latency = nodes.value.find { it.id == finishedNodeId }?.latencyMs
-                    if (latency != null && latency > 0) {
+                    if (latencyMs > 0) {
                         successCount++
                     } else {
                         timeoutCount++
