@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.4.4](https://github.com/roseforljh/KunBox/compare/v2.4.3...v2.4.4) (2026-01-18)
+
+
+### Bug Fixes
+
+* **filter:** preserve filter keywords when switching filter modes ([1177d35](https://github.com/roseforljh/KunBox/commit/1177d355acbff542233c4523a35409fef4959c0e))
+* **latency:** restore latency data when switching profiles ([7fc75a0](https://github.com/roseforljh/KunBox/commit/7fc75a0793336c44acbc8a02cff400c32a0664a7))
+* **latency:** support latency testing for nodes from all profiles ([b8c5054](https://github.com/roseforljh/KunBox/commit/b8c5054b0a9e2cc0081c4d9a7f02e3c5994ab3e9))
+
 ## [2.4.3](https://github.com/roseforljh/KunBox/compare/v2.4.2...v2.4.3) (2026-01-18)
 
 
