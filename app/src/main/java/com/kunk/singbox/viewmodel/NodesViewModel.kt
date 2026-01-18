@@ -78,22 +78,24 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         val filtered = when (filter.filterMode) {
             FilterMode.NONE -> nodes
             FilterMode.INCLUDE -> {
-                if (filter.keywords.isEmpty()) {
+                val keywords = filter.effectiveIncludeKeywords
+                if (keywords.isEmpty()) {
                     nodes
                 } else {
                     nodes.filter { node ->
-                        filter.keywords.any { keyword ->
+                        keywords.any { keyword ->
                             node.displayName.contains(keyword, ignoreCase = true)
                         }
                     }
                 }
             }
             FilterMode.EXCLUDE -> {
-                if (filter.keywords.isEmpty()) {
+                val keywords = filter.effectiveExcludeKeywords
+                if (keywords.isEmpty()) {
                     nodes
                 } else {
                     nodes.filter { node ->
-                        filter.keywords.none { keyword ->
+                        keywords.none { keyword ->
                             node.displayName.contains(keyword, ignoreCase = true)
                         }
                     }
@@ -164,22 +166,24 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
         val filtered = when (filter.filterMode) {
             FilterMode.NONE -> nodes
             FilterMode.INCLUDE -> {
-                if (filter.keywords.isEmpty()) {
+                val keywords = filter.effectiveIncludeKeywords
+                if (keywords.isEmpty()) {
                     nodes
                 } else {
                     nodes.filter { node ->
-                        filter.keywords.any { keyword ->
+                        keywords.any { keyword ->
                             node.displayName.contains(keyword, ignoreCase = true)
                         }
                     }
                 }
             }
             FilterMode.EXCLUDE -> {
-                if (filter.keywords.isEmpty()) {
+                val keywords = filter.effectiveExcludeKeywords
+                if (keywords.isEmpty()) {
                     nodes
                 } else {
                     nodes.filter { node ->
-                        filter.keywords.none { keyword ->
+                        keywords.none { keyword ->
                             node.displayName.contains(keyword, ignoreCase = true)
                         }
                     }

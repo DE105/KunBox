@@ -1045,23 +1045,12 @@ fun NodeFilterDialog(
     onDismiss: () -> Unit
 ) {
     var filterMode by remember { mutableStateOf(currentFilter.filterMode) }
+    // 分别保存 INCLUDE 和 EXCLUDE 的关键字，切换模式时不会丢失
     var includeKeywordsText by remember {
-        mutableStateOf(
-            if (currentFilter.filterMode == FilterMode.INCLUDE) {
-                currentFilter.keywords.joinToString(", ")
-            } else {
-                ""
-            }
-        )
+        mutableStateOf(currentFilter.effectiveIncludeKeywords.joinToString(", "))
     }
     var excludeKeywordsText by remember {
-        mutableStateOf(
-            if (currentFilter.filterMode == FilterMode.EXCLUDE) {
-                currentFilter.keywords.joinToString(", ")
-            } else {
-                ""
-            }
-        )
+        mutableStateOf(currentFilter.effectiveExcludeKeywords.joinToString(", "))
     }
 
 
@@ -1248,24 +1237,25 @@ fun NodeFilterDialog(
                 ) {
                     Text(stringResource(R.string.common_cancel))
                 }
-                
+
                 // 确定按钮
                 Button(
                     onClick = {
-                        val rawKeywords = when (filterMode) {
-                            FilterMode.INCLUDE -> includeKeywordsText
-                            FilterMode.EXCLUDE -> excludeKeywordsText
-                            else -> ""
-                        }
-                        val keywords = if (filterMode == FilterMode.NONE) {
-                            emptyList()
-                        } else {
-                            rawKeywords
-                                .split(",", "，")
-                                .map { it.trim() }
-                                .filter { it.isNotEmpty() }
-                        }
-                        onConfirm(NodeFilter(keywords, filterMode))
+                        // 解析两个关键字列表
+                        val includeKeywords = includeKeywordsText
+                            .split(",", "，")
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                        val excludeKeywords = excludeKeywordsText
+                            .split(",", "，")
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                        // 保存两个独立的关键字列表，切换模式不会丢失
+                        onConfirm(NodeFilter(
+                            filterMode = filterMode,
+                            includeKeywords = includeKeywords,
+                            excludeKeywords = excludeKeywords
+                        ))
 
                     },
                     modifier = Modifier.weight(1f).height(50.dp),

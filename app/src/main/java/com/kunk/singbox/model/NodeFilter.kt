@@ -11,6 +11,20 @@ enum class FilterMode {
 
 // 节点过滤配置数据类
 data class NodeFilter(
-    @SerializedName("keywords") val keywords: List<String> = emptyList(),
-    @SerializedName("filterMode") val filterMode: FilterMode = FilterMode.NONE
-)
+    @SerializedName("filterMode") val filterMode: FilterMode = FilterMode.NONE,
+    @SerializedName("includeKeywords") val includeKeywords: List<String> = emptyList(),
+    @SerializedName("excludeKeywords") val excludeKeywords: List<String> = emptyList(),
+    @Deprecated("Use includeKeywords/excludeKeywords instead")
+    @SerializedName("keywords") val keywords: List<String> = emptyList()
+) {
+    // 兼容性：如果旧数据只有 keywords，迁移到对应的字段
+    val effectiveIncludeKeywords: List<String>
+        get() = includeKeywords.ifEmpty {
+            if (filterMode == FilterMode.INCLUDE) keywords else emptyList()
+        }
+
+    val effectiveExcludeKeywords: List<String>
+        get() = excludeKeywords.ifEmpty {
+            if (filterMode == FilterMode.EXCLUDE) keywords else emptyList()
+        }
+}
