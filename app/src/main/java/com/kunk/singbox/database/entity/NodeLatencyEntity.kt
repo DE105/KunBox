@@ -1,7 +1,6 @@
 package com.kunk.singbox.database.entity
 
 import androidx.room.Entity
-import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -12,14 +11,6 @@ import androidx.room.PrimaryKey
  */
 @Entity(
     tableName = "node_latencies",
-    foreignKeys = [
-        ForeignKey(
-            entity = NodeEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["nodeId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
     indices = [Index(value = ["nodeId"])]
 )
 data class NodeLatencyEntity(

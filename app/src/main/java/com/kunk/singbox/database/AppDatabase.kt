@@ -37,7 +37,7 @@ import com.kunk.singbox.database.entity.SettingsEntity
         NodeLatencyEntity::class,
         SettingsEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -68,7 +68,7 @@ abstract class AppDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .allowMainThreadQueries() // 设置加载需要同步读取
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
         }
 
@@ -85,6 +85,29 @@ abstract class AppDatabase : RoomDatabase() {
                         updatedAt INTEGER NOT NULL
                     )
                 """.trimIndent())
+            }
+        }
+
+        /**
+         * 数据库迁移: v2 -> v3 (移除 node_latencies 外键约束)
+         * 由于 SQLite 不支持直接删除外键，需要重建表
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS node_latencies_new (
+                        nodeId TEXT NOT NULL PRIMARY KEY,
+                        latencyMs INTEGER NOT NULL,
+                        testedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                database.execSQL("""
+                    INSERT OR IGNORE INTO node_latencies_new (nodeId, latencyMs, testedAt)
+                    SELECT nodeId, latencyMs, testedAt FROM node_latencies
+                """.trimIndent())
+                database.execSQL("DROP TABLE IF EXISTS node_latencies")
+                database.execSQL("ALTER TABLE node_latencies_new RENAME TO node_latencies")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_node_latencies_nodeId ON node_latencies(nodeId)")
             }
         }
 
