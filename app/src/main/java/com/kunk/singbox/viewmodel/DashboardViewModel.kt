@@ -210,12 +210,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val filtered = when (filter.filterMode) {
             FilterMode.NONE -> nodes
             FilterMode.INCLUDE -> {
-                if (filter.keywords.isEmpty()) nodes
-                else nodes.filter { node -> filter.keywords.any { keyword -> node.displayName.contains(keyword, ignoreCase = true) } }
+                val keywords = filter.effectiveIncludeKeywords
+                if (keywords.isEmpty()) nodes
+                else nodes.filter { node -> keywords.any { keyword -> node.displayName.contains(keyword, ignoreCase = true) } }
             }
             FilterMode.EXCLUDE -> {
-                if (filter.keywords.isEmpty()) nodes
-                else nodes.filter { node -> filter.keywords.none { keyword -> node.displayName.contains(keyword, ignoreCase = true) } }
+                val keywords = filter.effectiveExcludeKeywords
+                if (keywords.isEmpty()) nodes
+                else nodes.filter { node -> keywords.none { keyword -> node.displayName.contains(keyword, ignoreCase = true) } }
             }
         }
         

@@ -1963,7 +1963,9 @@ class ConfigRepository(private val context: Context) {
             val result = withContext(Dispatchers.IO) {
                 withTimeoutOrNull(totalTimeoutMs) {
                     try {
+                        // 优先从 _nodes 查找，找不到则从 _allNodes 查找（支持非活跃配置的节点）
                         val node = _nodes.value.find { it.id == nodeId }
+                            ?: _allNodes.value.find { it.id == nodeId }
                         if (node == null) {
                             Log.e(TAG, "Node not found: $nodeId")
                             return@withTimeoutOrNull -1L
@@ -2004,6 +2006,7 @@ class ConfigRepository(private val context: Context) {
                         }
                         Log.e(TAG, "Latency test error for $nodeId", e)
                         val nodeName = _nodes.value.find { it.id == nodeId }?.name
+                            ?: _allNodes.value.find { it.id == nodeId }?.name
                         LogRepository.getInstance().addLog(context.getString(R.string.nodes_test_failed, nodeName ?: nodeId) + ": ${e.message}")
                         -1L
                     }
@@ -2046,12 +2049,17 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
-    suspend fun testAllNodesLatency(targetNodeIds: List<String>? = null, onNodeComplete: ((nodeId: String, latencyMs: Long) -> Unit)? = null) = withContext(Dispatchers.IO) {
-        val allNodes = _nodes.value
+    suspend fun testAllNodesLatency(
+        targetNodeIds: List<String>? = null,
+        useAllNodes: Boolean = false,
+        onNodeComplete: ((nodeId: String, latencyMs: Long) -> Unit)? = null
+    ) = withContext(Dispatchers.IO) {
+        // 根据 useAllNodes 参数决定使用 _nodes 还是 _allNodes
+        val sourceNodes = if (useAllNodes) _allNodes.value else _nodes.value
         val nodes = if (targetNodeIds != null) {
-            allNodes.filter { it.id in targetNodeIds }
+            sourceNodes.filter { it.id in targetNodeIds }
         } else {
-            allNodes
+            sourceNodes
         }
 
         data class NodeTestInfo(
