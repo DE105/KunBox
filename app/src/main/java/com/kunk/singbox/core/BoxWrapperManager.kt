@@ -449,4 +449,47 @@ object BoxWrapperManager {
             emptyMap()
         }
     }
+
+    // ==================== Idle Connection Cleanup (Fix TG image loading slow) ====================
+
+    /**
+     * Close idle connections that have been inactive for too long
+     * This fixes the "TG image loading slow" issue caused by stale connections
+     *
+     * @param maxIdleSeconds Maximum idle time in seconds (default: 60)
+     * @return Number of connections closed
+     */
+    fun closeIdleConnections(maxIdleSeconds: Int = 60): Int {
+        return try {
+            val count = Libbox.closeIdleConnections(maxIdleSeconds)
+            if (count > 0) {
+                Log.i(TAG, "closeIdleConnections: closed $count connections (maxIdle=${maxIdleSeconds}s)")
+            }
+            count
+        } catch (e: Exception) {
+            Log.w(TAG, "closeIdleConnections failed: ${e.message}")
+            0
+        }
+    }
+
+    /**
+     * Close stale connections to a specific host pattern
+     * Useful for troubleshooting specific domains (like Telegram CDN)
+     *
+     * @param hostPattern Host pattern to match (case-insensitive contains match)
+     * @param maxAgeSeconds Maximum connection age in seconds
+     * @return Number of connections closed
+     */
+    fun closeStaleConnectionsForHost(hostPattern: String, maxAgeSeconds: Int = 30): Int {
+        return try {
+            val count = Libbox.closeStaleConnectionsForHost(hostPattern, maxAgeSeconds)
+            if (count > 0) {
+                Log.i(TAG, "closeStaleConnectionsForHost: closed $count connections for '$hostPattern' (maxAge=${maxAgeSeconds}s)")
+            }
+            count
+        } catch (e: Exception) {
+            Log.w(TAG, "closeStaleConnectionsForHost failed: ${e.message}")
+            0
+        }
+    }
 }

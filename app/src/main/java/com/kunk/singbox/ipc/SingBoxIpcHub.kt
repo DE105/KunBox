@@ -54,6 +54,8 @@ object SingBoxIpcHub {
      * 2025-fix-v7: 当应用返回前台时，立即重置所有连接
      * 这是解决 "后台恢复后 TG 等应用一直加载中" 问题的关键修复
      *
+     * 2025-fix-v9: 同时清理闲置连接，解决 "TG 图片加载慢" 问题
+     *
      * 参考 NekoBox: 在 onServiceConnected() 时无条件调用 resetAllConnections()
      */
     fun onAppLifecycle(isForeground: Boolean) {
@@ -62,7 +64,7 @@ object SingBoxIpcHub {
         if (isForeground) {
             powerManager?.onAppForeground()
 
-            // 2025-fix-v7: 应用返回前台时，重置所有连接
+            // 2025-fix-v7 + v9: 应用返回前台时，网络恢复 + 清理闲置连接
             // 这确保 sing-box 内核不会使用后台期间可能已失效的连接
             val isVpnRunning = stateOrdinal == SingBoxService.ServiceState.RUNNING.ordinal
             if (isVpnRunning) {
@@ -74,12 +76,21 @@ object SingBoxIpcHub {
                 if (elapsed >= FOREGROUND_RESET_DEBOUNCE_MS) {
                     lastForegroundAtMs.set(now)
 
-                    Log.i(TAG, "[Foreground] VPN running, resetting all connections")
-                    val success = BoxWrapperManager.resetAllConnections(true)
+                    Log.i(TAG, "[Foreground] VPN running, triggering network recovery")
+                    // 2025-fix-v8: Use recoverNetworkAuto which calls CloseAllTrackedConnections
+                    // This properly sends RST/FIN to apps, fixing "TG stuck loading" issue
+                    val success = BoxWrapperManager.recoverNetworkAuto()
                     if (success) {
-                        Log.i(TAG, "[Foreground] resetAllConnections success")
+                        Log.i(TAG, "[Foreground] recoverNetworkAuto success")
                     } else {
-                        Log.w(TAG, "[Foreground] resetAllConnections failed, VPN may have stale connections")
+                        Log.w(TAG, "[Foreground] recoverNetworkAuto failed, VPN may have stale connections")
+                    }
+
+                    // 2025-fix-v9: Also close idle connections to fix "TG image loading slow"
+                    // Close connections idle for more than 60 seconds
+                    val closedIdle = BoxWrapperManager.closeIdleConnections(60)
+                    if (closedIdle > 0) {
+                        Log.i(TAG, "[Foreground] closeIdleConnections: closed $closedIdle idle connections")
                     }
                 } else {
                     Log.d(TAG, "[Foreground] skipped reset (debounce, elapsed=${elapsed}ms)")
