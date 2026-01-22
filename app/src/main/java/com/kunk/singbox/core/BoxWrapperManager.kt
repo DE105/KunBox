@@ -98,7 +98,7 @@ object BoxWrapperManager {
     fun getSelectedOutbound(): String? {
         val w = wrapper ?: return null
         return try {
-            w.selectedOutbound.takeIf { it.isNotBlank() }
+            w.selectedOutbound().takeIf { it.isNotBlank() }
         } catch (e: Exception) {
             Log.w(TAG, "getSelectedOutbound failed: ${e.message}")
             null
@@ -176,7 +176,7 @@ object BoxWrapperManager {
     fun isPausedNow(): Boolean {
         val w = wrapper ?: return false
         return try {
-            w.isPaused
+            w.isPaused()
         } catch (e: Exception) {
             _isPaused.value
         }
@@ -246,7 +246,7 @@ object BoxWrapperManager {
     fun getUploadTotal(): Long {
         val w = wrapper ?: return -1L
         return try {
-            w.uploadTotal
+            w.uploadTotal()
         } catch (e: Exception) {
             Log.w(TAG, "getUploadTotal failed: ${e.message}")
             -1L
@@ -259,7 +259,7 @@ object BoxWrapperManager {
     fun getDownloadTotal(): Long {
         val w = wrapper ?: return -1L
         return try {
-            w.downloadTotal
+            w.downloadTotal()
         } catch (e: Exception) {
             Log.w(TAG, "getDownloadTotal failed: ${e.message}")
             -1L

@@ -13,12 +13,12 @@ object ServiceStateHolder {
     const val ACTION_SWITCH_NODE = "com.kunk.singbox.SWITCH_NODE"
     const val ACTION_SERVICE = "com.kunk.singbox.SERVICE"
     const val ACTION_UPDATE_SETTING = "com.kunk.singbox.UPDATE_SETTING"
-    
+
     // Pre-cleanup: close connections before VPN restart to avoid app timeout on old connections
     const val ACTION_PREPARE_RESTART = "com.kunk.singbox.PREPARE_RESTART"
     // Hot-reload: reload config preserving TUN interface, no VPN service restart
     const val ACTION_HOT_RELOAD = "com.kunk.singbox.HOT_RELOAD"
-    
+
     const val EXTRA_CONFIG_PATH = "config_path"
     const val EXTRA_CONFIG_CONTENT = "config_content"
     const val EXTRA_CLEAN_CACHE = "clean_cache"
@@ -83,7 +83,7 @@ object ServiceStateHolder {
 
     @Volatile
     private var connectionOwnerLastUid: Int = 0
-    
+
     @Volatile
     private var connectionOwnerLastEvent: String = ""
 

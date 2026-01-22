@@ -44,14 +44,12 @@ import com.kunk.singbox.service.manager.CoreNetworkResetManager
 import com.kunk.singbox.service.manager.NodeSwitchManager
 import com.kunk.singbox.service.manager.BackgroundPowerManager
 import com.kunk.singbox.service.manager.ServiceStateHolder
-import com.kunk.singbox.service.manager.ConnectionOwnerStatsSnapshot
 import com.kunk.singbox.model.BackgroundPowerSavingDelay
 import com.kunk.singbox.utils.L
 import com.kunk.singbox.utils.NetworkClient
 import io.nekohasekai.libbox.*
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -193,12 +191,23 @@ class SingBoxService : VpnService() {
         override fun incrementConnectionOwnerCalls() { ServiceStateHolder.incrementConnectionOwnerCalls() }
         override fun incrementConnectionOwnerInvalidArgs() { ServiceStateHolder.incrementConnectionOwnerInvalidArgs() }
         override fun incrementConnectionOwnerUidResolved() { ServiceStateHolder.incrementConnectionOwnerUidResolved() }
-        override fun incrementConnectionOwnerSecurityDenied() { ServiceStateHolder.incrementConnectionOwnerSecurityDenied() }
-        override fun incrementConnectionOwnerOtherException() { ServiceStateHolder.incrementConnectionOwnerOtherException() }
-        override fun setConnectionOwnerLastEvent(event: String) { ServiceStateHolder.setConnectionOwnerLastEvent(event) }
-        override fun setConnectionOwnerLastUid(uid: Int) { ServiceStateHolder.setConnectionOwnerLastUid(uid) }
-        override fun isConnectionOwnerPermissionDeniedLogged(): Boolean = ServiceStateHolder.connectionOwnerPermissionDeniedLogged
-        override fun setConnectionOwnerPermissionDeniedLogged(logged: Boolean) { ServiceStateHolder.connectionOwnerPermissionDeniedLogged = logged }
+        override fun incrementConnectionOwnerSecurityDenied() {
+            ServiceStateHolder.incrementConnectionOwnerSecurityDenied()
+        }
+        override fun incrementConnectionOwnerOtherException() {
+            ServiceStateHolder.incrementConnectionOwnerOtherException()
+        }
+        override fun setConnectionOwnerLastEvent(event: String) {
+            ServiceStateHolder.setConnectionOwnerLastEvent(event)
+        }
+        override fun setConnectionOwnerLastUid(uid: Int) {
+            ServiceStateHolder.setConnectionOwnerLastUid(uid)
+        }
+        override fun isConnectionOwnerPermissionDeniedLogged(): Boolean =
+            ServiceStateHolder.connectionOwnerPermissionDeniedLogged
+        override fun setConnectionOwnerPermissionDeniedLogged(logged: Boolean) {
+            ServiceStateHolder.connectionOwnerPermissionDeniedLogged = logged
+        }
 
         override fun cacheUidToPackage(uid: Int, packageName: String) {
             this@SingBoxService.cacheUidToPackage(uid, packageName)
@@ -286,6 +295,7 @@ class SingBoxService : VpnService() {
     /**
      * 初始化新架构 Managers (7个核心模块)
      */
+    @Suppress("LongMethod")
     private fun initManagers() {
         // 1. 初始化核心管理器
         coreManager.init(platformInterfaceImpl)

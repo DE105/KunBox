@@ -87,6 +87,7 @@
     <string name="dashboard_no_nodes_available">暂无可用节点</string>
     <string name="dashboard_test_complete">测试完成</string>
     <string name="dashboard_config_generation_failed">配置生成失败</string>
+    <string name="dashboard_system_vpn_running">检测到其他 VPN 正在运行</string>
 
     <!-- Settings -->
     <string name="settings_title">设置</string>

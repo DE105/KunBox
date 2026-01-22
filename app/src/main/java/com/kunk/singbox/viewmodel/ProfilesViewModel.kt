@@ -111,10 +111,17 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                     val changes = mutableListOf<String>()
                     if (result.addedCount > 0) changes.add("+${result.addedCount}")
                     if (result.removedCount > 0) changes.add("-${result.removedCount}")
-                    getApplication<Application>().getString(R.string.subscription_update_success_with_changes, changes.joinToString("/"), result.totalCount)
+                    getApplication<Application>().getString(
+                        R.string.subscription_update_success_with_changes,
+                        changes.joinToString("/"),
+                        result.totalCount
+                    )
                 }
                 is SubscriptionUpdateResult.SuccessNoChanges -> {
-                    getApplication<Application>().getString(R.string.subscription_update_success_no_changes, result.totalCount)
+                    getApplication<Application>().getString(
+                        R.string.subscription_update_success_no_changes,
+                        result.totalCount
+                    )
                 }
                 is SubscriptionUpdateResult.Failed -> {
                     getApplication<Application>().getString(R.string.settings_update_failed) + ": ${result.error}"

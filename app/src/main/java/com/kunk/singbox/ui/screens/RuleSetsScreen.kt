@@ -395,7 +395,10 @@ fun RuleSetsScreen(
             TopAppBar(
                 title = {
                     if (isSelectionMode) {
-                        Text(stringResource(R.string.rulesets_selection_mode, selectedItems.count { it.value }), color = MaterialTheme.colorScheme.onBackground)
+                        Text(
+                            stringResource(R.string.rulesets_selection_mode, selectedItems.count { it.value }),
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
                     } else {
                         Text(stringResource(R.string.rulesets_title), color = MaterialTheme.colorScheme.onBackground)
                     }

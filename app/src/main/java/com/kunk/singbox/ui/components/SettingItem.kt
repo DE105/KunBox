@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+@Suppress("LongMethod", "CognitiveComplexMethod")
 @Composable
 fun SettingItem(
     title: String,

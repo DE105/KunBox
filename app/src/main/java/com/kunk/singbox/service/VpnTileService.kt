@@ -164,6 +164,7 @@ class VpnTileService : TileService() {
         }
     }
 
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod")
     private fun updateTile(activeLabelOverride: String? = null) {
         var persistedActive = runCatching {
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

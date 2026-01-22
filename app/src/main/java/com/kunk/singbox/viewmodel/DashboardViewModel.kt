@@ -130,7 +130,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     is ConfigRepository.NodeSwitchResult.Success,
                     is ConfigRepository.NodeSwitchResult.NotRunning -> getApplication<Application>().getString(R.string.node_switch_success, node.name)
 
-                    is ConfigRepository.NodeSwitchResult.Failed -> getApplication<Application>().getString(R.string.node_switch_failed, node.name)
+                    is ConfigRepository.NodeSwitchResult.Failed ->
+                        getApplication<Application>().getString(R.string.node_switch_failed, node.name)
                 }
                 _actionStatus.value = msg
                 delay(1500)

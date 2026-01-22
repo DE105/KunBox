@@ -66,7 +66,6 @@ class ConfigRepository(private val context: Context) {
         private val REGEX_SANITIZE_UUID = Regex("(?i)uuid\\s*[:=]\\s*[^\\\\n]+")
         private val REGEX_SANITIZE_PASSWORD = Regex("(?i)password\\s*[:=]\\s*[^\\\\n]+")
         private val REGEX_SANITIZE_TOKEN = Regex("(?i)token\\s*[:=]\\s*[^\\\\n]+")
-        private val REGEX_FLAG_EMOJI = Regex("[\\uD83C][\\uDDE6-\\uDDFF][\\uD83C][\\uDDE6-\\uDDFF]")
         private val REGEX_INTERVAL_DIGITS = Regex("^\\d+$")
         private val REGEX_INTERVAL_DECIMAL = Regex("^\\d+\\.\\d+$")
         private val REGEX_INTERVAL_UNIT = Regex("^\\d+[smhd]$", RegexOption.IGNORE_CASE)
@@ -81,56 +80,8 @@ class ConfigRepository(private val context: Context) {
         private val TYPE_SAVED_PROFILES_DATA = object : TypeToken<SavedProfilesData>() {}.type
         private val TYPE_OUTBOUND_LIST = object : TypeToken<List<Outbound>>() {}.type
 
-        // 预编译的地区检测规则 - 避免每次调用都编译 Regex
-        private data class RegionRule(
-            val flag: String,
-            val chineseKeywords: List<String>,
-            val englishKeywords: List<String>,
-            val wordBoundaryKeywords: List<String> // 需要词边界匹配的短代码
-        )
-
-        private val REGION_RULES = listOf(
-            RegionRule("🇭🇰", listOf("香港"), listOf("hong kong"), listOf("hk")),
-            RegionRule("🇹🇼", listOf("台湾"), listOf("taiwan"), listOf("tw")),
-            RegionRule("🇯🇵", listOf("日本"), listOf("japan", "tokyo"), listOf("jp")),
-            RegionRule("🇸🇬", listOf("新加坡"), listOf("singapore"), listOf("sg")),
-            RegionRule("🇺🇸", listOf("美国"), listOf("united states", "america"), listOf("us", "usa")),
-            RegionRule("🇰🇷", listOf("韩国"), listOf("korea"), listOf("kr")),
-            RegionRule("🇬🇧", listOf("英国"), listOf("britain", "england"), listOf("uk", "gb")),
-            RegionRule("🇩🇪", listOf("德国"), listOf("germany"), listOf("de")),
-            RegionRule("🇫🇷", listOf("法国"), listOf("france"), listOf("fr")),
-            RegionRule("🇨🇦", listOf("加拿大"), listOf("canada"), listOf("ca")),
-            RegionRule("🇦🇺", listOf("澳大利亚"), listOf("australia"), listOf("au")),
-            RegionRule("🇷🇺", listOf("俄罗斯"), listOf("russia"), listOf("ru")),
-            RegionRule("🇮🇳", listOf("印度"), listOf("india"), listOf("in")),
-            RegionRule("🇧🇷", listOf("巴西"), listOf("brazil"), listOf("br")),
-            RegionRule("🇳🇱", listOf("荷兰"), listOf("netherlands"), listOf("nl")),
-            RegionRule("🇹🇷", listOf("土耳其"), listOf("turkey"), listOf("tr")),
-            RegionRule("🇦🇷", listOf("阿根廷"), listOf("argentina"), listOf("ar")),
-            RegionRule("🇲🇾", listOf("马来西亚"), listOf("malaysia"), listOf("my")),
-            RegionRule("🇹🇭", listOf("泰国"), listOf("thailand"), listOf("th")),
-            RegionRule("🇻🇳", listOf("越南"), listOf("vietnam"), listOf("vn")),
-            RegionRule("🇵🇭", listOf("菲律宾"), listOf("philippines"), listOf("ph")),
-            RegionRule("🇮🇩", listOf("印尼"), listOf("indonesia"), listOf("id"))
-        )
-
-        // 预编译词边界 Regex Map
-        private val WORD_BOUNDARY_REGEX_MAP: Map<String, Regex> = REGION_RULES
-            .flatMap { it.wordBoundaryKeywords }
-            .associateWith { word -> Regex("(^|[^a-z])${Regex.escape(word)}([^a-z]|$)") }
-
         // LRU 缓存大小限制，防止节点数量过多时内存膨胀
-        private const val MAX_REGION_FLAG_CACHE_SIZE = 2000
         private const val MAX_NODE_ID_CACHE_SIZE = 2000
-
-        // 地区检测缓存 - 使用 LRU 淘汰机制
-        private val regionFlagCache: MutableMap<String, String> = Collections.synchronizedMap(
-            object : LinkedHashMap<String, String>(MAX_REGION_FLAG_CACHE_SIZE, 0.75f, true) {
-                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
-                    return size > MAX_REGION_FLAG_CACHE_SIZE
-                }
-            }
-        )
 
         // stableNodeId 缓存 - 使用 LRU 淘汰机制
         private val nodeIdCache: MutableMap<String, String> = Collections.synchronizedMap(
@@ -1539,52 +1490,18 @@ class ConfigRepository(private val context: Context) {
 
     /**
      * 检测字符串是否包含国旗 Emoji
+     * 委托给 RegionDetector
      */
     private fun containsFlagEmoji(str: String): Boolean {
-        // 匹配区域指示符符号 (Regional Indicator Symbols) U+1F1E6..U+1F1FF
-        // 两个区域指示符符号组成一个国旗
-        // Java/Kotlin 中，这些字符是代理对 (Surrogate Pairs)
-        // U+1F1E6 是 \uD83C\uDDE6
-        // U+1F1FF 是 \uD83C\uDDFF
-        // 正则表达式匹配两个连续的区域指示符
-        return REGEX_FLAG_EMOJI.containsMatchIn(str)
+        return com.kunk.singbox.utils.RegionDetector.containsFlagEmoji(str)
     }
 
     /**
      * 根据节点名称检测地区标志
-     *
-     * 使用预编译规则和缓存优化性能
+     * 委托给 RegionDetector
      */
     private fun detectRegionFlag(name: String): String {
-        // 先查缓存
-        regionFlagCache[name]?.let { return it }
-
-        val lowerName = name.lowercase()
-
-        for (rule in REGION_RULES) {
-            // 1. 检查中文关键词 (直接 contains)
-            if (rule.chineseKeywords.any { lowerName.contains(it) }) {
-                regionFlagCache[name] = rule.flag
-                return rule.flag
-            }
-
-            // 2. 检查英文关键词 (直接 contains)
-            if (rule.englishKeywords.any { lowerName.contains(it) }) {
-                regionFlagCache[name] = rule.flag
-                return rule.flag
-            }
-
-            // 3. 检查需要词边界的短代码 (使用预编译 Regex)
-            if (rule.wordBoundaryKeywords.any { word ->
-                    WORD_BOUNDARY_REGEX_MAP[word]?.containsMatchIn(lowerName) == true
-                }) {
-                regionFlagCache[name] = rule.flag
-                return rule.flag
-            }
-        }
-
-        regionFlagCache[name] = "🌐"
-        return "🌐"
+        return com.kunk.singbox.utils.RegionDetector.detect(name)
     }
 
     fun setActiveProfile(profileId: String, targetNodeId: String? = null) {
@@ -3942,7 +3859,7 @@ class ConfigRepository(private val context: Context) {
      */
     fun cleanup() {
         scope.cancel()
-        regionFlagCache.clear()
+        com.kunk.singbox.utils.RegionDetector.clearCache()
         nodeIdCache.clear()
         configCache.clear()
         profileNodes.clear()

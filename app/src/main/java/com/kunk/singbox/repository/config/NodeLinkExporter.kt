@@ -34,6 +34,7 @@ object NodeLinkExporter {
         return if (query.isNotEmpty()) "?$query" else ""
     }
 
+    @Suppress("CyclomaticComplexMethod", "CognitiveComplexMethod", "NestedBlockDepth")
     private fun generateVLessLink(outbound: Outbound): String {
         val uuid = outbound.uuid ?: return ""
         val server = outbound.server?.let { formatServerHost(it) } ?: return ""

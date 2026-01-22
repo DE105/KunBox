@@ -114,7 +114,11 @@ fun AppRoutingScreen(
     if (showDeleteGroupConfirm != null) {
         ConfirmDialog(
             title = stringResource(R.string.app_groups_delete_title),
-            message = stringResource(R.string.app_groups_delete_confirm, showDeleteGroupConfirm?.name ?: "", showDeleteGroupConfirm?.apps?.size ?: 0),
+            message = stringResource(
+                R.string.app_groups_delete_confirm,
+                showDeleteGroupConfirm?.name ?: "",
+                showDeleteGroupConfirm?.apps?.size ?: 0
+            ),
             confirmText = stringResource(R.string.common_delete),
             onConfirm = {
                 settingsViewModel.deleteAppGroup(showDeleteGroupConfirm!!.id)

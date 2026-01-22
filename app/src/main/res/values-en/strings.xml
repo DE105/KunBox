@@ -87,6 +87,7 @@
     <string name="dashboard_no_nodes_available">No nodes available</string>
     <string name="dashboard_test_complete">Test complete</string>
     <string name="dashboard_config_generation_failed">Config generation failed</string>
+    <string name="dashboard_system_vpn_running">Another VPN is running</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
