@@ -3,7 +3,7 @@ package com.kunk.singbox.utils
 import android.util.Log
 import com.kunk.singbox.core.BoxWrapperManager
 import io.nekohasekai.libbox.FetchResult
-import io.nekohasekai.libbox.BoxService
+import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -72,14 +72,13 @@ object KernelHttpClient {
         timeoutMs: Int = DEFAULT_TIMEOUT_MS
     ): HttpResult = withContext(Dispatchers.IO) {
         try {
-            val boxService = BoxWrapperManager.getBoxService()
-            if (boxService == null) {
-                Log.w(TAG, "BoxService not available, falling back to OkHttp")
+            if (!BoxWrapperManager.isAvailable()) {
+                Log.w(TAG, "VPN service not running, falling back to OkHttp")
                 return@withContext fetchWithOkHttp(url, timeoutMs)
             }
 
             Log.d(TAG, "Kernel fetch: $url via $outboundTag")
-            val result = boxService.fetchURL(outboundTag, url, timeoutMs)
+            val result = Libbox.fetchURL(outboundTag, url, timeoutMs)
             HttpResult.fromLibbox(result)
         } catch (e: NoSuchMethodError) {
             Log.w(TAG, "Kernel fetch not available (old libbox), falling back to OkHttp")
@@ -93,6 +92,9 @@ object KernelHttpClient {
     /**
      * 使用运行中的 VPN 服务发起请求 (带自定义 Headers)
      *
+     * 注意: 当前 libbox 版本不支持 fetchURLWithHeaders API
+     * 此方法会回退到返回错误，调用者应使用不需要自定义 Headers 的 fetch()
+     *
      * @param url 请求 URL
      * @param headers 请求头 Map
      * @param outboundTag 使用的出站标签
@@ -105,24 +107,9 @@ object KernelHttpClient {
         outboundTag: String = "proxy",
         timeoutMs: Int = DEFAULT_TIMEOUT_MS
     ): HttpResult = withContext(Dispatchers.IO) {
-        try {
-            val boxService = BoxWrapperManager.getBoxService()
-            if (boxService == null) {
-                Log.w(TAG, "BoxService not available")
-                return@withContext HttpResult.error("VPN service not running")
-            }
-
-            val headersStr = headers.entries.joinToString("\n") { "${it.key}:${it.value}" }
-            Log.d(TAG, "Kernel fetch with headers: $url")
-            val result = boxService.fetchURLWithHeaders(outboundTag, url, headersStr, timeoutMs)
-            HttpResult.fromLibbox(result)
-        } catch (e: NoSuchMethodError) {
-            Log.w(TAG, "Kernel fetchWithHeaders not available")
-            HttpResult.error("Kernel method not available")
-        } catch (e: Exception) {
-            Log.e(TAG, "Kernel fetch error: ${e.message}", e)
-            HttpResult.error("Fetch error: ${e.message}")
-        }
+        // libbox 当前版本不支持 fetchURLWithHeaders API
+        Log.w(TAG, "fetchWithHeaders not supported in current libbox version")
+        HttpResult.error("fetchWithHeaders not supported, use fetch() instead")
     }
 
     /**
@@ -141,9 +128,9 @@ object KernelHttpClient {
         preferKernel: Boolean = true,
         timeoutMs: Int = DEFAULT_TIMEOUT_MS
     ): HttpResult = withContext(Dispatchers.IO) {
-        val boxService = BoxWrapperManager.getBoxService()
+        val isRunning = BoxWrapperManager.isAvailable()
 
-        if (boxService != null && preferKernel) {
+        if (isRunning && preferKernel) {
             // VPN 运行中，使用内核
             fetch(url, "proxy", timeoutMs)
         } else {
@@ -188,7 +175,7 @@ object KernelHttpClient {
     fun isKernelFetchAvailable(): Boolean {
         return try {
             // 检查方法是否存在
-            io.nekohasekai.libbox.BoxService::class.java.getMethod(
+            Libbox::class.java.getMethod(
                 "fetchURL",
                 String::class.java,
                 String::class.java,
@@ -204,6 +191,6 @@ object KernelHttpClient {
      * 检查 VPN 是否运行中 (可使用内核 Fetch)
      */
     fun isVpnRunning(): Boolean {
-        return BoxWrapperManager.getBoxService() != null
+        return BoxWrapperManager.isAvailable()
     }
 }

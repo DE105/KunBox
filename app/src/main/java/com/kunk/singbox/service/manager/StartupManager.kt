@@ -61,7 +61,8 @@ class StartupManager(
 
         // 组件初始化
         fun initSelectorManager(configContent: String)
-        fun startCommandServerAndClient(boxService: io.nekohasekai.libbox.BoxService)
+        fun createAndStartCommandServer(): Result<Unit>
+        fun startCommandClients()
         fun startRouteGroupAutoSelect(configContent: String)
         fun scheduleAsyncRuleSetUpdate()
         fun startHealthMonitor()
@@ -152,7 +153,10 @@ class StartupManager(
                 coreManager.cleanCacheDb()
             }
 
-            // 6. 启动 Libbox
+            // 6. 创建并启动 CommandServer (必须在 startLibbox 之前)
+            callbacks.createAndStartCommandServer().getOrThrow()
+
+            // 7. 启动 Libbox
             when (val result = coreManager.startLibbox(configContent)) {
                 is CoreManager.StartResult.Success -> {
                     Log.i(TAG, "Libbox started in ${result.durationMs}ms")
@@ -165,27 +169,28 @@ class StartupManager(
                 }
             }
 
-            // 7. 初始化后续组件
-            val boxService = coreManager.boxService
-                ?: throw IllegalStateException("BoxService is null after successful start")
+            // 8. 初始化后续组件
+            if (!coreManager.isServiceRunning()) {
+                throw IllegalStateException("Service is not running after successful start")
+            }
 
-            callbacks.startCommandServerAndClient(boxService)
+            callbacks.startCommandClients()
             callbacks.initSelectorManager(configContent)
 
-            // 8. 标记运行状态
+            // 9. 标记运行状态
             callbacks.setIsRunning(true)
             callbacks.setLastError(null)
             callbacks.persistVpnState(true)
             callbacks.stopForeignVpnMonitor()
 
-            // 9. 启动监控和辅助组件
+            // 10. 启动监控和辅助组件
             callbacks.startTrafficMonitor()
             callbacks.startHealthMonitor()
             callbacks.scheduleKeepaliveWorker()
             callbacks.startRouteGroupAutoSelect(configContent)
             callbacks.scheduleAsyncRuleSetUpdate()
 
-            // 10. 更新 UI 状态
+            // 11. 更新 UI 状态
             callbacks.persistVpnPending("")
             callbacks.updateTileState()
 

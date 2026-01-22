@@ -12,6 +12,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.system.OsConstants
 import android.util.Log
+import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.NetworkInterfaceIterator
 import io.nekohasekai.libbox.PlatformInterface
@@ -41,6 +42,42 @@ class PlatformInterfaceImpl(
 
     companion object {
         private const val TAG = "PlatformInterfaceImpl"
+    }
+
+    // 网络切换管理器
+    private val networkSwitchManager: NetworkSwitchManager by lazy {
+        NetworkSwitchManager(serviceScope, mainHandler).apply {
+            init(networkSwitchCallbacks)
+        }
+    }
+
+    // NetworkSwitchManager 回调
+    private val networkSwitchCallbacks = object : NetworkSwitchManager.Callbacks {
+        override fun getConnectivityManager(): ConnectivityManager? = callbacks.getConnectivityManager()
+
+        override fun setUnderlyingNetworks(networks: Array<Network>?) {
+            callbacks.setUnderlyingNetworks(networks)
+        }
+
+        override fun setLastKnownNetwork(network: Network?) {
+            callbacks.setLastKnownNetwork(network)
+        }
+
+        override fun getLastKnownNetwork(): Network? = callbacks.getLastKnownNetwork()
+
+        override fun requestCoreNetworkReset(reason: String, force: Boolean) {
+            callbacks.requestCoreNetworkReset(reason, force)
+        }
+
+        override fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean) {
+            callbacks.resetConnectionsOptimal(reason, skipDebounce)
+        }
+
+        override fun updateInterfaceListener(name: String, index: Int, isExpensive: Boolean, isConstrained: Boolean) {
+            currentInterfaceListener?.updateDefaultInterface(name, index, isExpensive, isConstrained)
+        }
+
+        override fun isRunning(): Boolean = callbacks.isRunning()
     }
 
     /**
@@ -206,8 +243,17 @@ class PlatformInterfaceImpl(
         sourcePort: Int,
         destinationAddress: String?,
         destinationPort: Int
-    ): Int {
+    ): ConnectionOwner {
         callbacks.incrementConnectionOwnerCalls()
+
+        fun buildConnectionOwner(uid: Int): ConnectionOwner {
+            val owner = ConnectionOwner()
+            owner.userId = uid
+            if (uid > 0) {
+                owner.androidPackageName = getPackageNameByUid(uid)
+            }
+            return owner
+        }
 
         fun findUidFromProcFsBySourcePort(protocol: Int, srcPort: Int): Int {
             if (srcPort <= 0) return 0
@@ -257,7 +303,7 @@ class PlatformInterfaceImpl(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             callbacks.incrementConnectionOwnerInvalidArgs()
             callbacks.setConnectionOwnerLastEvent("api<29")
-            return 0
+            return buildConnectionOwner(0)
         }
 
         fun parseAddress(value: String?): InetAddress? {
@@ -287,18 +333,18 @@ class PlatformInterfaceImpl(
                 callbacks.setConnectionOwnerLastEvent(
                     "procfs_fallback uid=$uid proto=$protocol src=$sourceAddress:$sourcePort dst=$destinationAddress:$destinationPort"
                 )
-                return uid
+                return buildConnectionOwner(uid)
             }
 
             callbacks.incrementConnectionOwnerInvalidArgs()
             callbacks.setConnectionOwnerLastEvent(
                 "invalid_args src=$sourceAddress:$sourcePort dst=$destinationAddress:$destinationPort proto=$ipProtocol"
             )
-            return 0
+            return buildConnectionOwner(0)
         }
 
         return try {
-            val cm = callbacks.getConnectivityManager() ?: return 0
+            val cm = callbacks.getConnectivityManager() ?: return buildConnectionOwner(0)
             val uid = cm.getConnectionOwnerUid(
                 protocol,
                 InetSocketAddress(sourceIp, sourcePort),
@@ -310,12 +356,12 @@ class PlatformInterfaceImpl(
                 callbacks.setConnectionOwnerLastEvent(
                     "resolved uid=$uid proto=$protocol $sourceIp:$sourcePort->$destinationIp:$destinationPort"
                 )
-                uid
+                buildConnectionOwner(uid)
             } else {
                 callbacks.setConnectionOwnerLastEvent(
                     "unresolved uid=$uid proto=$protocol $sourceIp:$sourcePort->$destinationIp:$destinationPort"
                 )
-                0
+                buildConnectionOwner(0)
             }
         } catch (e: SecurityException) {
             callbacks.incrementConnectionOwnerSecurityDenied()
@@ -333,9 +379,9 @@ class PlatformInterfaceImpl(
                 callbacks.incrementConnectionOwnerUidResolved()
                 callbacks.setConnectionOwnerLastUid(uid)
                 callbacks.setConnectionOwnerLastEvent("procfs_fallback_after_security uid=$uid")
-                uid
+                buildConnectionOwner(uid)
             } else {
-                0
+                buildConnectionOwner(0)
             }
         } catch (e: Exception) {
             callbacks.incrementConnectionOwnerOtherException()
@@ -345,14 +391,28 @@ class PlatformInterfaceImpl(
                 callbacks.incrementConnectionOwnerUidResolved()
                 callbacks.setConnectionOwnerLastUid(uid)
                 callbacks.setConnectionOwnerLastEvent("procfs_fallback_after_exception uid=$uid")
-                uid
+                buildConnectionOwner(uid)
             } else {
-                0
+                buildConnectionOwner(0)
             }
         }
     }
 
-    override fun packageNameByUid(uid: Int): String {
+    private fun getPackageNameByUid(uid: Int): String {
+        if (uid <= 0) return ""
+        return try {
+            val pkgs = context.packageManager.getPackagesForUid(uid)
+            if (!pkgs.isNullOrEmpty()) {
+                pkgs[0]
+            } else {
+                runCatching { context.packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
+            }
+        } catch (_: Exception) {
+            runCatching { context.packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
+        }
+    }
+
+    fun packageNameByUid(uid: Int): String {
         if (uid <= 0) return ""
         return try {
             val pkgs = context.packageManager.getPackagesForUid(uid)
@@ -378,7 +438,7 @@ class PlatformInterfaceImpl(
         }
     }
 
-    override fun uidByPackageName(packageName: String?): Int {
+    fun uidByPackageName(packageName: String?): Int {
         if (packageName.isNullOrBlank()) return 0
         return try {
             val appInfo = context.packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
@@ -395,6 +455,7 @@ class PlatformInterfaceImpl(
         // 提前设置启动窗口期时间戳
         vpnStartedAtMs.set(SystemClock.elapsedRealtime())
         lastSetUnderlyingNetworksAtMs.set(SystemClock.elapsedRealtime())
+        networkSwitchManager.markVpnStarted()
 
         connectivityManager = callbacks.getConnectivityManager()
 
@@ -581,6 +642,7 @@ class PlatformInterfaceImpl(
         networkCallback = null
         currentInterfaceListener = null
         networkCallbackReady = false
+        networkSwitchManager.cleanup()
     }
 
     override fun getInterfaces(): NetworkInterfaceIterator? {
@@ -635,7 +697,7 @@ class PlatformInterfaceImpl(
 
     override fun systemCertificates(): StringIterator? = null
 
-    override fun writeLog(message: String?) {
+    fun writeLog(message: String?) {
         if (message.isNullOrBlank()) return
         com.kunk.singbox.repository.LogRepository.getInstance().addLog(message)
     }
@@ -643,76 +705,8 @@ class PlatformInterfaceImpl(
     // ========== 内部方法 ==========
 
     private fun updateDefaultInterface(network: Network) {
-        try {
-            val now = SystemClock.elapsedRealtime()
-            val vpnStartedAt = vpnStartedAtMs.get()
-            val timeSinceVpnStart = now - vpnStartedAt
-            val inStartupWindow = vpnStartedAt > 0 && timeSinceVpnStart < vpnStartupWindowMs
-
-            if (inStartupWindow) {
-                Log.d(TAG, "updateDefaultInterface: skipped during startup window (${timeSinceVpnStart}ms < ${vpnStartupWindowMs}ms)")
-                return
-            }
-
-            val cm = connectivityManager ?: return
-            val caps = cm.getNetworkCapabilities(network)
-            val isValidPhysical = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true
-
-            if (!isValidPhysical) return
-
-            val linkProperties = cm.getLinkProperties(network)
-            val interfaceName = linkProperties?.interfaceName ?: ""
-            val upstreamChanged = interfaceName.isNotEmpty() && interfaceName != defaultInterfaceName
-
-            val lastKnownNetwork = callbacks.getLastKnownNetwork()
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 && (network != lastKnownNetwork || upstreamChanged)) {
-                val lastSet = lastSetUnderlyingNetworksAtMs.get()
-                val timeSinceLastSet = now - lastSet
-                val shouldSetNetwork = timeSinceLastSet >= setUnderlyingNetworksDebounceMs || network != lastKnownNetwork
-
-                if (shouldSetNetwork) {
-                    callbacks.setUnderlyingNetworks(arrayOf(network))
-                    lastSetUnderlyingNetworksAtMs.set(now)
-                    callbacks.setLastKnownNetwork(network)
-                    noPhysicalNetworkWarningLogged = false
-                    postTunRebindJob?.cancel()
-                    postTunRebindJob = null
-                    Log.i(TAG, "Switched underlying network to $network (upstream=$interfaceName, debounce=${timeSinceLastSet}ms)")
-
-                    callbacks.requestCoreNetworkReset(reason = "underlyingNetworkChanged", force = true)
-                }
-            }
-
-            if (interfaceName.isNotEmpty() && interfaceName != defaultInterfaceName) {
-                val oldInterfaceName = defaultInterfaceName
-                defaultInterfaceName = interfaceName
-                val index = try {
-                    NetworkInterface.getByName(interfaceName)?.index ?: 0
-                } catch (e: Exception) { 0 }
-                val networkCaps = cm.getNetworkCapabilities(network)
-                val isExpensive = networkCaps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
-                Log.i(TAG, "Default interface updated: $oldInterfaceName -> $interfaceName (index: $index)")
-                currentInterfaceListener?.updateDefaultInterface(interfaceName, index, isExpensive, false)
-
-                if (oldInterfaceName.isNotEmpty() && callbacks.isRunning()) {
-                    val settings = callbacks.getCurrentSettings()
-                    if (settings?.networkChangeResetConnections == true) {
-                        serviceScope.launch {
-                            try {
-                                callbacks.resetConnectionsOptimal(reason = "interface_change", skipDebounce = true)
-                                Log.i(TAG, "Closed all connections after interface change: $oldInterfaceName -> $interfaceName")
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Failed to close connections after interface change", e)
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to update default interface", e)
-        }
+        // 委托给 NetworkSwitchManager 处理
+        networkSwitchManager.handleNetworkUpdate(network)
     }
 
     private class StringIteratorImpl(private val list: List<String>) : StringIterator {

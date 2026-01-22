@@ -52,10 +52,9 @@ object LibboxCompat {
         }
         resetAllConnectionsChecked = true
 
-        // 检测扩展 API (wrapBoxService, getGlobalWrapper 等)
+        // 检测扩展 API (KunBox 自定义方法)
         hasExtensionApi = try {
-            Libbox::class.java.getMethod("wrapBoxService", Class.forName("io.nekohasekai.libbox.BoxService"))
-            Libbox::class.java.getMethod("getExtensionVersion")
+            Libbox::class.java.getMethod("getKunBoxVersion")
             Log.i(TAG, "Detected KunBox Extension API")
             true
         } catch (e: Exception) {
@@ -100,7 +99,7 @@ object LibboxCompat {
      */
     fun getExtensionVersion(): String {
         return try {
-            Libbox.getExtensionVersion()
+            Libbox.getKunBoxVersion()
         } catch (e: Exception) {
             "N/A"
         }

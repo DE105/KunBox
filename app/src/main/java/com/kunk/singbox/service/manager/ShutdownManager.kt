@@ -18,7 +18,6 @@ import com.kunk.singbox.service.notification.VpnNotificationManager
 import com.kunk.singbox.service.network.NetworkManager
 import com.kunk.singbox.service.network.TrafficMonitor
 import com.kunk.singbox.utils.NetworkClient
-import io.nekohasekai.libbox.BoxService
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import kotlinx.coroutines.*
 
@@ -62,13 +61,12 @@ class ShutdownManager(
         fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?)
 
         // 获取状态
-        fun getBoxService(): BoxService?
+        fun isServiceRunning(): Boolean
         fun getVpnInterface(): ParcelFileDescriptor?
         fun getCurrentInterfaceListener(): InterfaceUpdateListener?
         fun getConnectivityManager(): ConnectivityManager?
 
         // 设置状态
-        fun setBoxService(service: BoxService?)
         fun setVpnInterface(fd: ParcelFileDescriptor?)
         fun setIsRunning(running: Boolean)
         fun setRealTimeNodeName(name: String?)
@@ -171,9 +169,6 @@ class ShutdownManager(
 
         // 13. 获取需要关闭的资源
         val listener = callbacks.getCurrentInterfaceListener()
-        val serviceToClose = callbacks.getBoxService()
-        callbacks.setBoxService(null)
-        coreManager.setBoxService(null)
 
         val interfaceToClose: ParcelFileDescriptor?
         if (stopService) {
@@ -211,7 +206,7 @@ class ShutdownManager(
 
             try {
                 withTimeout(2000L) {
-                    try { serviceToClose?.close() } catch (_: Exception) {}
+                    // 服务关闭由 CommandManager.stop() 处理
                     if (interfaceToClose != null) {
                         try { interfaceToClose.close() } catch (_: Exception) {}
                     }

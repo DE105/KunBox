@@ -60,3 +60,7 @@ docs/
 temp/
 META-INF/
 .vscode/
+
+# sing-box 本地源码目录 (用于内核修改)
+# 如需提交源码修改，请移除此行
+singbox-core/

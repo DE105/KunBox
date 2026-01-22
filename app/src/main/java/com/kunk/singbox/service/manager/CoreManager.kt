@@ -15,10 +15,10 @@ import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.service.tun.VpnTunManager
 import com.kunk.singbox.utils.perf.PerfTracer
-import io.nekohasekai.libbox.BoxService
 import io.nekohasekai.libbox.CommandClient
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.libbox.OverrideOptions
 import io.nekohasekai.libbox.PlatformInterface
 import io.nekohasekai.libbox.TunOptions
 import kotlinx.coroutines.*
@@ -29,6 +29,11 @@ import java.io.File
  * 核心管理器 (重构版)
  * 负责完整的 VPN 生命周期管理
  * 使用 Result<T> 返回值模式
+ *
+ * 新版 libbox API:
+ * - 不再使用 BoxService，改用 CommandServer
+ * - CommandServer.startOrReloadService() 启动服务
+ * - CommandServer.closeService() 关闭服务
  */
 class CoreManager(
     private val context: Context,
@@ -43,7 +48,7 @@ class CoreManager(
     private val settingsRepository by lazy { SettingsRepository.getInstance(context) }
 
     // ===== 核心状态 =====
-    @Volatile var boxService: BoxService? = null
+    @Volatile var commandServer: CommandServer? = null
         private set
 
     @Volatile var vpnInterface: ParcelFileDescriptor? = null
@@ -61,9 +66,7 @@ class CoreManager(
     @Volatile var currentConfigContent: String? = null
         private set
 
-    // ===== Command Server/Client =====
-    var commandServer: CommandServer? = null
-        private set
+    // ===== Command Client =====
     var commandClient: CommandClient? = null
         private set
 
@@ -181,9 +184,16 @@ class CoreManager(
     }
 
     /**
-     * 启动 Libbox 服务
+     * 设置 CommandServer (从 CommandManager 传入)
      */
-    suspend fun startLibbox(configContent: String): StartResult {
+    fun setCommandServer(server: CommandServer?) {
+        commandServer = server
+    }
+
+    /**
+     * 启动 Libbox 服务 (使用 CommandServer API)
+     */
+    suspend fun startLibbox(configContent: String, options: OverrideOptions? = null): StartResult {
         if (isStarting) {
             return StartResult.Failed("Already starting")
         }
@@ -192,28 +202,17 @@ class CoreManager(
         PerfTracer.begin(PerfTracer.Phases.LIBBOX_START)
 
         return try {
-            val pInterface = platformInterface
-                ?: throw IllegalStateException("PlatformInterface not initialized")
+            val server = commandServer
+                ?: throw IllegalStateException("CommandServer not initialized")
 
             SingBoxCore.ensureLibboxSetup(context)
 
-            // Register platform interface for hot reload before creating service
-            runCatching { Libbox.setReloadablePlatformInterface(pInterface) }
-
-            val service = withContext(Dispatchers.IO) {
-                Libbox.newService(configContent, pInterface)
+            withContext(Dispatchers.IO) {
+                val overrideOptions = options ?: OverrideOptions()
+                server.startOrReloadService(configContent, overrideOptions)
             }
-            service.start()
-            boxService = service
+
             currentConfigContent = configContent
-
-            // Register BoxService for hot reload after start
-            runCatching { Libbox.setReloadableBoxService(service) }
-
-            // 初始化 BoxWrapperManager
-            if (BoxWrapperManager.init(service)) {
-                Log.i(TAG, "BoxWrapperManager initialized")
-            }
 
             val durationMs = PerfTracer.end(PerfTracer.Phases.LIBBOX_START)
             Log.i(TAG, "Libbox started in ${durationMs}ms")
@@ -233,26 +232,22 @@ class CoreManager(
     }
 
     /**
-     * 停止 BoxService (保留 TUN 用于跨配置切换)
+     * 停止服务 (保留 TUN 用于跨配置切换)
      */
-    suspend fun stopBoxService(): Result<Unit> {
+    suspend fun stopService(): Result<Unit> {
         return runCatching {
             withContext(Dispatchers.IO) {
-                // Clear hot reload state
-                runCatching { Libbox.clearReloadableService() }
-
                 // 释放 BoxWrapperManager
                 BoxWrapperManager.release()
 
                 // 清除 SelectorManager 状态
                 SelectorManager.clear()
 
-                boxService?.let { service ->
-                    runCatching { service.close() }
-                    boxService = null
-                }
+                // 关闭服务
+                commandServer?.closeService()
+
                 currentConfigContent = null
-                Log.i(TAG, "BoxService stopped")
+                Log.i(TAG, "Service stopped")
                 Unit
             }
         }
@@ -270,8 +265,8 @@ class CoreManager(
 
         return runCatching {
             withContext(Dispatchers.IO) {
-                // 1. 停止 BoxService
-                stopBoxService()
+                // 1. 停止服务
+                stopService()
 
                 // 2. 关闭 TUN 接口
                 vpnInterface?.let { pfd ->
@@ -376,14 +371,13 @@ class CoreManager(
     fun preserveTunInterface(): ParcelFileDescriptor? = vpnInterface
 
     fun setVpnInterface(pfd: ParcelFileDescriptor?) { vpnInterface = pfd }
-    fun setBoxService(service: BoxService?) { boxService = service }
-    fun isBoxServiceValid(): Boolean = boxService != null
+    fun isServiceRunning(): Boolean = Libbox.isRunning()
     fun isVpnInterfaceValid(): Boolean = vpnInterface?.fileDescriptor?.valid() == true
 
-    suspend fun wakeBoxService(): Result<Unit> {
+    suspend fun wakeService(): Result<Unit> {
         return runCatching {
             withContext(Dispatchers.IO) {
-                boxService?.wake()
+                commandServer?.wake()
                 Unit
             }
         }
@@ -392,7 +386,7 @@ class CoreManager(
     suspend fun resetNetwork(): Result<Unit> {
         return runCatching {
             withContext(Dispatchers.IO) {
-                boxService?.resetNetwork()
+                commandServer?.resetNetwork()
                 Unit
             }
         }
@@ -405,34 +399,20 @@ class CoreManager(
     suspend fun hotReloadConfig(configContent: String, preserveSelector: Boolean = true): Result<Boolean> {
         return runCatching {
             withContext(Dispatchers.IO) {
-                if (!Libbox.canReload()) {
-                    Log.w(TAG, "Hot reload not available, fallback to full restart")
-                    return@withContext false
-                }
+                val server = commandServer ?: return@withContext false
 
                 Log.i(TAG, "Attempting hot reload...")
-                Libbox.reloadConfig(configContent, preserveSelector)
+
+                val options = OverrideOptions()
+                server.startOrReloadService(configContent, options)
 
                 // Update current config content
                 currentConfigContent = configContent
 
-                // Re-register BoxService after reload (the internal instance changed)
-                boxService?.let { Libbox.setReloadableBoxService(it) }
-
-                // Re-init BoxWrapperManager with the reloaded service
-                boxService?.let { BoxWrapperManager.init(it) }
-
-                Log.i(TAG, "Hot reload completed successfully (count: ${Libbox.getReloadCount()})")
+                Log.i(TAG, "Hot reload completed successfully")
                 true
             }
         }
-    }
-
-    /**
-     * Check if hot reload is available
-     */
-    fun canHotReload(): Boolean {
-        return runCatching { Libbox.canReload() }.getOrDefault(false)
     }
 
     fun cleanup(): Result<Unit> {

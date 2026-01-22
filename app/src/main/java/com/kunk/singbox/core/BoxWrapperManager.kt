@@ -1,30 +1,31 @@
 package com.kunk.singbox.core
 
 import android.util.Log
-import io.nekohasekai.libbox.BoxService
-import io.nekohasekai.libbox.BoxWrapper
+import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * BoxWrapper 管理器 - 统一管理 libbox BoxWrapper 的生命周期
+ * BoxWrapper 管理器 - 统一管理 libbox 的生命周期
  *
  * 功能:
  * - 节点切换: selectOutbound()
  * - 电源管理: pause() / resume()
  * - 流量统计: getUploadTotal() / getDownloadTotal()
- * - 全局访问: 通过 Libbox.getGlobalWrapper() 跨组件共享
+ * - 全局访问: 通过 Libbox 静态方法跨组件共享
+ *
+ * 新版 libbox API (基于 CommandServer):
+ * - 不再使用 BoxService 和 BoxWrapper
+ * - 使用 Libbox.xxxxx() 静态方法
+ * - CommandServer 作为主入口点管理服务生命周期
  */
 object BoxWrapperManager {
     private const val TAG = "BoxWrapperManager"
 
     @Volatile
-    private var wrapper: BoxWrapper? = null
-
-    @Volatile
-    private var boxServiceRef: BoxService? = null
+    private var commandServer: CommandServer? = null
 
     private val _isPaused = MutableStateFlow(false)
     val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
@@ -33,45 +34,40 @@ object BoxWrapperManager {
     val hasSelector: StateFlow<Boolean> = _hasSelector.asStateFlow()
 
     /**
-     * 初始化 BoxWrapper
-     * 在 SingBoxService.startVpn() 成功后调用
+     * 初始化 - 绑定 CommandServer
+     * 在 CommandServer 创建后调用
      */
-    fun init(boxService: BoxService): Boolean {
+    fun init(server: CommandServer): Boolean {
         return try {
-            boxServiceRef = boxService
-            wrapper = Libbox.wrapBoxService(boxService)
+            commandServer = server
             _isPaused.value = false
-            _hasSelector.value = wrapper?.hasSelector() == true
-            Log.i(TAG, "BoxWrapper initialized, hasSelector=${_hasSelector.value}")
+            _hasSelector.value = runCatching { Libbox.hasSelector() }.getOrDefault(false)
+            Log.i(TAG, "BoxWrapperManager initialized, hasSelector=${_hasSelector.value}")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to init BoxWrapper", e)
-            wrapper = null
+            Log.e(TAG, "Failed to init BoxWrapperManager", e)
+            commandServer = null
             false
         }
     }
 
     /**
-     * 释放 BoxWrapper
-     * 在 SingBoxService.stopVpn() 时调用
+     * 释放 - 清理状态
+     * 在 CommandServer 关闭时调用
      */
     fun release() {
-        try {
-            Libbox.clearGlobalWrapper()
-        } catch (e: Exception) {
-            Log.w(TAG, "clearGlobalWrapper failed: ${e.message}")
-        }
-        wrapper = null
-        boxServiceRef = null
+        commandServer = null
         _isPaused.value = false
         _hasSelector.value = false
-        Log.i(TAG, "BoxWrapper released")
+        Log.i(TAG, "BoxWrapperManager released")
     }
 
     /**
-     * 检查 wrapper 是否可用
+     * 检查服务是否可用
      */
-    fun isAvailable(): Boolean = wrapper != null
+    fun isAvailable(): Boolean {
+        return runCatching { Libbox.isRunning() }.getOrDefault(false)
+    }
 
     // ==================== 节点切换 ====================
 
@@ -81,11 +77,14 @@ object BoxWrapperManager {
      * @return true 如果切换成功
      */
     fun selectOutbound(nodeTag: String): Boolean {
-        val w = wrapper ?: return false
         return try {
-            w.selectOutbound(nodeTag)
-            Log.i(TAG, "selectOutbound($nodeTag) success")
-            true
+            val result = Libbox.selectOutboundByTag(nodeTag)
+            if (result) {
+                Log.i(TAG, "selectOutbound($nodeTag) success")
+            } else {
+                Log.w(TAG, "selectOutbound($nodeTag) failed")
+            }
+            result
         } catch (e: Exception) {
             Log.w(TAG, "selectOutbound($nodeTag) failed: ${e.message}")
             false
@@ -96,9 +95,8 @@ object BoxWrapperManager {
      * 获取当前选中的出站节点
      */
     fun getSelectedOutbound(): String? {
-        val w = wrapper ?: return null
         return try {
-            w.selectedOutbound().takeIf { it.isNotBlank() }
+            Libbox.getSelectedOutbound().takeIf { it.isNotBlank() }
         } catch (e: Exception) {
             Log.w(TAG, "getSelectedOutbound failed: ${e.message}")
             null
@@ -110,9 +108,8 @@ object BoxWrapperManager {
      * @return 节点标签列表
      */
     fun listOutbounds(): List<String> {
-        val w = wrapper ?: return emptyList()
         return try {
-            w.listOutboundsString()
+            Libbox.listOutboundsString()
                 ?.split("\n")
                 ?.filter { it.isNotBlank() }
                 ?: emptyList()
@@ -126,9 +123,8 @@ object BoxWrapperManager {
      * 检查是否有 selector 类型的出站
      */
     fun hasSelector(): Boolean {
-        val w = wrapper ?: return false
         return try {
-            w.hasSelector()
+            Libbox.hasSelector()
         } catch (e: Exception) {
             false
         }
@@ -141,9 +137,8 @@ object BoxWrapperManager {
      * 通知 sing-box 内核进入省电模式
      */
     fun pause(): Boolean {
-        val w = wrapper ?: return false
         return try {
-            w.pause()
+            Libbox.pauseService()
             _isPaused.value = true
             Log.i(TAG, "pause() success")
             true
@@ -158,9 +153,8 @@ object BoxWrapperManager {
      * 通知 sing-box 内核恢复正常模式
      */
     fun resume(): Boolean {
-        val w = wrapper ?: return false
         return try {
-            w.resume()
+            Libbox.resumeService()
             _isPaused.value = false
             Log.i(TAG, "resume() success")
             true
@@ -174,9 +168,8 @@ object BoxWrapperManager {
      * 检查是否处于暂停状态
      */
     fun isPausedNow(): Boolean {
-        val w = wrapper ?: return false
         return try {
-            w.isPaused()
+            Libbox.isPaused()
         } catch (e: Exception) {
             _isPaused.value
         }
@@ -184,54 +177,25 @@ object BoxWrapperManager {
 
     /**
      * 进入睡眠模式 - 设备空闲 (Doze) 时调用
-     * 比 pause() 更激进，尝试调用 libbox 的 sleep() 方法
+     * 比 pause() 更激进
      *
      * @return true 如果成功
      */
     fun sleep(): Boolean {
-        val bs = boxServiceRef ?: return false
-        return try {
-            // 尝试调用 BoxService.sleep() (如果存在)
-            val sleepMethod = bs.javaClass.methods.find {
-                it.name == "sleep" && it.parameterCount == 0
-            }
-            if (sleepMethod != null) {
-                sleepMethod.invoke(bs)
-                _isPaused.value = true
-                Log.i(TAG, "sleep() via BoxService success")
-                true
-            } else {
-                // 回退到 pause()
-                pause()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "sleep() failed: ${e.message}, falling back to pause()")
-            pause()
-        }
+        return pause()
     }
 
     /**
      * 从睡眠中唤醒 - 设备退出空闲 (Doze) 模式时调用
-     * 尝试调用 libbox 的 wake() 方法
      *
      * @return true 如果成功
      */
     fun wake(): Boolean {
-        val bs = boxServiceRef ?: return false
         return try {
-            // 尝试调用 BoxService.wake() (如果存在)
-            val wakeMethod = bs.javaClass.methods.find {
-                it.name == "wake" && it.parameterCount == 0
-            }
-            if (wakeMethod != null) {
-                wakeMethod.invoke(bs)
-                _isPaused.value = false
-                Log.i(TAG, "wake() via BoxService success")
-                true
-            } else {
-                // 回退到 resume()
-                resume()
-            }
+            commandServer?.wake()
+            _isPaused.value = false
+            Log.i(TAG, "wake() success")
+            true
         } catch (e: Exception) {
             Log.w(TAG, "wake() failed: ${e.message}, falling back to resume()")
             resume()
@@ -244,9 +208,8 @@ object BoxWrapperManager {
      * 获取累计上传字节数
      */
     fun getUploadTotal(): Long {
-        val w = wrapper ?: return -1L
         return try {
-            w.uploadTotal()
+            Libbox.getTrafficTotalUplink()
         } catch (e: Exception) {
             Log.w(TAG, "getUploadTotal failed: ${e.message}")
             -1L
@@ -257,9 +220,8 @@ object BoxWrapperManager {
      * 获取累计下载字节数
      */
     fun getDownloadTotal(): Long {
-        val w = wrapper ?: return -1L
         return try {
-            w.downloadTotal()
+            Libbox.getTrafficTotalDownlink()
         } catch (e: Exception) {
             Log.w(TAG, "getDownloadTotal failed: ${e.message}")
             -1L
@@ -270,14 +232,24 @@ object BoxWrapperManager {
      * 重置流量统计
      */
     fun resetTraffic(): Boolean {
-        val w = wrapper ?: return false
         return try {
-            w.resetTraffic()
-            Log.i(TAG, "resetTraffic() success")
-            true
+            val result = Libbox.resetTrafficStats()
+            Log.i(TAG, "resetTraffic() result=$result")
+            result
         } catch (e: Exception) {
             Log.w(TAG, "resetTraffic() failed: ${e.message}")
             false
+        }
+    }
+
+    /**
+     * 获取连接数
+     */
+    fun getConnectionCount(): Int {
+        return try {
+            Libbox.getConnectionCount()
+        } catch (e: Exception) {
+            0
         }
     }
 
@@ -300,32 +272,79 @@ object BoxWrapperManager {
     }
 
     /**
+     * 重置网络
+     */
+    fun resetNetwork(): Boolean {
+        return try {
+            commandServer?.resetNetwork()
+            Log.i(TAG, "resetNetwork() success")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "resetNetwork() failed: ${e.message}")
+            false
+        }
+    }
+
+    /**
      * 获取扩展版本
      */
     fun getExtensionVersion(): String {
         return try {
-            Libbox.getExtensionVersion()
+            Libbox.getKunBoxVersion()
         } catch (e: Exception) {
             "unknown"
         }
     }
 
     /**
-     * 获取全局 wrapper (用于跨组件访问)
+     * 获取 CommandServer 实例
+     * 仅在 VPN 运行时可用
      */
-    fun getGlobalWrapper(): BoxWrapper? {
+    fun getCommandServer(): CommandServer? {
+        return commandServer
+    }
+
+    /**
+     * URL 测试单个节点
+     */
+    fun urlTestOutbound(outboundTag: String, url: String, timeoutMs: Int): Int {
         return try {
-            Libbox.getGlobalWrapper()
+            Libbox.urlTestOutbound(outboundTag, url, timeoutMs)
         } catch (e: Exception) {
-            wrapper
+            Log.w(TAG, "urlTestOutbound failed: ${e.message}")
+            -1
         }
     }
 
     /**
-     * 获取 BoxService 实例 (用于内核级 URLTest)
-     * 仅在 VPN 运行时可用
+     * 批量 URL 测试
      */
-    fun getBoxService(): BoxService? {
-        return boxServiceRef
+    fun urlTestBatch(
+        outboundTags: List<String>,
+        url: String,
+        timeoutMs: Int,
+        concurrency: Int
+    ): Map<String, Int> {
+        return try {
+            val tagsStr = outboundTags.joinToString("\n")
+            val result = Libbox.urlTestBatch(tagsStr, url, timeoutMs, concurrency.toLong())
+            if (result == null) {
+                emptyMap()
+            } else {
+                val map = mutableMapOf<String, Int>()
+                val count = result.len()
+                for (i in 0 until count) {
+                    val item = result.get(i)
+                    val tag = item?.tag
+                    if (!tag.isNullOrBlank()) {
+                        map[tag] = item.delay
+                    }
+                }
+                map
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "urlTestBatch failed: ${e.message}")
+            emptyMap()
+        }
     }
 }

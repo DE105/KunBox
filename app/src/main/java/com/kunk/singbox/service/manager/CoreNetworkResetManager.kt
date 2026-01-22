@@ -2,14 +2,14 @@ package com.kunk.singbox.service.manager
 
 import android.os.SystemClock
 import android.util.Log
-import io.nekohasekai.libbox.BoxService
+import com.kunk.singbox.core.BoxWrapperManager
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 核心网络重置管理器
- * 负责管理 BoxService 的网络栈重置逻辑，包括：
+ * 负责管理网络栈重置逻辑，包括：
  * - 防抖控制
  * - 失败计数和自动重启
  * - 连接关闭和网络重置
@@ -24,7 +24,7 @@ class CoreNetworkResetManager(
     }
 
     interface Callbacks {
-        fun getBoxService(): BoxService?
+        fun isServiceRunning(): Boolean
         suspend fun restartVpnService(reason: String)
     }
 
@@ -98,23 +98,21 @@ class CoreNetworkResetManager(
 
     private suspend fun performForceReset(reason: String) {
         try {
-            val service = callbacks?.getBoxService()
+            if (callbacks?.isServiceRunning() != true) {
+                Log.w(TAG, "Service not running, skip force reset")
+                return
+            }
 
             // Step 1: 尝试关闭连接
             try {
-                service?.let { svc ->
-                    val closeMethod = svc.javaClass.methods.find {
-                        it.name == "closeConnections" && it.parameterCount == 0
-                    }
-                    closeMethod?.invoke(svc)
-                }
+                BoxWrapperManager.resetAllConnections(true)
             } catch (_: Exception) {}
 
             // Step 2: 延迟等待
             delay(150)
 
             // Step 3: 重置网络栈
-            service?.resetNetwork()
+            BoxWrapperManager.resetNetwork()
 
             failureCounter.set(0)
             lastSuccessfulResetAtMs.set(SystemClock.elapsedRealtime())
@@ -126,7 +124,11 @@ class CoreNetworkResetManager(
 
     private suspend fun performReset(reason: String) {
         try {
-            callbacks?.getBoxService()?.resetNetwork()
+            if (callbacks?.isServiceRunning() != true) {
+                Log.w(TAG, "Service not running, skip reset")
+                return
+            }
+            BoxWrapperManager.resetNetwork()
             failureCounter.set(0)
             lastSuccessfulResetAtMs.set(SystemClock.elapsedRealtime())
         } catch (e: Exception) {

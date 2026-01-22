@@ -2,6 +2,7 @@ package com.kunk.singbox.service.manager
 
 import android.content.Context
 import android.util.Log
+import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.LogRepository
@@ -17,6 +18,12 @@ import java.util.concurrent.ConcurrentHashMap
  * - 状态监控
  * - 连接追踪
  * - 节点组管理
+ *
+ * 新版 libbox API:
+ * - CommandServer 通过 NewCommandServer(handler, platformInterface) 创建
+ * - CommandServer.StartOrReloadService(configContent, options) 启动服务
+ * - CommandClient 通过 NewCommandClient(handler, options) 创建
+ * - CommandClientHandler 接口方法变化
  */
 class CommandManager(
     private val context: Context,
@@ -26,13 +33,12 @@ class CommandManager(
         private const val TAG = "CommandManager"
     }
 
-// Command Server/Client
+    // Command Server/Client
     private var commandServer: CommandServer? = null
     private var commandClient: CommandClient? = null
     private var commandClientLogs: CommandClient? = null
     private var commandClientConnections: CommandClient? = null
 
-    private var cachedBoxService: BoxService? = null
     @Volatile
     private var isNonEssentialSuspended: Boolean = false
 
@@ -59,6 +65,8 @@ class CommandManager(
     interface Callbacks {
         fun requestNotificationUpdate(force: Boolean)
         fun resolveEgressNodeName(tagOrSelector: String?): String?
+        fun onServiceStop(): Unit
+        fun onServiceReload(): Unit
     }
 
     private var callbacks: Callbacks? = null
@@ -68,44 +76,95 @@ class CommandManager(
     }
 
     /**
-     * 启动 Command Server 和 Client
+     * 创建 CommandServer 并启动服务
      */
-    fun start(boxService: BoxService): Result<Unit> = runCatching {
-        cachedBoxService = boxService
+    fun createServer(platformInterface: PlatformInterface): Result<CommandServer> = runCatching {
         val serverHandler = object : CommandServerHandler {
-            override fun serviceReload() {}
-            override fun postServiceClose() {}
+            override fun serviceStop() {
+                Log.i(TAG, "serviceStop requested")
+                callbacks?.onServiceStop()
+            }
+
+            override fun serviceReload() {
+                Log.i(TAG, "serviceReload requested")
+                callbacks?.onServiceReload()
+            }
+
             override fun getSystemProxyStatus(): SystemProxyStatus? = null
+
             override fun setSystemProxyEnabled(isEnabled: Boolean) {}
+
+            override fun writeDebugMessage(message: String?) {
+                if (!message.isNullOrBlank()) {
+                    Log.d(TAG, "Debug: $message")
+                }
+            }
         }
 
-        val clientHandler = createClientHandler()
+        // 创建 CommandServer
+        val server = Libbox.newCommandServer(serverHandler, platformInterface)
+        commandServer = server
+        Log.i(TAG, "CommandServer created")
+        server
+    }
 
-        // 1. 启动 CommandServer
-        commandServer = Libbox.newCommandServer(serverHandler, 300)
-        commandServer?.setService(boxService)
-        commandServer?.start()
+    /**
+     * 启动 CommandServer
+     */
+    fun startServer(): Result<Unit> = runCatching {
+        commandServer?.start() ?: throw IllegalStateException("CommandServer not created")
         Log.i(TAG, "CommandServer started")
 
-        // 2. 启动 CommandClient (Groups + Status)
+        // 初始化 BoxWrapperManager
+        commandServer?.let { server ->
+            BoxWrapperManager.init(server)
+        }
+    }
+
+    /**
+     * 启动/重载服务配置
+     */
+    fun startOrReloadService(configContent: String, options: OverrideOptions? = null): Result<Unit> = runCatching {
+        val server = commandServer ?: throw IllegalStateException("CommandServer not created")
+        val overrideOptions = options ?: OverrideOptions()
+        server.startOrReloadService(configContent, overrideOptions)
+        Log.i(TAG, "Service started/reloaded")
+    }
+
+    /**
+     * 关闭服务
+     */
+    fun closeService(): Result<Unit> = runCatching {
+        commandServer?.closeService()
+        Log.i(TAG, "Service closed")
+    }
+
+    /**
+     * 启动 Command Clients
+     */
+    fun startClients(): Result<Unit> = runCatching {
+        val clientHandler = createClientHandler()
+
+        // 1. 启动 CommandClient (Groups + Status)
         val options = CommandClientOptions()
-        options.command = Libbox.CommandGroup or Libbox.CommandStatus
+        options.addCommand(Libbox.CommandGroup)
+        options.addCommand(Libbox.CommandStatus)
         options.statusInterval = 3000L * 1000L * 1000L // 3s (nanoseconds)
         commandClient = Libbox.newCommandClient(clientHandler, options)
         commandClient?.connect()
         Log.i(TAG, "CommandClient connected")
 
-        // 3. 启动 CommandClient (Logs)
+        // 2. 启动 CommandClient (Logs)
         val optionsLog = CommandClientOptions()
-        optionsLog.command = Libbox.CommandLog
+        optionsLog.addCommand(Libbox.CommandLog)
         optionsLog.statusInterval = 1500L * 1000L * 1000L
         commandClientLogs = Libbox.newCommandClient(clientHandler, optionsLog)
         commandClientLogs?.connect()
         Log.i(TAG, "CommandClient (Logs) connected")
 
-        // 4. 启动 CommandClient (Connections)
+        // 3. 启动 CommandClient (Connections)
         val optionsConn = CommandClientOptions()
-        optionsConn.command = Libbox.CommandConnections
+        optionsConn.addCommand(Libbox.CommandConnections)
         optionsConn.statusInterval = 5000L * 1000L * 1000L
         commandClientConnections = Libbox.newCommandClient(clientHandler, optionsConn)
         commandClientConnections?.connect()
@@ -134,10 +193,21 @@ class CommandManager(
         commandClientLogs = null
         commandClientConnections?.disconnect()
         commandClientConnections = null
+
+        BoxWrapperManager.release()
+
+        // 必须先关闭服务 (释放端口和连接)，再关闭 server
+        runCatching { commandServer?.closeService() }
+            .onFailure { Log.w(TAG, "closeService failed: ${it.message}") }
         commandServer?.close()
         commandServer = null
         Log.i(TAG, "Command Server/Client stopped")
     }
+
+    /**
+     * 获取 CommandServer
+     */
+    fun getCommandServer(): CommandServer? = commandServer
 
     /**
      * 获取 CommandClient (用于连接管理)
@@ -195,16 +265,21 @@ class CommandManager(
             Log.w(TAG, "CommandClient disconnected: $message")
         }
 
+        override fun setDefaultLogLevel(level: Int) {
+            // 设置默认日志级别
+        }
+
         override fun clearLogs() {
             runCatching { LogRepository.getInstance().clearLogs() }
         }
 
-        override fun writeLogs(messageList: StringIterator?) {
+        override fun writeLogs(messageList: LogIterator?) {
             if (messageList == null) return
             val repo = LogRepository.getInstance()
             runCatching {
                 while (messageList.hasNext()) {
-                    val msg = messageList.next()
+                    val entry = messageList.next()
+                    val msg = entry?.message
                     if (!msg.isNullOrBlank()) {
                         repo.addLog(msg)
                     }
@@ -267,7 +342,6 @@ class CommandManager(
                     if (tag.equals("PROXY", ignoreCase = true)) {
                         if (!selected.isNullOrBlank() && selected != realTimeNodeName) {
                             realTimeNodeName = selected
-                            // 2025-fix: 持久化 activeLabel 到 VpnStateStore，确保跨进程/重启后通知栏显示正确
                             VpnStateStore.setActiveLabel(selected)
                             Log.i(TAG, "Real-time node update: $selected")
                             serviceScope.launch {
@@ -289,41 +363,55 @@ class CommandManager(
         override fun initializeClashMode(modeList: StringIterator?, currentMode: String?) {}
         override fun updateClashMode(newMode: String?) {}
 
-        override fun writeConnections(message: Connections?) {
-            message ?: return
+        override fun writeConnectionEvents(events: ConnectionEvents?) {
+            events ?: return
             try {
-                processConnections(message)
+                processConnectionEvents(events)
             } catch (e: Exception) {
-                Log.e(TAG, "Error processing connections update", e)
+                Log.e(TAG, "Error processing connection events", e)
             }
         }
     }
 
-    private fun processConnections(message: Connections) {
-        val iterator = message.iterator()
-        var newestConnection: Connection? = null
+    private fun processConnectionEvents(events: ConnectionEvents) {
+        // 处理连接事件
+        val iterator = events.iterator()
+        var newestConnection: io.nekohasekai.libbox.Connection? = null
         val ids = ArrayList<String>(64)
         val egressCounts = LinkedHashMap<String, Int>()
         val configRepo = ConfigRepository.getInstance(context)
 
         while (iterator.hasNext()) {
-            val conn = iterator.next()
-            if (conn.closedAt > 0) continue
-            if (conn.rule == "dns-out") continue
+            val event = iterator.next()
+            val connection = event.connection ?: continue
+            // 跳过关闭的连接
+            if (event.closedAt > 0) continue
+            // 跳过 dns-out
+            val rule = connection.rule
+            if (rule == "dns-out") continue
 
-            if (newestConnection == null || conn.createdAt > newestConnection.createdAt) {
-                newestConnection = conn
+            if (newestConnection == null || connection.createdAt > newestConnection.createdAt) {
+                newestConnection = connection
             }
 
-            val id = conn.id
+            val id = connection.id
             if (!id.isNullOrBlank()) {
                 ids.add(id)
             }
 
             // 解析 egress
-            var resolved = resolveConnectionEgress(conn, configRepo)
-            if (!resolved.isNullOrBlank()) {
-                egressCounts[resolved] = (egressCounts[resolved] ?: 0) + 1
+            var candidateTag: String? = rule
+            if (candidateTag.isNullOrBlank() || candidateTag == "dns-out") {
+                candidateTag = null
+            }
+
+            if (!candidateTag.isNullOrBlank()) {
+                val resolved = callbacks?.resolveEgressNodeName(candidateTag)
+                    ?: configRepo.resolveNodeNameFromOutboundTag(candidateTag)
+                    ?: candidateTag
+                if (!resolved.isNullOrBlank()) {
+                    egressCounts[resolved] = (egressCounts[resolved] ?: 0) + 1
+                }
             }
         }
 
@@ -354,47 +442,24 @@ class CommandManager(
         // 更新活跃连接节点
         var newNode: String? = null
         if (newestConnection != null) {
+            // 使用 chain 获取出站链
             val chainIter = newestConnection.chain()
-            while (chainIter.hasNext()) {
-                val tag = chainIter.next()
-                if (!tag.isNullOrBlank() && tag != "dns-out") newNode = tag
+            val chainList = mutableListOf<String>()
+            if (chainIter != null) {
+                while (chainIter.hasNext()) {
+                    val tag = chainIter.next()
+                    if (!tag.isNullOrBlank() && tag != "dns-out") {
+                        chainList.add(tag)
+                    }
+                }
             }
+            newNode = chainList.lastOrNull()
         }
 
         if (newNode != activeConnectionNode || labelChanged) {
             activeConnectionNode = newNode
             callbacks?.requestNotificationUpdate(false)
         }
-    }
-
-    private fun resolveConnectionEgress(conn: Connection, repo: ConfigRepository): String? {
-        var candidateTag: String? = conn.rule
-        if (candidateTag.isNullOrBlank() || candidateTag == "dns-out") {
-            candidateTag = null
-        }
-
-        if (!candidateTag.isNullOrBlank()) {
-            val resolved = callbacks?.resolveEgressNodeName(candidateTag)
-                ?: repo.resolveNodeNameFromOutboundTag(candidateTag)
-                ?: candidateTag
-            if (!resolved.isNullOrBlank()) return resolved
-        }
-
-        // 回退到 chain
-        var lastTag: String? = null
-        runCatching {
-            val chainIter = conn.chain()
-            while (chainIter.hasNext()) {
-                val tag = chainIter.next()
-                if (!tag.isNullOrBlank() && tag != "dns-out") {
-                    lastTag = tag
-                }
-            }
-        }
-
-        return callbacks?.resolveEgressNodeName(lastTag)
-            ?: repo.resolveNodeNameFromOutboundTag(lastTag)
-            ?: lastTag
     }
 
     fun cleanup() {
@@ -405,7 +470,6 @@ class CommandManager(
         activeConnectionLabel = null
         recentConnectionIds = emptyList()
         callbacks = null
-        cachedBoxService = null
         isNonEssentialSuspended = false
     }
 
@@ -426,9 +490,8 @@ class CommandManager(
         if (!isNonEssentialSuspended) return
         isNonEssentialSuspended = false
 
-        val boxService = cachedBoxService
-        if (boxService == null) {
-            Log.w(TAG, "Cannot resume: no cached BoxService")
+        if (commandServer == null) {
+            Log.w(TAG, "Cannot resume: no CommandServer")
             return
         }
 
@@ -436,7 +499,7 @@ class CommandManager(
 
         try {
             val optionsLog = CommandClientOptions()
-            optionsLog.command = Libbox.CommandLog
+            optionsLog.addCommand(Libbox.CommandLog)
             optionsLog.statusInterval = 1500L * 1000L * 1000L
             commandClientLogs = Libbox.newCommandClient(clientHandler, optionsLog)
             commandClientLogs?.connect()
@@ -447,7 +510,7 @@ class CommandManager(
 
         try {
             val optionsConn = CommandClientOptions()
-            optionsConn.command = Libbox.CommandConnections
+            optionsConn.addCommand(Libbox.CommandConnections)
             optionsConn.statusInterval = 5000L * 1000L * 1000L
             commandClientConnections = Libbox.newCommandClient(clientHandler, optionsConn)
             commandClientConnections?.connect()

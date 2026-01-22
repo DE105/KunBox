@@ -275,21 +275,11 @@ class SingBoxService : VpnService() {
     }
 
     private fun tryRegisterRunningServiceForLibbox() {
-        val svc = boxService ?: return
-        try {
-            val m = Libbox::class.java.methods.firstOrNull { it.name == "setRunningService" && it.parameterTypes.size == 1 }
-            m?.invoke(null, svc)
-        } catch (_: Exception) {
-        }
+        // No longer needed with new CommandServer API
     }
 
     private fun tryClearRunningServiceForLibbox() {
-        val svc = boxService ?: return
-        try {
-            val m = Libbox::class.java.methods.firstOrNull { it.name == "clearRunningService" && it.parameterTypes.size == 1 }
-            m?.invoke(null, svc)
-        } catch (_: Exception) {
-        }
+        // No longer needed with new CommandServer API
     }
 
     /**
@@ -332,6 +322,15 @@ class SingBoxService : VpnService() {
                     tagOrSelector
                 )
             }
+            override fun onServiceStop() {
+                Log.i(TAG, "CommandManager: onServiceStop requested")
+                serviceScope.launch {
+                    stopVpn(stopService = true)
+                }
+            }
+            override fun onServiceReload() {
+                Log.i(TAG, "CommandManager: onServiceReload requested")
+            }
         })
         Log.i(TAG, "CommandManager initialized")
 
@@ -343,11 +342,11 @@ class SingBoxService : VpnService() {
                 override val isStopping: Boolean
                     get() = coreManager.isStopping
 
-                override fun isBoxServiceValid(): Boolean = coreManager.isBoxServiceValid()
+                override fun isBoxServiceValid(): Boolean = coreManager.isServiceRunning()
                 override fun isVpnInterfaceValid(): Boolean = coreManager.isVpnInterfaceValid()
 
                 override suspend fun wakeBoxService() {
-                    coreManager.wakeBoxService()
+                    coreManager.wakeService()
                 }
 
                 override fun restartVpnService(reason: String) {
@@ -406,7 +405,7 @@ class SingBoxService : VpnService() {
 
         // 10. 初始化核心网络重置管理器
         coreNetworkResetManager.init(object : CoreNetworkResetManager.Callbacks {
-            override fun getBoxService() = boxService
+            override fun isServiceRunning() = coreManager.isServiceRunning()
             override suspend fun restartVpnService(reason: String) {
                 this@SingBoxService.restartVpnService(reason)
             }
@@ -532,9 +531,21 @@ class SingBoxService : VpnService() {
             this@SingBoxService.initSelectorManager(configContent)
         }
 
-        override fun startCommandServerAndClient(boxService: io.nekohasekai.libbox.BoxService) {
-            commandManager.start(boxService).onFailure { e ->
-                Log.e(TAG, "Failed to start Command Server/Client", e)
+        override fun createAndStartCommandServer(): Result<Unit> {
+            return runCatching {
+                // 1. 创建 CommandServer
+                val server = commandManager.createServer(platformInterfaceImpl).getOrThrow()
+                // 2. 设置到 CoreManager
+                coreManager.setCommandServer(server)
+                // 3. 启动 CommandServer
+                commandManager.startServer().getOrThrow()
+                Log.i(TAG, "CommandServer created and started")
+            }
+        }
+
+        override fun startCommandClients() {
+            commandManager.startClients().onFailure { e ->
+                Log.e(TAG, "Failed to start Command Clients", e)
             }
             // 更新 serviceSelectorManager 的 commandClient (修复热切换不生效的问题)
             serviceSelectorManager.updateCommandClient(commandManager.getCommandClient())
@@ -658,13 +669,12 @@ class SingBoxService : VpnService() {
         }
 
         // 获取状态
-        override fun getBoxService(): BoxService? = boxService
+        override fun isServiceRunning(): Boolean = coreManager.isServiceRunning()
         override fun getVpnInterface(): ParcelFileDescriptor? = vpnInterface
         override fun getCurrentInterfaceListener(): InterfaceUpdateListener? = currentInterfaceListener
         override fun getConnectivityManager(): ConnectivityManager? = connectivityManager
 
         // 设置状态
-        override fun setBoxService(service: BoxService?) { boxService = service }
         override fun setVpnInterface(fd: ParcelFileDescriptor?) { vpnInterface = fd }
         override fun setIsRunning(running: Boolean) { isRunning = running }
         override fun setRealTimeNodeName(name: String?) { realTimeNodeName = name }
@@ -856,14 +866,14 @@ class SingBoxService : VpnService() {
      *    这是 Telegram 重复"加载中-加载完成"的根因
      */
     suspend fun hotSwitchNode(nodeTag: String): Boolean {
-        if (boxService == null || !isRunning) return false
+        if (!coreManager.isServiceRunning() || !isRunning) return false
 
         try {
             L.connection("HotSwitch", "Starting switch to: $nodeTag")
 
             // Step 1: 唤醒核心
-            coreManager.wakeBoxService()
-            L.step("HotSwitch", 1, 2, "Called boxService.wake()")
+            coreManager.wakeService()
+            L.step("HotSwitch", 1, 2, "Called wakeService()")
 
             // Step 2: 使用 SelectorManager 切换节点 (渐进式降级)
             L.step("HotSwitch", 2, 2, "Calling SelectorManager.switchNode...")
@@ -892,7 +902,6 @@ class SingBoxService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
 
-    private var boxService: BoxService? = null
     private var currentSettings: AppSettings? = null
     private val serviceSupervisorJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceSupervisorJob)
@@ -953,7 +962,7 @@ class SingBoxService : VpnService() {
                 // 尝试刷新连接
                 serviceScope.launch {
                     try {
-                        boxService?.wake()
+                        coreManager.wakeService()
                         delay(30)
                         resetConnectionsOptimal(reason = "traffic_stall", skipDebounce = true)
                         Log.i(TAG, "Cleared stale connections after stall")
@@ -1349,7 +1358,7 @@ class SingBoxService : VpnService() {
      * 目的是让应用（如 Telegram）立即感知网络中断，避免在旧连接上等待超时
      *
      * 2025-fix-v2: 简化流程
-     * 跨配置切换时 VPN 会完全重启，boxService.close() 会强制关闭所有连接
+     * 跨配置切换时 VPN 会完全重启，服务关闭会强制关闭所有连接
      * 所以这里只需要提前通知应用网络变化即可，不需要手动关闭连接
      */
     private fun performPrepareRestart() {
@@ -1361,7 +1370,7 @@ class SingBoxService : VpnService() {
         serviceScope.launch {
             try {
                 Log.i(TAG, "[PrepareRestart] Step 1/3: Wake up core")
-                boxService?.wake()
+                coreManager.wakeService()
 
                 // Step 2: 设置底层网络为 null，触发系统广播 CONNECTIVITY_CHANGE
                 // 这是让 Telegram 等应用感知网络变化的关键步骤
@@ -1376,7 +1385,7 @@ class SingBoxService : VpnService() {
                 delay(100)
 
                 // 注意：不需要调用 closeAllConnectionsImmediate()
-                // 因为 VPN 重启时 boxService.close() 会强制关闭所有连接
+                // 因为 VPN 重启时服务关闭会强制关闭所有连接
 
                 Log.i(TAG, "[PrepareRestart] Complete - apps should now detect network interruption")
             } catch (e: Exception) {
@@ -1411,8 +1420,10 @@ class SingBoxService : VpnService() {
                         Log.i(TAG, "[HotReload] Kernel hot reload succeeded")
                         LogRepository.getInstance().addLog("INFO [HotReload] Config reloaded successfully")
 
-                        // Re-init BoxWrapperManager
-                        boxService?.let { BoxWrapperManager.init(it) }
+                        // Re-init BoxWrapperManager with current CommandServer
+                        commandManager.getCommandServer()?.let { server ->
+                            BoxWrapperManager.init(server)
+                        }
 
                         // Update notification
                         requestNotificationUpdate(force = true)
@@ -1509,12 +1520,11 @@ class SingBoxService : VpnService() {
 
             when (result) {
                 is com.kunk.singbox.service.manager.StartupManager.StartResult.Success -> {
-                    boxService = coreManager.boxService
                     updateServiceState(ServiceState.RUNNING)
 
-                    // 初始化 BoxWrapperManager
-                    boxService?.let { service ->
-                        if (BoxWrapperManager.init(service)) {
+                    // 初始化 BoxWrapperManager with CommandServer
+                    commandManager.getCommandServer()?.let { server ->
+                        if (BoxWrapperManager.init(server)) {
                             Log.i(TAG, "BoxWrapperManager initialized")
                         }
                     }
@@ -1656,7 +1666,7 @@ class SingBoxService : VpnService() {
 
         val shouldStop = runCatching {
             synchronized(this@SingBoxService) {
-                isRunning || isStopping || boxService != null || vpnInterface != null
+                isRunning || isStopping || coreManager.isServiceRunning() || vpnInterface != null
             }
         }.getOrDefault(false)
 

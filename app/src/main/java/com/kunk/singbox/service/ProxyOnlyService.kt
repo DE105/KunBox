@@ -23,7 +23,9 @@ import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.utils.NetworkClient
 import com.kunk.singbox.repository.RuleSetRepository
-import io.nekohasekai.libbox.BoxService
+import io.nekohasekai.libbox.CommandServer
+import io.nekohasekai.libbox.CommandServerHandler
+import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.NetworkInterfaceIterator
 import io.nekohasekai.libbox.PlatformInterface
@@ -83,7 +85,7 @@ class ProxyOnlyService : Service() {
         }
     }
 
-    private var boxService: BoxService? = null
+    private var commandServer: CommandServer? = null
 
     private val notificationUpdateDebounceMs: Long = 900L
     private val lastNotificationUpdateAtMs = java.util.concurrent.atomic.AtomicLong(0L)
@@ -160,8 +162,8 @@ class ProxyOnlyService : Service() {
             sourcePort: Int,
             destinationAddress: String?,
             destinationPort: Int
-        ): Int {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return 0
+        ): ConnectionOwner {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return ConnectionOwner()
 
             fun parseAddress(value: String?): InetAddress? {
                 if (value.isNullOrBlank()) return null
@@ -175,56 +177,23 @@ class ProxyOnlyService : Service() {
 
             val sourceIp = parseAddress(sourceAddress)
             val destinationIp = parseAddress(destinationAddress)
-            if (sourceIp == null || sourcePort <= 0 || destinationIp == null || destinationPort <= 0) return 0
+            if (sourceIp == null || sourcePort <= 0 || destinationIp == null || destinationPort <= 0) return ConnectionOwner()
 
             return try {
-                val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java) ?: return 0
+                val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java) ?: return ConnectionOwner()
                 val protocol = ipProtocol
                 val uid = cm.getConnectionOwnerUid(
                     protocol,
                     InetSocketAddress(sourceIp, sourcePort),
                     InetSocketAddress(destinationIp, destinationPort)
                 )
-                if (uid > 0) uid else 0
-            } catch (_: Exception) {
-                0
-            }
-        }
-
-        override fun packageNameByUid(uid: Int): String {
-            if (uid <= 0) return ""
-            return try {
-                val pkgs = packageManager.getPackagesForUid(uid)
-                if (!pkgs.isNullOrEmpty()) {
-                    pkgs[0]
-                } else {
-                    val name = runCatching { packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
-                    if (name.isNotBlank()) {
-                        cacheUidToPackage(uid, name)
-                        name
-                    } else {
-                        uidToPackageCache[uid] ?: ""
-                    }
+                val result = ConnectionOwner()
+                if (uid > 0) {
+                    result.userId = uid
                 }
+                result
             } catch (_: Exception) {
-                val name = runCatching { packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
-                if (name.isNotBlank()) {
-                    cacheUidToPackage(uid, name)
-                    name
-                } else {
-                    uidToPackageCache[uid] ?: ""
-                }
-            }
-        }
-
-        override fun uidByPackageName(packageName: String?): Int {
-            if (packageName.isNullOrBlank()) return 0
-            return try {
-                val appInfo = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
-                val uid = appInfo.uid
-                if (uid > 0) uid else 0
-            } catch (_: Exception) {
-                0
+                ConnectionOwner()
             }
         }
 
@@ -324,13 +293,6 @@ class ProxyOnlyService : Service() {
         }
 
         override fun systemCertificates(): StringIterator? = null
-
-        override fun writeLog(message: String?) {
-            if (message.isNullOrBlank()) return
-            if (Log.isLoggable(TAG, Log.DEBUG)) {
-            }
-            LogRepository.getInstance().addLog(message)
-        }
     }
 
     private class StringIteratorImpl(private val list: List<String>) : StringIterator {
@@ -437,30 +399,19 @@ class ProxyOnlyService : Service() {
                 Log.i(TAG, "Received ACTION_PREPARE_RESTART -> preparing for restart")
                 serviceScope.launch {
                     try {
-                        // Step 1: 唤醒核心
-                        boxService?.wake()
-                        Log.i(TAG, "[PrepareRestart] Step 1/3: Woke up core")
+                        // Step 1: 唤醒核心 (如果已暂停)
+                        if (Libbox.isPaused()) {
+                            Libbox.resumeService()
+                        }
+                        Log.i(TAG, "[PrepareRestart] Step 1/2: Ensured core is awake")
 
-                        // Step 2: 重置网络栈，让 libbox 更新路由信息
-                        Log.i(TAG, "[PrepareRestart] Step 2/3: Reset network stack")
+                        // Step 2: 关闭所有连接
+                        Log.i(TAG, "[PrepareRestart] Step 2/2: Close connections")
                         delay(50)
                         try {
-                            boxService?.resetNetwork()
+                            Libbox.resetAllConnections(false)
                         } catch (e: Exception) {
-                            Log.w(TAG, "resetNetwork failed: ${e.message}")
-                        }
-
-                        // Step 3: 关闭所有连接
-                        Log.i(TAG, "[PrepareRestart] Step 3/3: Close connections")
-                        boxService?.let { service ->
-                            try {
-                                val method = service.javaClass.methods.find {
-                                    it.name == "closeConnections" && it.parameterCount == 0
-                                }
-                                method?.invoke(service)
-                            } catch (e: Exception) {
-                                Log.w(TAG, "closeConnections failed: ${e.message}")
-                            }
+                            Log.w(TAG, "resetAllConnections failed: ${e.message}")
                         }
 
                         Log.i(TAG, "[PrepareRestart] Complete")
@@ -517,8 +468,22 @@ class ProxyOnlyService : Service() {
                     SingBoxCore.ensureLibboxSetup(this@ProxyOnlyService)
                 }
 
-                boxService = Libbox.newService(configContent, platformInterface)
-                boxService?.start()
+                val serverHandler = object : CommandServerHandler {
+                    override fun serviceStop() {
+                        Log.i(TAG, "serviceStop requested")
+                    }
+                    override fun serviceReload() {
+                        Log.i(TAG, "serviceReload requested")
+                    }
+                    override fun getSystemProxyStatus(): io.nekohasekai.libbox.SystemProxyStatus? = null
+                    override fun setSystemProxyEnabled(isEnabled: Boolean) {}
+                    override fun writeDebugMessage(message: String?) {}
+                }
+
+                val server = Libbox.newCommandServer(serverHandler, platformInterface)
+                commandServer = server
+                server.start()
+                server.startOrReloadService(configContent, io.nekohasekai.libbox.OverrideOptions())
 
                 isRunning = true
                 NetworkClient.onVpnStateChanged(true)
@@ -563,18 +528,21 @@ class ProxyOnlyService : Service() {
         startJob = null
         jobToJoin?.cancel()
 
-        val serviceToClose = boxService
-        boxService = null
+        val serverToClose = commandServer
+        commandServer = null
 
         cleanupScope.launch(NonCancellable) {
             try {
                 jobToJoin?.join()
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to close command server", e)
+                Log.w(TAG, "Failed to join start job", e)
             }
 
             runCatching {
-                try { serviceToClose?.close() } catch (e: Exception) { Log.w(TAG, "Failed to close box service", e) }
+                try {
+                    serverToClose?.closeService()
+                    serverToClose?.close()
+                } catch (e: Exception) { Log.w(TAG, "Failed to close command server", e) }
             }
 
             withContext(Dispatchers.Main) {

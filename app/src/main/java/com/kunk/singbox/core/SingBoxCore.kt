@@ -341,12 +341,14 @@ class SingBoxCore private constructor(private val context: Context) {
             )
 
             val configJson = gson.toJson(config)
-            var service: BoxService? = null
+            var commandServer: io.nekohasekai.libbox.CommandServer? = null
             try {
                 ensureLibboxSetup(context)
                 val platformInterface = TestPlatformInterface(context)
-                service = Libbox.newService(configJson, platformInterface)
-                service.start()
+                val serverHandler = TestCommandServerHandler()
+                commandServer = Libbox.newCommandServer(serverHandler, platformInterface)
+                commandServer.start()
+                commandServer.startOrReloadService(configJson, io.nekohasekai.libbox.OverrideOptions())
 
                 val deadline = System.currentTimeMillis() + 500L
                 while (System.currentTimeMillis() < deadline) {
@@ -374,7 +376,10 @@ class SingBoxCore private constructor(private val context: Context) {
                     -1L
                 }
             } finally {
-                try { service?.close() } catch (e: Exception) { Log.w(TAG, "Failed to close service", e) }
+                try {
+                    commandServer?.closeService()
+                    commandServer?.close()
+                } catch (e: Exception) { Log.w(TAG, "Failed to close command server", e) }
                 // 清理临时数据库文件,防止泄漏
                 try {
                     File(testDbPath).delete()
@@ -414,11 +419,10 @@ class SingBoxCore private constructor(private val context: Context) {
         method: LatencyTestMethod
     ): Long = withContext(Dispatchers.IO) {
         try {
-            // 使用 KunBox 扩展内核的 urlTestOutbound 方法
-            val boxService = BoxWrapperManager.getBoxService()
-            if (boxService != null) {
-                // Go 导出到 Java 时方法名首字母小写: URLTestOutbound -> urlTestOutbound
-                val result = boxService.urlTestOutbound(outbound.tag, targetUrl, timeoutMs)
+            // 使用 KunBox 扩展内核的静态 URLTestOutbound 方法
+            if (BoxWrapperManager.isAvailable()) {
+                // 调用静态方法: Libbox.urlTestOutbound(tag, url, timeout)
+                val result = Libbox.urlTestOutbound(outbound.tag, targetUrl, timeoutMs)
                 if (result >= 0) {
                     Log.d(TAG, "Native URLTest ${outbound.tag}: ${result}ms")
                     return@withContext result.toLong()
@@ -617,13 +621,15 @@ class SingBoxCore private constructor(private val context: Context) {
                 // 打印完整的第一个节点配置 JSON（仅调试）
                 Log.d(TAG, "First node full config: ${gson.toJson(firstNode)}")
             }
-            var service: BoxService? = null
+            var commandServer: io.nekohasekai.libbox.CommandServer? = null
 
             try {
                 ensureLibboxSetup(context)
                 val platformInterface = TestPlatformInterface(context)
-                service = Libbox.newService(configJson, platformInterface)
-                service.start()
+                val serverHandler = TestCommandServerHandler()
+                commandServer = Libbox.newCommandServer(serverHandler, platformInterface)
+                commandServer.start()
+                commandServer.startOrReloadService(configJson, io.nekohasekai.libbox.OverrideOptions())
                 Log.d(TAG, "Batch test: service started, waiting for port ${ports.first()}")
 
                 // 等待第一个端口就绪 (通常这就代表服务启动了)
@@ -734,7 +740,10 @@ class SingBoxCore private constructor(private val context: Context) {
                 Log.e(TAG, "Batch test failed", e)
                 batchOutbounds.forEach { onResult(it.tag, -1L) }
             } finally {
-                try { service?.close() } catch (e: Exception) { Log.w(TAG, "Failed to close batch test service", e) }
+                try {
+                    commandServer?.closeService()
+                    commandServer?.close()
+                } catch (e: Exception) { Log.w(TAG, "Failed to close batch test command server", e) }
                 // 清理临时数据库文件,防止泄漏
                 try {
                     File(batchTestDbPath).delete()
@@ -1094,9 +1103,9 @@ class SingBoxCore private constructor(private val context: Context) {
         // 这会导致 VPN 运行时测速流量被拦截，形成回环，返回 502 错误
         override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
         override fun useProcFS(): Boolean = false
-        override fun findConnectionOwner(p0: Int, p1: String?, p2: Int, p3: String?, p4: Int): Int = 0
-        override fun packageNameByUid(p0: Int): String = ""
-        override fun uidByPackageName(p0: String?): Int = 0
+        override fun findConnectionOwner(p0: Int, p1: String?, p2: Int, p3: String?, p4: Int): io.nekohasekai.libbox.ConnectionOwner {
+            return io.nekohasekai.libbox.ConnectionOwner()
+        }
         override fun underNetworkExtension(): Boolean = false
         override fun includeAllNetworks(): Boolean = false
         override fun readWIFIState(): WIFIState? = null
@@ -1106,15 +1115,18 @@ class SingBoxCore private constructor(private val context: Context) {
             return com.kunk.singbox.core.LocalResolverImpl
         }
         override fun systemCertificates(): StringIterator? = null
-        override fun writeLog(message: String?) {
-            // 临时：记录所有日志以便诊断 502 问题
-            message?.let {
-                Log.d(TAG, "[libbox] $it")
-                if (it.contains("error", ignoreCase = true) || it.contains("warn", ignoreCase = true)) {
-                    com.kunk.singbox.repository.LogRepository.getInstance().addLog("[Test] $it")
-                }
-            }
-        }
+    }
+
+    /**
+     * 测速服务用的 CommandServerHandler 实现
+     * 仅提供必要的空实现，因为测速服务不需要处理任何命令回调
+     */
+    private class TestCommandServerHandler : io.nekohasekai.libbox.CommandServerHandler {
+        override fun serviceStop() {}
+        override fun serviceReload() {}
+        override fun getSystemProxyStatus(): io.nekohasekai.libbox.SystemProxyStatus? = null
+        override fun setSystemProxyEnabled(isEnabled: Boolean) {}
+        override fun writeDebugMessage(message: String?) {}
     }
 
     private class StringIteratorImpl(private val list: List<String>) : StringIterator {
