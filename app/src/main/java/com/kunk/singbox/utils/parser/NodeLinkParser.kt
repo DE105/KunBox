@@ -65,6 +65,8 @@ class NodeLinkParser(private val gson: Gson) {
             link.startsWith("https://") -> parseHttpLink(link, useTls = true)
             link.startsWith("http://") -> parseHttpLink(link, useTls = false)
             link.startsWith("socks5://") || link.startsWith("socks://") -> parseSocks5Link(link)
+            link.startsWith("wireguard://") || link.startsWith("wg://") -> parseWireGuardLink(link)
+            link.startsWith("ssh://") -> parseSSHLink(link)
             else -> null
         }
     }
