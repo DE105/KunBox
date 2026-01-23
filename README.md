@@ -164,6 +164,14 @@ KunBox-Android/
     *   等待 Gradle Sync 完成。
     *   点击 `Run 'app'`。
 
+## 💖 赞助者
+
+感谢以下用户的慷慨支持：
+
+| 赞助者 | 金额 |
+|:------|:-----|
+| [@WestWood](https://github.com/WestWood) | ¥15 |
+
 ## ❤️ 致谢与引用
 
 本项目站在巨人的肩膀上，特别感谢以下开源项目：
