@@ -170,7 +170,7 @@ KunBox-Android/
 
 | 赞助者 | 金额 |
 |:------|:-----|
-| [@WestWood](https://github.com/WestWood) | ¥15 |
+| [@WestWood](https://github.com/yuedaochangmendian) | ¥15 |
 
 ## ❤️ 致谢与引用
 
