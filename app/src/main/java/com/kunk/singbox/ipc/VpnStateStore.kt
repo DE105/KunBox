@@ -1,5 +1,6 @@
 package com.kunk.singbox.ipc
 
+import android.util.Log
 import com.tencent.mmkv.MMKV
 
 /**
@@ -19,6 +20,9 @@ object VpnStateStore {
     private const val KEY_VPN_LAST_ERROR = "vpn_last_error"
     private const val KEY_VPN_MANUALLY_STOPPED = "vpn_manually_stopped"
     private const val KEY_CORE_MODE = "core_mode"
+    private const val KEY_LAST_APP_MODE = "last_app_mode"
+    private const val KEY_LAST_ALLOWLIST_HASH = "last_allowlist_hash"
+    private const val KEY_LAST_BLOCKLIST_HASH = "last_blocklist_hash"
 
     enum class CoreMode {
         NONE,
@@ -67,6 +71,49 @@ object VpnStateStore {
 
     fun setMode(mode: CoreMode) {
         mmkv.encode(KEY_CORE_MODE, mode.name)
+    }
+
+    fun getLastAppMode(): String = mmkv.decodeString(KEY_LAST_APP_MODE, "") ?: ""
+
+    fun setLastAppMode(mode: String) {
+        mmkv.encode(KEY_LAST_APP_MODE, mode)
+    }
+
+    fun getLastAllowlistHash(): Int = mmkv.decodeInt(KEY_LAST_ALLOWLIST_HASH, 0)
+
+    fun setLastAllowlistHash(hash: Int) {
+        mmkv.encode(KEY_LAST_ALLOWLIST_HASH, hash)
+    }
+
+    fun getLastBlocklistHash(): Int = mmkv.decodeInt(KEY_LAST_BLOCKLIST_HASH, 0)
+
+    fun setLastBlocklistHash(hash: Int) {
+        mmkv.encode(KEY_LAST_BLOCKLIST_HASH, hash)
+    }
+
+    fun savePerAppVpnSettings(appMode: String, allowlist: String?, blocklist: String?) {
+        setLastAppMode(appMode)
+        setLastAllowlistHash(allowlist?.hashCode() ?: 0)
+        setLastBlocklistHash(blocklist?.hashCode() ?: 0)
+    }
+
+    fun hasPerAppVpnSettingsChanged(appMode: String, allowlist: String?, blocklist: String?): Boolean {
+        val lastMode = getLastAppMode()
+
+        if (lastMode.isEmpty()) {
+            Log.d("VpnStateStore", "hasPerAppVpnSettingsChanged: lastMode is empty, returning false")
+            return false
+        }
+
+        val lastAllowHash = getLastAllowlistHash()
+        val lastBlockHash = getLastBlocklistHash()
+
+        val currentAllowHash = allowlist?.hashCode() ?: 0
+        val currentBlockHash = blocklist?.hashCode() ?: 0
+
+        val changed = lastMode != appMode || lastAllowHash != currentAllowHash || lastBlockHash != currentBlockHash
+        Log.d("VpnStateStore", "hasPerAppVpnSettingsChanged: lastMode=$lastMode, appMode=$appMode, lastAllowHash=$lastAllowHash, currentAllowHash=$currentAllowHash, changed=$changed")
+        return changed
     }
 
     /**

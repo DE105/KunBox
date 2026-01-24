@@ -30,6 +30,13 @@ class SingBoxIpcService : Service() {
         override fun notifyAppLifecycle(isForeground: Boolean) {
             SingBoxIpcHub.onAppLifecycle(isForeground)
         }
+
+        override fun hotReloadConfig(configContent: String?): Int {
+            if (configContent.isNullOrEmpty()) {
+                return SingBoxIpcHub.HotReloadResult.UNKNOWN_ERROR
+            }
+            return SingBoxIpcHub.hotReloadConfig(configContent)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder

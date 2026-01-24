@@ -173,7 +173,10 @@ class TrafficMonitor(
 
     private fun checkForProxyIdle(bytesDelta: Long, nowElapsedMs: Long, listener: Listener) {
         if (bytesDelta > 0) {
+            val idleDuration = nowElapsedMs - lastTrafficActiveAtMs
             lastTrafficActiveAtMs = nowElapsedMs
+
+            // If resumed from significant idle (15s+), notify listener
             if (proxyIdleNotified) {
                 Log.i(TAG, "Proxy traffic resumed after idle")
                 proxyIdleNotified = false

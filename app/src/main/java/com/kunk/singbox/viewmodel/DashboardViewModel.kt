@@ -629,7 +629,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
 
-            // 生成新配置
             val configResult = withContext(Dispatchers.IO) {
                 val settingsRepository = SettingsRepository.getInstance(context)
                 settingsRepository.checkAndMigrateRuleSets()
@@ -643,42 +642,69 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 return@launch
             }
 
-            // 2025-fix-v3: 优先使用内核级热重载
-            // 如果热重载可用，直接发送 ACTION_HOT_RELOAD，不需要重启服务
-            // 这样可以保持 VPN 连接不中断，用户体验更好
             val useTun = settings.tunEnabled
-            if (useTun && SingBoxRemote.isRunning.value) {
-                // 读取配置内容用于热重载
+            val perAppSettingsChanged = VpnStateStore.hasPerAppVpnSettingsChanged(
+                appMode = settings.vpnAppMode.name,
+                allowlist = settings.vpnAllowlist,
+                blocklist = settings.vpnBlocklist
+            )
+
+            Log.d(TAG, "restartVpn: useTun=$useTun, isRunning=${SingBoxRemote.isRunning.value}, perAppChanged=$perAppSettingsChanged")
+            Log.d(TAG, "restartVpn: currentMode=${settings.vpnAppMode.name}, allowlist=${settings.vpnAllowlist.take(100)}, blocklist=${settings.vpnBlocklist.take(100)}")
+            Log.d(TAG, "restartVpn: savedMode=${VpnStateStore.getLastAppMode()}, savedAllowHash=${VpnStateStore.getLastAllowlistHash()}, savedBlockHash=${VpnStateStore.getLastBlocklistHash()}")
+            Log.d(TAG, "restartVpn: currentAllowHash=${settings.vpnAllowlist.hashCode()}, currentBlockHash=${settings.vpnBlocklist.hashCode()}")
+
+            if (useTun && SingBoxRemote.isRunning.value && !perAppSettingsChanged) {
                 val configContent = withContext(Dispatchers.IO) {
                     runCatching { java.io.File(configResult.path).readText() }.getOrNull()
                 }
 
                 if (!configContent.isNullOrEmpty()) {
-                    Log.i(TAG, "Attempting kernel hot reload...")
-                    runCatching {
-                        context.startService(Intent(context, SingBoxService::class.java).apply {
-                            action = SingBoxService.ACTION_HOT_RELOAD
-                            putExtra(SingBoxService.EXTRA_CONFIG_CONTENT, configContent)
-                        })
+                    Log.i(TAG, "Attempting kernel hot reload via IPC...")
+
+                    val result = withContext(Dispatchers.IO) {
+                        SingBoxRemote.hotReloadConfig(configContent)
                     }
-                    return@launch
+
+                    when (result) {
+                        SingBoxRemote.HotReloadResult.SUCCESS -> {
+                            Log.i(TAG, "Hot reload succeeded via IPC")
+                            return@launch
+                        }
+                        SingBoxRemote.HotReloadResult.IPC_ERROR -> {
+                            Log.w(TAG, "Hot reload IPC failed, falling back to traditional restart")
+                        }
+                        else -> {
+                            Log.w(TAG, "Hot reload failed (code=$result), falling back to traditional restart")
+                        }
+                    }
                 }
             }
 
-            // Fallback: 使用传统重启方式
-            Log.i(TAG, "Using traditional restart (hot reload not available)")
+            Log.i(TAG, "Using traditional restart (perAppChanged=$perAppSettingsChanged)")
 
-            // 发送预清理信号，让应用感知网络变化
+            if (perAppSettingsChanged && useTun && SingBoxRemote.isRunning.value) {
+                Log.i(TAG, "Per-app settings changed, using full restart to rebuild TUN")
+                val intent = Intent(context, SingBoxService::class.java).apply {
+                    action = SingBoxService.ACTION_FULL_RESTART
+                    putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                return@launch
+            }
+
             runCatching {
                 context.startService(Intent(context, SingBoxService::class.java).apply {
                     action = SingBoxService.ACTION_PREPARE_RESTART
                 })
             }
 
-            // 短暂等待预清理完成
             delay(150)
 
-            // 直接发送 ACTION_START 带新配置，服务内部会处理重启逻辑
             val intent = if (useTun) {
                 Intent(context, SingBoxService::class.java).apply {
                     action = SingBoxService.ACTION_START

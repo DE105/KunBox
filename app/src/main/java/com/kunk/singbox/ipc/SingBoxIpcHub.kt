@@ -7,6 +7,7 @@ import com.kunk.singbox.aidl.ISingBoxServiceCallback
 import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.service.manager.BackgroundPowerManager
+import com.kunk.singbox.service.manager.ServiceStateHolder
 import java.util.concurrent.atomic.AtomicLong
 
 object SingBoxIpcHub {
@@ -207,4 +208,54 @@ object SingBoxIpcHub {
         val lastError: String,
         val manuallyStopped: Boolean
     )
+
+    /**
+     * 热重载结果码
+     */
+    object HotReloadResult {
+        const val SUCCESS = 0
+        const val VPN_NOT_RUNNING = 1
+        const val KERNEL_ERROR = 2
+        const val UNKNOWN_ERROR = 3
+    }
+
+    /**
+     * 内核级热重载配置
+     * 通过 ServiceStateHolder.instance 访问 SingBoxService
+     * 直接调用 Go 层 StartOrReloadService，不销毁 VPN 服务
+     *
+     * @param configContent 新的配置内容 (JSON)
+     * @return 热重载结果码 (HotReloadResult)
+     */
+    fun hotReloadConfig(configContent: String): Int {
+        Log.i(TAG, "[HotReload] IPC request received")
+
+        // 检查 VPN 是否运行
+        if (stateOrdinal != SingBoxService.ServiceState.RUNNING.ordinal) {
+            Log.w(TAG, "[HotReload] VPN not running, state=$stateOrdinal")
+            return HotReloadResult.VPN_NOT_RUNNING
+        }
+
+        // 获取 SingBoxService 实例
+        val service = ServiceStateHolder.instance
+        if (service == null) {
+            Log.e(TAG, "[HotReload] SingBoxService instance is null")
+            return HotReloadResult.VPN_NOT_RUNNING
+        }
+
+        // 调用 Service 的热重载方法
+        return try {
+            val result = service.performHotReloadSync(configContent)
+            if (result) {
+                Log.i(TAG, "[HotReload] Success")
+                HotReloadResult.SUCCESS
+            } else {
+                Log.e(TAG, "[HotReload] Kernel returned false")
+                HotReloadResult.KERNEL_ERROR
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[HotReload] Exception: ${e.message}", e)
+            HotReloadResult.UNKNOWN_ERROR
+        }
+    }
 }

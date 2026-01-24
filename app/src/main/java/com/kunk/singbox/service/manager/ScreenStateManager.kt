@@ -200,26 +200,10 @@ class ScreenStateManager(
                             callbacks?.performAppForegroundCheck()
                             callbacks?.notifyRemoteStateUpdate(true)
 
+                            // Only update UI state, do NOT reset network connections
+                            // NekoBox/SagerNet philosophy: UI should not interfere with background service state
                             if (callbacks?.isRunning == true) {
-                                // ===== 核心修复：使用 Proactive 模式进行网络恢复 =====
-                                // Proactive 模式会主动探测网络并预热连接，解决 Telegram 等应用加载慢的问题
-                                val recoveryMode = when {
-                                    // 长时间后台 (>30s) -> 深度恢复 + 网络探测
-                                    wasInBackgroundLong -> RECOVERY_MODE_PROACTIVE
-                                    // 中等时间后台 (>10s) -> 完整恢复 + 网络探测
-                                    wasInBackgroundShort -> RECOVERY_MODE_PROACTIVE
-                                    // 短时间后台 (<10s) -> 快速恢复
-                                    else -> RECOVERY_MODE_QUICK
-                                }
-
-                                Log.i(TAG, "[Foreground] Background duration ${backgroundDuration}ms, recovery mode=$recoveryMode")
-
-                                try {
-                                    callbacks?.performNetworkRecovery(recoveryMode)
-                                } catch (e: Exception) {
-                                    Log.w(TAG, "[Foreground] Network recovery failed, falling back to connection reset", e)
-                                    callbacks?.resetConnectionsOptimal("foreground_recovery_fallback", false)
-                                }
+                                Log.i(TAG, "[Foreground] App returned to foreground, updating UI state only")
                             }
                         }
                     }

@@ -235,6 +235,7 @@ class SingBoxService : VpnService() {
         const val ACTION_UPDATE_SETTING = ServiceStateHolder.ACTION_UPDATE_SETTING
         const val ACTION_PREPARE_RESTART = ServiceStateHolder.ACTION_PREPARE_RESTART
         const val ACTION_HOT_RELOAD = ServiceStateHolder.ACTION_HOT_RELOAD
+        const val ACTION_FULL_RESTART = ServiceStateHolder.ACTION_FULL_RESTART
         const val EXTRA_CONFIG_PATH = ServiceStateHolder.EXTRA_CONFIG_PATH
         const val EXTRA_CONFIG_CONTENT = ServiceStateHolder.EXTRA_CONFIG_CONTENT
         const val EXTRA_CLEAN_CACHE = ServiceStateHolder.EXTRA_CLEAN_CACHE
@@ -1353,6 +1354,15 @@ class SingBoxService : VpnService() {
                     performHotReload(configContent)
                 }
             }
+            ACTION_FULL_RESTART -> {
+                Log.i(TAG, "Received ACTION_FULL_RESTART -> performing full restart (TUN rebuild)")
+                val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
+                if (configPath.isNullOrEmpty()) {
+                    Log.e(TAG, "ACTION_FULL_RESTART: config path is empty")
+                } else {
+                    performFullRestart(configPath)
+                }
+            }
         }
         // Use START_STICKY to allow system auto-restart if killed due to memory pressure
         // This prevents "VPN mysteriously stops" issue on Android 14+
@@ -1464,6 +1474,82 @@ class SingBoxService : VpnService() {
 
         isManuallyStopped = false
         stopVpn(stopService = true)
+    }
+
+    private fun performFullRestart(configPath: String) {
+        if (!isRunning) {
+            Log.w(TAG, "performFullRestart: VPN not running, starting directly")
+            startVpn(configPath)
+            return
+        }
+
+        serviceScope.launch {
+            try {
+                Log.i(TAG, "[FullRestart] Step 1/3: Stopping VPN completely...")
+
+                coreManager.closeTunInterface()
+
+                stopVpn(stopService = false)
+
+                var waitCount = 0
+                while (isStopping && waitCount < 50) {
+                    delay(100)
+                    waitCount++
+                }
+
+                Log.i(TAG, "[FullRestart] Step 2/3: VPN stopped, waiting for cleanup...")
+                delay(200)
+
+                Log.i(TAG, "[FullRestart] Step 3/3: Restarting VPN with new config...")
+                lastConfigPath = configPath
+                startVpn(configPath)
+
+                Log.i(TAG, "[FullRestart] Complete")
+            } catch (e: Exception) {
+                Log.e(TAG, "performFullRestart error", e)
+                setLastError("Full restart failed: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 同步版本的热重载，供 IPC 调用
+     * 直接调用 Go 层 StartOrReloadService，阻塞等待结果
+     *
+     * @return true=成功, false=失败
+     */
+    fun performHotReloadSync(configContent: String): Boolean {
+        if (!isRunning) {
+            Log.w(TAG, "performHotReloadSync: VPN not running")
+            return false
+        }
+
+        return try {
+            kotlinx.coroutines.runBlocking {
+                Log.i(TAG, "[HotReload-Sync] Starting kernel-level hot reload...")
+
+                val settings = SettingsRepository.getInstance(applicationContext).settings.first()
+                coreManager.setCurrentSettings(settings)
+
+                val result = coreManager.hotReloadConfig(configContent, preserveSelector = true)
+
+                result.getOrNull() == true && result.isSuccess.also { success ->
+                    if (success && result.getOrNull() == true) {
+                        Log.i(TAG, "[HotReload-Sync] Kernel hot reload succeeded")
+                        LogRepository.getInstance().addLog("INFO [HotReload] Config reloaded successfully via IPC")
+
+                        commandManager.getCommandServer()?.let { server ->
+                            BoxWrapperManager.init(server)
+                        }
+
+                        requestNotificationUpdate(force = true)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "performHotReloadSync error", e)
+            false
+        }
     }
 
     /**

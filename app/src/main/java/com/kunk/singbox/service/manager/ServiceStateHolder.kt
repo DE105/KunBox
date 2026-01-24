@@ -18,6 +18,8 @@ object ServiceStateHolder {
     const val ACTION_PREPARE_RESTART = "com.kunk.singbox.PREPARE_RESTART"
     // Hot-reload: reload config preserving TUN interface, no VPN service restart
     const val ACTION_HOT_RELOAD = "com.kunk.singbox.HOT_RELOAD"
+    // Full restart: stop VPN completely and restart (rebuilds TUN interface)
+    const val ACTION_FULL_RESTART = "com.kunk.singbox.FULL_RESTART"
 
     const val EXTRA_CONFIG_PATH = "config_path"
     const val EXTRA_CONFIG_CONTENT = "config_content"

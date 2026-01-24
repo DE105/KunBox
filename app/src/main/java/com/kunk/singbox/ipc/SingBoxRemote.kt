@@ -88,6 +88,11 @@ object SingBoxRemote {
     @Volatile
     private var lastCallbackReceivedAtMs = 0L
 
+    // App 生命周期通知可能发生在 bind 完成前（例如 MainActivity.onStart 先 rebind 再 notify）
+    // 这里缓存最近一次事件，等 onServiceConnected 后补发，避免“跳过导致恢复不触发”。
+    @Volatile
+    private var pendingAppLifecycle: Boolean? = null
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val callback = object : ISingBoxServiceCallback.Stub() {
@@ -183,6 +188,16 @@ object SingBoxRemote {
             }
 
             syncStateFromService(s)
+
+            pendingAppLifecycle?.let { pending ->
+                pendingAppLifecycle = null
+                runCatching {
+                    s.notifyAppLifecycle(pending)
+                    Log.d(TAG, "notifyAppLifecycle (pending): isForeground=$pending")
+                }.onFailure {
+                    Log.w(TAG, "Failed to notify pending app lifecycle", it)
+                }
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -422,7 +437,37 @@ object SingBoxRemote {
                 Log.w(TAG, "Failed to notify app lifecycle", it)
             }
         } else {
-            Log.d(TAG, "notifyAppLifecycle: service not connected, skip")
+            pendingAppLifecycle = isForeground
+            val ctx = contextRef?.get()
+            if (ctx != null) {
+                ensureBound(ctx)
+            }
+            Log.d(TAG, "notifyAppLifecycle: service not connected, queued")
+        }
+    }
+
+    object HotReloadResult {
+        const val SUCCESS = 0
+        const val VPN_NOT_RUNNING = 1
+        const val KERNEL_ERROR = 2
+        const val UNKNOWN_ERROR = 3
+        const val IPC_ERROR = 4
+    }
+
+    fun hotReloadConfig(configContent: String): Int {
+        val s = service
+        if (s == null || !connectionActive || !bound) {
+            Log.w(TAG, "hotReloadConfig: service not connected")
+            return HotReloadResult.IPC_ERROR
+        }
+
+        return runCatching {
+            val result = s.hotReloadConfig(configContent)
+            Log.i(TAG, "hotReloadConfig: result=$result")
+            result
+        }.getOrElse { e ->
+            Log.e(TAG, "hotReloadConfig: IPC failed", e)
+            HotReloadResult.IPC_ERROR
         }
     }
 }

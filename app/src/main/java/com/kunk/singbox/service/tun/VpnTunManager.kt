@@ -11,6 +11,7 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
@@ -88,6 +89,17 @@ class VpnTunManager(
 
         // 分应用配置
         configurePerAppVpn(builder, settings)
+
+        // 保存分流设置用于热重载检测
+        val appModeName = (settings?.vpnAppMode ?: VpnAppMode.ALL).name
+        val allowlist = settings?.vpnAllowlist
+        val blocklist = settings?.vpnBlocklist
+        Log.d(TAG, "Saving per-app settings: mode=$appModeName, allowHash=${allowlist?.hashCode() ?: 0}, blockHash=${blocklist?.hashCode() ?: 0}")
+        VpnStateStore.savePerAppVpnSettings(
+            appMode = appModeName,
+            allowlist = allowlist,
+            blocklist = blocklist
+        )
 
         // 安全设置
         configureSecuritySettings(builder)
