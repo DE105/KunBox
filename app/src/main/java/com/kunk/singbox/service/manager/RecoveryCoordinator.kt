@@ -39,6 +39,8 @@ class RecoveryCoordinator(
         suspend fun resetCoreNetwork(reason: String, force: Boolean)
         suspend fun restartVpnService(reason: String)
 
+        suspend fun closeIdleConnections(maxIdleSeconds: Int, reason: String): Int
+
         fun addLog(message: String)
     }
 
@@ -96,9 +98,11 @@ class RecoveryCoordinator(
         }
     }
 
+    @Suppress("CognitiveComplexMethod")
     private fun merge(a: Request, b: Request, nowMs: Long): Request {
         // Within a short window, merge aggressively.
-        val withinWindow = (nowMs - a.requestedAtMs) <= COALESCE_WINDOW_MS || (nowMs - b.requestedAtMs) <= COALESCE_WINDOW_MS
+        val withinWindow = (nowMs - a.requestedAtMs) <= COALESCE_WINDOW_MS ||
+            (nowMs - b.requestedAtMs) <= COALESCE_WINDOW_MS
         if (!withinWindow) {
             // Not a burst: keep the earlier request and let the later one be handled next.
             // We still keep single pending slot; prefer higher priority to reduce churn.
@@ -175,6 +179,7 @@ class RecoveryCoordinator(
         return if (merged.length <= MAX_REASON_LEN) merged else merged.take(MAX_REASON_LEN)
     }
 
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod")
     private suspend fun execute(req: Request) {
         if (req is Request.Composite) {
             // Execute in descending priority order (e.g. reset network first, then close connections).
@@ -186,7 +191,11 @@ class RecoveryCoordinator(
         // Gate: avoid touching core when not running/stopping.
         // Restart is handled separately below.
         if (req !is Request.Restart && (!cb.isRunning || cb.isStopping)) {
-            Log.d(TAG, "Skip ${req.javaClass.simpleName}: running=${cb.isRunning} stopping=${cb.isStopping} reason=${req.reason}")
+            Log.d(
+                TAG,
+                "Skip ${req.javaClass.simpleName}: running=${cb.isRunning} " +
+                    "stopping=${cb.isStopping} reason=${req.reason}"
+            )
             return
         }
 
@@ -194,7 +203,11 @@ class RecoveryCoordinator(
         when (req) {
             is Request.Restart -> {
                 if (!cb.isRunning || cb.isStopping) {
-                    Log.w(TAG, "Skip restart: running=${cb.isRunning} stopping=${cb.isStopping} reason=${req.reason}")
+                    Log.w(
+                        TAG,
+                        "Skip restart: running=${cb.isRunning} stopping=${cb.isStopping} " +
+                            "reason=${req.reason}"
+                    )
                     cb.addLog("INFO [Recovery] restart skipped (state) reason=${req.reason}")
                     return
                 }
@@ -227,27 +240,57 @@ class RecoveryCoordinator(
             when (req) {
                 is Request.Recover -> {
                     val ok = cb.recoverNetwork(req.mode, req.reason)
-                    cb.addLog("INFO [Recovery] recover(mode=${req.mode}) ok=$ok cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}")
+                    cb.addLog(
+                        "INFO [Recovery] recover(mode=${req.mode}) ok=$ok " +
+                            "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
+                    )
                 }
 
                 is Request.EnterDeviceIdle -> {
                     val ok = cb.enterDeviceIdle(req.reason)
-                    cb.addLog("INFO [Recovery] enterDeviceIdle ok=$ok cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}")
+                    cb.addLog(
+                        "INFO [Recovery] enterDeviceIdle ok=$ok " +
+                            "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
+                    )
                 }
 
                 is Request.ResetConnections -> {
                     cb.resetConnectionsOptimal(req.reason, req.skipDebounce)
-                    cb.addLog("INFO [Recovery] resetConnections(skipDebounce=${req.skipDebounce}) cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}")
+                    cb.addLog(
+                        "INFO [Recovery] resetConnections(skipDebounce=${req.skipDebounce}) " +
+                            "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
+                    )
                 }
 
                 is Request.ResetCoreNetwork -> {
                     cb.resetCoreNetwork(req.reason, req.force)
-                    cb.addLog("INFO [Recovery] resetCoreNetwork(force=${req.force}) cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}")
+                    cb.addLog(
+                        "INFO [Recovery] resetCoreNetwork(force=${req.force}) " +
+                            "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
+                    )
                 }
 
                 is Request.Restart -> {
                     cb.restartVpnService(req.reason)
-                    cb.addLog("INFO [Recovery] restart cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}")
+                    cb.addLog(
+                        "INFO [Recovery] restart cost=${SystemClock.elapsedRealtime() - start}ms " +
+                            "reason=${req.reason}"
+                    )
+                }
+
+                is Request.CloseIdleConnections -> {
+                    val closed = cb.closeIdleConnections(req.maxIdleSeconds, req.reason)
+                    if (closed > 0) {
+                        cb.addLog(
+                            "INFO [Recovery] closeIdleConnections(maxIdle=${req.maxIdleSeconds}s) closed=$closed " +
+                                "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
+                        )
+                    } else {
+                        cb.addLog(
+                            "INFO [Recovery] closeIdleConnections(maxIdle=${req.maxIdleSeconds}s) closed=0 " +
+                                "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
+                        )
+                    }
                 }
 
                 else -> Unit
@@ -322,6 +365,15 @@ class RecoveryCoordinator(
             override val requestedAtMs: Long = SystemClock.elapsedRealtime()
         ) : Request {
             override val priority: Int = items.maxOf { it.priority }
+            override fun withReason(reason: String): Request = copy(reason = reason)
+        }
+
+        data class CloseIdleConnections(
+            val maxIdleSeconds: Int,
+            override val reason: String,
+            override val requestedAtMs: Long = SystemClock.elapsedRealtime()
+        ) : Request {
+            override val priority: Int = 20
             override fun withReason(reason: String): Request = copy(reason = reason)
         }
     }

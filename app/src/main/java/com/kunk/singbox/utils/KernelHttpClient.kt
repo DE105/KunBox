@@ -101,6 +101,7 @@ object KernelHttpClient {
      * @param timeoutMs 超时时间 (毫秒)
      * @return HttpResult
      */
+    @Suppress("UNUSED_PARAMETER")
     suspend fun fetchWithHeaders(
         url: String,
         headers: Map<String, String>,

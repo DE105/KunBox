@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap
  * - CommandClient 通过 NewCommandClient(handler, options) 创建
  * - CommandClientHandler 接口方法变化
  */
+@Suppress("TooManyFunctions")
 class CommandManager(
     private val context: Context,
     private val serviceScope: CoroutineScope
@@ -373,6 +374,7 @@ class CommandManager(
         }
     }
 
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod", "NestedBlockDepth")
     private fun processConnectionEvents(events: ConnectionEvents) {
         // 处理连接事件
         val iterator = events.iterator()

@@ -33,7 +33,6 @@ class NetworkSwitchManager(
         private const val STARTUP_WINDOW_MS = 1000L // 启动窗口期 (从 3000ms 缩短)
         private const val EVENT_AGGREGATION_MS = 300L // 事件聚合时间
         private const val UNDERLYING_NETWORK_DELAY_MS = 200L // underlyingNetworks 生效延迟
-        private const val HEALTH_CHECK_TIMEOUT_MS = 2000L // 健康检查超时
         private const val MIN_SWITCH_INTERVAL_MS = 500L // 最小切换间隔
     }
 
@@ -57,6 +56,7 @@ class NetworkSwitchManager(
     private val lastNetworkType = AtomicReference(NetworkType.OTHER)
     private val pendingNetworkUpdate = AtomicReference<Network?>(null)
     private var aggregationJob: Job? = null
+    private var healthCheckJob: Job? = null
 
     // 统计
     private val switchCount = AtomicLong(0)
@@ -140,6 +140,7 @@ class NetworkSwitchManager(
     /**
      * 实际处理网络更新
      */
+    @Suppress("CyclomaticComplexMethod")
     private fun processNetworkUpdate(network: Network) {
         val cb = callbacks ?: return
         val cm = cb.getConnectivityManager() ?: return
@@ -196,21 +197,16 @@ class NetworkSwitchManager(
         if (interfaceName.isNotEmpty()) {
             val index = try {
                 java.net.NetworkInterface.getByName(interfaceName)?.index ?: 0
-            } catch (e: Exception) { 0 }
-            cb.updateInterfaceListener(interfaceName, index, isExpensive, false)
-        }
-
-        // 类型变化时强制重置连接
-        if (typeChanged && cb.isRunning()) {
-            scope.launch {
-                delay(100) // 短暂延迟
-                cb.resetConnectionsOptimal("network_type_change", skipDebounce = true)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to get network interface index: ${e.message}")
+                0
             }
+            cb.updateInterfaceListener(interfaceName, index, isExpensive, false)
         }
 
         // 执行健康检查
         if (networkChanged) {
-            performHealthCheck(network)
+            performHealthCheck(network, typeChanged)
         }
     }
 
@@ -230,9 +226,12 @@ class NetworkSwitchManager(
     /**
      * 执行健康检查
      */
-    private fun performHealthCheck(network: Network) {
-        scope.launch(Dispatchers.IO) {
-            val cm = callbacks?.getConnectivityManager() ?: return@launch
+    @Suppress("CognitiveComplexMethod")
+    private fun performHealthCheck(network: Network, typeChanged: Boolean) {
+        healthCheckJob?.cancel()
+        healthCheckJob = scope.launch(Dispatchers.IO) {
+            val cb = callbacks ?: return@launch
+            val cm = cb.getConnectivityManager() ?: return@launch
 
             // 等待网络验证
             var validated = false
@@ -272,7 +271,16 @@ class NetworkSwitchManager(
                     failedSwitchCount.incrementAndGet()
                     Log.w(TAG, "Network health check failed for $network")
                     // 可以触发恢复逻辑
+                    return@launch
                 }
+            }
+
+            // Only reset connections when the new network is stable (validated or connectivity verified).
+            // Avoid skipDebounce=true to reduce throughput oscillation during download sessions.
+            if (typeChanged && cb.isRunning()) {
+                mainHandler.postDelayed({
+                    cb.resetConnectionsOptimal("network_type_change_stable", skipDebounce = false)
+                }, 200L)
             }
         }
     }

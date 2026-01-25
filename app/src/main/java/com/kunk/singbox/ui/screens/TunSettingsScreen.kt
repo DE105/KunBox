@@ -193,8 +193,27 @@ fun TunSettingsScreen(
 
             StandardCard {
                 SettingItem(title = stringResource(R.string.tun_settings_stack), value = stringResource(settings.tunStack.displayNameRes), onClick = { showStackDialog = true })
-                SettingItem(title = stringResource(R.string.tun_settings_mtu), value = settings.tunMtu.toString(), onClick = { showMtuDialog = true })
-                SettingItem(title = stringResource(R.string.tun_settings_interface_name), value = settings.tunInterfaceName, onClick = { showInterfaceDialog = true })
+                SettingSwitchItem(
+                    title = stringResource(R.string.tun_settings_mtu_auto),
+                    subtitle = stringResource(R.string.tun_settings_mtu_auto_subtitle),
+                    checked = settings.tunMtuAuto,
+                    onCheckedChange = { settingsViewModel.setTunMtuAuto(it) }
+                )
+                SettingItem(
+                    title = stringResource(R.string.tun_settings_mtu),
+                    value = if (settings.tunMtuAuto) {
+                        stringResource(R.string.common_auto)
+                    } else {
+                        settings.tunMtu.toString()
+                    },
+                    enabled = !settings.tunMtuAuto,
+                    onClick = { showMtuDialog = true }
+                )
+                SettingItem(
+                    title = stringResource(R.string.tun_settings_interface_name),
+                    value = settings.tunInterfaceName,
+                    onClick = { showInterfaceDialog = true }
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))

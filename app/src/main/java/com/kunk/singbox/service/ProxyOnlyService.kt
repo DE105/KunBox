@@ -47,7 +47,6 @@ import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
-import java.util.concurrent.ConcurrentHashMap
 
 class ProxyOnlyService : Service() {
 
@@ -91,6 +90,10 @@ class ProxyOnlyService : Service() {
     @Volatile private var notificationUpdateJob: Job? = null
     @Volatile private var suppressNotificationUpdates = false
 
+    // ACTION_PREPARE_RESTART 防抖：避免短时间内重复 resetAllConnections()
+    private val lastPrepareRestartAtMs = java.util.concurrent.atomic.AtomicLong(0L)
+    private val prepareRestartDebounceMs: Long = 1500L
+
     // 华为设备修复: 追踪是否已经调用过 startForeground(),避免重复调用触发提示音
     private val hasForegroundStarted = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -106,17 +109,6 @@ class ProxyOnlyService : Service() {
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var currentInterfaceListener: InterfaceUpdateListener? = null
-
-    private val uidToPackageCache = ConcurrentHashMap<Int, String>()
-    private val maxUidToPackageCacheSize: Int = 512
-
-    private fun cacheUidToPackage(uid: Int, pkg: String) {
-        if (uid <= 0 || pkg.isBlank()) return
-        uidToPackageCache[uid] = pkg
-        if (uidToPackageCache.size > maxUidToPackageCacheSize) {
-            uidToPackageCache.clear()
-        }
-    }
 
     private val platformInterface = object : PlatformInterface {
         override fun localDNSTransport(): io.nekohasekai.libbox.LocalDNSTransport {
@@ -176,10 +168,14 @@ class ProxyOnlyService : Service() {
 
             val sourceIp = parseAddress(sourceAddress)
             val destinationIp = parseAddress(destinationAddress)
-            if (sourceIp == null || sourcePort <= 0 || destinationIp == null || destinationPort <= 0) return ConnectionOwner()
+            if (sourceIp == null || sourcePort <= 0 || destinationIp == null || destinationPort <= 0) {
+                return ConnectionOwner()
+            }
 
             return try {
-                val cm = connectivityManager ?: getSystemService(ConnectivityManager::class.java) ?: return ConnectionOwner()
+                val cm = connectivityManager
+                    ?: getSystemService(ConnectivityManager::class.java)
+                    ?: return ConnectionOwner()
                 val protocol = ipProtocol
                 val uid = cm.getConnectionOwnerUid(
                     protocol,
@@ -395,7 +391,18 @@ class ProxyOnlyService : Service() {
                 // 跨配置切换预清理机制
                 // ProxyOnlyService 模式下：唤醒核心 + 重置网络 + 关闭连接
                 // 2025-fix: 简化流程，减少过度的重置次数
-                Log.i(TAG, "Received ACTION_PREPARE_RESTART -> preparing for restart")
+                val reason = intent.getStringExtra(SingBoxService.EXTRA_PREPARE_RESTART_REASON).orEmpty()
+                Log.i(TAG, "Received ACTION_PREPARE_RESTART (reason='$reason') -> preparing for restart")
+
+                val now = SystemClock.elapsedRealtime()
+                val last = lastPrepareRestartAtMs.get()
+                val elapsed = now - last
+                if (elapsed < prepareRestartDebounceMs) {
+                    Log.d(TAG, "ACTION_PREPARE_RESTART skipped (debounce, elapsed=${elapsed}ms)")
+                    return START_NOT_STICKY
+                }
+                lastPrepareRestartAtMs.set(now)
+
                 serviceScope.launch {
                     try {
                         // Step 1: 唤醒核心 (如果已暂停)

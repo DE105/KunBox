@@ -319,7 +319,11 @@ fun NodeDetailScreen(
                             title = "Ports (Jumping)", // TODO: add to strings.xml
                             value = outbound.serverPorts?.firstOrNull() ?: "",
                             icon = Icons.Rounded.Numbers,
-                            onValueChange = { editingOutbound = outbound.copy(serverPorts = if (it.isEmpty()) null else listOf(it)) }
+                            onValueChange = {
+                                editingOutbound = outbound.copy(
+                                    serverPorts = if (it.isEmpty()) null else listOf(it)
+                                )
+                            }
                         )
                         EditableTextItem(
                             title = stringResource(R.string.node_detail_obfs_type),

@@ -484,7 +484,11 @@ object BoxWrapperManager {
         return try {
             val count = Libbox.closeStaleConnectionsForHost(hostPattern, maxAgeSeconds)
             if (count > 0) {
-                Log.i(TAG, "closeStaleConnectionsForHost: closed $count connections for '$hostPattern' (maxAge=${maxAgeSeconds}s)")
+                Log.i(
+                    TAG,
+                    "closeStaleConnectionsForHost: closed $count connections " +
+                        "for '$hostPattern' (maxAge=${maxAgeSeconds}s)"
+                )
             }
             count
         } catch (e: Exception) {

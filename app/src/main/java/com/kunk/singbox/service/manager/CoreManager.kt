@@ -442,6 +442,7 @@ class CoreManager(
      * Hot reload config without destroying VPN service
      * Returns true if hot reload succeeded, false if fallback to full restart is needed
      */
+    @Suppress("UNUSED_PARAMETER")
     suspend fun hotReloadConfig(configContent: String, preserveSelector: Boolean = true): Result<Boolean> {
         return runCatching {
             withContext(Dispatchers.IO) {

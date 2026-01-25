@@ -139,14 +139,18 @@ class PlatformInterfaceImpl(
     private var postTunRebindJob: Job? = null
     private var vpnLinkValidated = false
 
+    // 避免在弱网/门户网/ROM异常场景下频繁触发"健康恢复"导致网络抖动
+    private val lastVpnHealthRecoveryAtMs = AtomicLong(0L)
+    private val vpnHealthRecoveryMinIntervalMs: Long = 30_000L
+
     // 时间戳
     private val vpnStartedAtMs = AtomicLong(0L)
     private val lastSetUnderlyingNetworksAtMs = AtomicLong(0L)
-    private val vpnStartupWindowMs: Long = 3000L
-    private val setUnderlyingNetworksDebounceMs: Long = 500L
 
-    // 日志控制
-    private var noPhysicalNetworkWarningLogged = false
+    // ProcFS readability cache (avoid repeated /proc reads)
+    private val lastProcFsCheckAtMs = AtomicLong(0L)
+    @Volatile private var cachedProcFsReadable: Boolean? = null
+    private val procFsCheckIntervalMs: Long = 5 * 60_000L
 
     override fun localDNSTransport(): io.nekohasekai.libbox.LocalDNSTransport {
         return com.kunk.singbox.core.LocalResolverImpl
@@ -210,6 +214,13 @@ class PlatformInterfaceImpl(
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
     override fun useProcFS(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        val cached = cachedProcFsReadable
+        val last = lastProcFsCheckAtMs.get()
+        if (cached != null && now - last < procFsCheckIntervalMs) {
+            return cached
+        }
+
         val procPaths = listOf(
             "/proc/net/tcp",
             "/proc/net/tcp6",
@@ -229,6 +240,8 @@ class PlatformInterfaceImpl(
         }
 
         val readable = procPaths.all { path -> hasUidHeader(path) }
+        cachedProcFsReadable = readable
+        lastProcFsCheckAtMs.set(now)
 
         if (!readable) {
             callbacks.setConnectionOwnerLastEvent("procfs_unreadable_or_no_uid -> force findConnectionOwner")
@@ -237,6 +250,7 @@ class PlatformInterfaceImpl(
         return readable
     }
 
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod", "ReturnCount")
     override fun findConnectionOwner(
         ipProtocol: Int,
         sourceAddress: String?,
@@ -246,17 +260,21 @@ class PlatformInterfaceImpl(
     ): ConnectionOwner {
         callbacks.incrementConnectionOwnerCalls()
 
+        // Avoid expensive /proc scanning when it's known to be unreadable.
+        val procFsUsable = runCatching { useProcFS() }.getOrDefault(false)
+
         fun buildConnectionOwner(uid: Int): ConnectionOwner {
             val owner = ConnectionOwner()
             owner.userId = uid
             if (uid > 0) {
-                owner.androidPackageName = getPackageNameByUid(uid)
+                owner.androidPackageName = packageNameByUid(uid)
             }
             return owner
         }
 
         fun findUidFromProcFsBySourcePort(protocol: Int, srcPort: Int): Int {
             if (srcPort <= 0) return 0
+            if (!procFsUsable) return 0
 
             val procFiles = when (protocol) {
                 OsConstants.IPPROTO_TCP -> listOf("/proc/net/tcp", "/proc/net/tcp6")
@@ -398,26 +416,12 @@ class PlatformInterfaceImpl(
         }
     }
 
-    private fun getPackageNameByUid(uid: Int): String {
-        if (uid <= 0) return ""
-        return try {
-            val pkgs = context.packageManager.getPackagesForUid(uid)
-            if (!pkgs.isNullOrEmpty()) {
-                pkgs[0]
-            } else {
-                runCatching { context.packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
-            }
-        } catch (_: Exception) {
-            runCatching { context.packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
-        }
-    }
-
     fun packageNameByUid(uid: Int): String {
         if (uid <= 0) return ""
         return try {
             val pkgs = context.packageManager.getPackagesForUid(uid)
             if (!pkgs.isNullOrEmpty()) {
-                pkgs[0]
+                pkgs[0].also { callbacks.cacheUidToPackage(uid, it) }
             } else {
                 val name = runCatching { context.packageManager.getNameForUid(uid) }.getOrNull().orEmpty()
                 if (name.isNotBlank()) {
@@ -581,8 +585,34 @@ class PlatformInterfaceImpl(
                         vpnHealthJob?.cancel()
                     }
                 } else {
+                    vpnLinkValidated = false
+
+                    // Captive portal / no internet: do not spam recovery; user action is required.
+                    val hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    val isCaptivePortal = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
+                    if (!hasInternet || isCaptivePortal) {
+                        Log.w(
+                            TAG,
+                            "VPN link not validated (hasInternet=$hasInternet, " +
+                                "captivePortal=$isCaptivePortal), skip recovery"
+                        )
+                        return
+                    }
+
                     if (vpnHealthJob?.isActive != true) {
+                        val now = SystemClock.elapsedRealtime()
+                        val last = lastVpnHealthRecoveryAtMs.get()
+                        val elapsed = now - last
+                        if (elapsed in 0 until vpnHealthRecoveryMinIntervalMs) {
+                            Log.w(
+                                TAG,
+                                "VPN link not validated, skip recovery (throttled, elapsed=${elapsed}ms)"
+                            )
+                            return
+                        }
+
                         Log.w(TAG, "VPN link not validated, scheduling recovery in 5s")
+                        lastVpnHealthRecoveryAtMs.set(now)
                         vpnHealthJob = serviceScope.launch {
                             delay(5000)
                             if (callbacks.isRunning() && !callbacks.isStarting() &&

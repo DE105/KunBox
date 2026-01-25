@@ -2,6 +2,9 @@ package com.kunk.singbox.viewmodel
 
 import com.kunk.singbox.R
 import android.app.Application
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,7 +18,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import okhttp3.Request
+import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.utils.NetworkClient
 import java.io.File
 import java.net.InetAddress
@@ -27,7 +32,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     private val gson = Gson()
     private val configRepository = ConfigRepository.getInstance(application)
-    private val client = NetworkClient.client
+    private val settingsRepository = SettingsRepository.getInstance(application)
 
     private val _resultTitle = MutableStateFlow("")
     val resultTitle = _resultTitle.asStateFlow()
@@ -81,9 +86,46 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                         null
                     }
 
+                    val settings = withContext(Dispatchers.IO) { settingsRepository.settings.first() }
+                    val cm = getApplication<Application>()
+                        .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                    val activeNetwork = cm?.activeNetwork
+                    val caps = activeNetwork?.let { cm.getNetworkCapabilities(it) }
+                    val networkType = when {
+                        caps == null -> "unknown"
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+                        else -> "other"
+                    }
+
+                    val effectiveMtu = if (!settings.tunMtuAuto) {
+                        settings.tunMtu
+                    } else {
+                        val recommended = when (networkType) {
+                            "wifi", "ethernet" -> 1480
+                            "cellular" -> 1400
+                            else -> settings.tunMtu
+                        }
+                        minOf(settings.tunMtu, recommended)
+                    }
+
+                    // Reflect ConfigRepository's special-case behavior for known devices.
+                    val effectiveTunStack = if (Build.MODEL.contains("SM-G986U", ignoreCase = true)) {
+                        "GVISOR (forced for device ${Build.MODEL})"
+                    } else {
+                        settings.tunStack.name
+                    }
+
                     val rules = runConfig?.route?.rules.orEmpty()
                     val pkgRules = rules.filter { !it.packageName.isNullOrEmpty() }
                     val finalOutbound = runConfig?.route?.finalOutbound ?: "(null)"
+
+                    val findProcess = runConfig?.route?.findProcess ?: false
+                    val hasSniffRule = rules.any { it.action == "sniff" }
+                    val tunInboundMtu = runConfig?.inbounds
+                        ?.firstOrNull { it.type == "tun" }
+                        ?.mtu
 
                     val outboundTags = runConfig?.outbounds.orEmpty().map { it.tag }.toSet()
 
@@ -93,6 +135,18 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
                     _resultMessage.value = buildString {
                         appendLine("File: $realPath")
+                        appendLine("\n=== Throughput / Runtime Hints ===")
+                        appendLine("Network: $networkType")
+                        appendLine("TUN stack (setting): ${settings.tunStack.name}")
+                        appendLine("TUN stack (effective): $effectiveTunStack")
+                        appendLine("MTU auto: ${settings.tunMtuAuto}")
+                        appendLine("MTU manual: ${settings.tunMtu}")
+                        appendLine("MTU effective: $effectiveMtu")
+                        appendLine("MTU in running_config tun inbound: ${tunInboundMtu ?: "(null)"}")
+                        appendLine("QUIC blocked: ${settings.blockQuic}")
+                        appendLine("find_process (route): $findProcess")
+                        appendLine("sniff enabled (route rule): $hasSniffRule")
+                        appendLine("\n=== Routing Summary ===")
                         appendLine("Final outbound: $finalOutbound")
                         appendLine("Route rules count: ${rules.size}")
                         appendLine("App routing rules (package_name): ${pkgRules.size}")
@@ -153,21 +207,66 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             _isConnectivityLoading.value = true
             _resultTitle.value = "连通性检查"
             try {
-                val start = System.currentTimeMillis()
-                // Use a well-known URL that returns 204 or 200
-                val request = Request.Builder().url("https://www.google.com/generate_204").build()
-                val response = withContext(Dispatchers.IO) {
-                    client.newCall(request).execute()
-                }
-                val end = System.currentTimeMillis()
-                val duration = end - start
+                // Dual-channel diagnostics:
+                // - DIRECT: reflects local network quality (this app is excluded from TUN in VPN mode)
+                // - PROXY: reflects sing-box outbound quality via local proxy 127.0.0.1:proxyPort
+                val report = withContext(Dispatchers.IO) {
+                    val settings = settingsRepository.settings.first()
+                    val coreActive = com.kunk.singbox.ipc.VpnStateStore.getActive()
+                    val request = Request.Builder().url("https://www.google.com/generate_204").build()
 
-                if (response.isSuccessful || response.code == 204) {
-                    _resultMessage.value = "Target: www.google.com\nStatus: Success (${response.code})\nDuration: ${duration}ms\n\nNote: If proxy is enabled, this reflects proxy connection quality; otherwise, it reflects local network quality."
-                } else {
-                    _resultMessage.value = "Target: www.google.com\nStatus: Failed (${response.code})\nDuration: ${duration}ms"
+                    fun runOnce(clientLabel: String, clientProvider: () -> okhttp3.OkHttpClient): Pair<String, Long> {
+                        val startedAt = System.currentTimeMillis()
+                        return try {
+                            clientProvider().newCall(request).execute().use { resp ->
+                                val ok = resp.isSuccessful || resp.code == 204
+                                val status = if (ok) {
+                                    "SUCCESS (${resp.code})"
+                                } else {
+                                    "FAILED (${resp.code})"
+                                }
+                                val duration = System.currentTimeMillis() - startedAt
+                                "$clientLabel: $status" to duration
+                            }
+                        } catch (e: Exception) {
+                            val duration = System.currentTimeMillis() - startedAt
+                            "$clientLabel: ERROR (${e.javaClass.simpleName}: ${e.message})" to duration
+                        }
+                    }
+
+                    val (directLine, directMs) = runOnce("DIRECT", {
+                        NetworkClient.createClientWithoutRetry(10, 10, 10)
+                    })
+
+                    val proxyPort = settings.proxyPort
+                    val (proxyLine, proxyMs) = if (proxyPort > 0) {
+                        runOnce("PROXY 127.0.0.1:$proxyPort", {
+                            NetworkClient.createClientWithProxy(proxyPort, 10, 10, 10)
+                        })
+                    } else {
+                        "PROXY: SKIPPED (proxyPort<=0)" to 0L
+                    }
+
+                    buildString {
+                        appendLine("Target: www.google.com/generate_204")
+                        appendLine("Core active: $coreActive")
+                        appendLine()
+                        appendLine("$directLine")
+                        appendLine("Duration: ${directMs}ms")
+                        appendLine()
+                        appendLine("$proxyLine")
+                        if (proxyMs > 0) appendLine("Duration: ${proxyMs}ms")
+                        appendLine()
+                        appendLine("Note:")
+                        appendLine("- DIRECT checks local network (app bypasses TUN in VPN mode)")
+                        appendLine("- PROXY checks sing-box outbound via local proxy")
+                        if (!coreActive) {
+                            appendLine("- If Core active=false, PROXY may fail (proxy not listening)")
+                        }
+                    }
                 }
-                response.close()
+
+                _resultMessage.value = report
             } catch (e: Exception) {
                 _resultMessage.value = "Target: www.google.com\nStatus: Error\nError: ${e.message}"
             } finally {
@@ -229,7 +328,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 val ips = withContext(Dispatchers.IO) {
                     InetAddress.getAllByName(host)
                 }
-                val ipList = ips.joinToString("\n") { it.hostAddress }
+                val ipList = ips.joinToString("\n") { it.hostAddress ?: "(null)" }
                 _resultMessage.value = "Domain: $host\n\nResult:\n$ipList\n\nNote: This result is affected by current DNS settings and VPN status."
             } catch (e: Exception) {
                 _resultMessage.value = "Domain: $host\n\nFailed: ${e.message}"

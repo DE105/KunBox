@@ -68,6 +68,7 @@ object SingBoxIpcHub {
      *
      * 参考 NekoBox: 在 onServiceConnected() 时无条件调用 resetAllConnections()
      */
+    @Suppress("CognitiveComplexMethod")
     fun onAppLifecycle(isForeground: Boolean) {
         Log.i(TAG, "onAppLifecycle: isForeground=$isForeground")
 

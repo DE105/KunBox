@@ -27,6 +27,8 @@ object ServiceStateHolder {
     const val EXTRA_SETTING_KEY = "setting_key"
     const val EXTRA_SETTING_VALUE_BOOL = "setting_value_bool"
 
+    const val EXTRA_PREPARE_RESTART_REASON = "prepare_restart_reason"
+
     @Volatile
     var instance: com.kunk.singbox.service.SingBoxService? = null
         internal set

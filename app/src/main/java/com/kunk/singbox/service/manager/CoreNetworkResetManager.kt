@@ -50,6 +50,7 @@ class CoreNetworkResetManager(
      *
      * This is intended for callers that already coalesce/serialize recovery operations.
      */
+    @Suppress("CognitiveComplexMethod")
     suspend fun resetNow(reason: String, force: Boolean = false, skipIntervalCheck: Boolean = false) {
         val now = SystemClock.elapsedRealtime()
 
@@ -99,6 +100,7 @@ class CoreNetworkResetManager(
     /**
      * 请求核心网络重置
      */
+    @Suppress("CognitiveComplexMethod")
     fun requestReset(reason: String, force: Boolean = false) {
         val now = SystemClock.elapsedRealtime()
         val last = lastResetAtMs.get()

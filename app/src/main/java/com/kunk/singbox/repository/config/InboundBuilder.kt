@@ -41,7 +41,9 @@ object InboundBuilder {
                     strictRoute = false,
                     stack = effectiveTunStack.name.lowercase(),
                     endpointIndependentNat = settings.endpointIndependentNat,
-                    gso = true
+                    // sing-box 1.11+: gso is deprecated/no longer works (and was Linux-only).
+                    // Avoid setting it to reduce config noise and future incompatibilities.
+                    gso = null
                 )
             )
         } else if (settings.proxyPort <= 0) {

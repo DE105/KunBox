@@ -126,6 +126,11 @@ class SettingsRepository(private val context: Context) {
         notifyRestartRequired()
     }
 
+    suspend fun setTunMtuAuto(value: Boolean) {
+        settingsStore.updateSettingsAndWait { it.copy(tunMtuAuto = value) }
+        notifyRestartRequired()
+    }
+
     suspend fun setTunInterfaceName(value: String) {
         settingsStore.updateSettingsAndWait { it.copy(tunInterfaceName = value) }
         notifyRestartRequired()

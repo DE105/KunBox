@@ -12,7 +12,6 @@ import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.kunk.singbox.R
-import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -151,15 +150,17 @@ object AppUpdateChecker {
      * VPN 运行时使用代理，否则直连
      */
     private suspend fun getClient(context: Context): OkHttpClient {
-        val isVpnRunning = SingBoxRemote.isRunning.value
-        return if (isVpnRunning) {
-            val settings = SettingsRepository.getInstance(context).settings.first()
-            val proxyPort = settings.proxyPort
-            Log.d(TAG, "VPN is running, using proxy on port $proxyPort for update check")
-            NetworkClient.createClientWithProxy(proxyPort, 15, 20, 20)
-        } else {
-            NetworkClient.client
+        val settings = SettingsRepository.getInstance(context).settings.first()
+        val client = ProxyAwareOkHttpClient.get(
+            settings = settings,
+            connectTimeoutSeconds = 15,
+            readTimeoutSeconds = 20,
+            writeTimeoutSeconds = 20
+        )
+        if (com.kunk.singbox.ipc.VpnStateStore.getActive()) {
+            Log.d(TAG, "Core active, using local proxy 127.0.0.1:${settings.proxyPort} for update check")
         }
+        return client
     }
 
     /**

@@ -64,47 +64,6 @@ object NetworkClient {
     }
 
     /**
-     * 轻量级重试拦截器
-     *
-     * 优化说明:
-     * - 无阻塞等待
-     * - 仅对可重试的瞬时错误重试一次
-     * - 区分可重试和不可重试错误
-     */
-    private val retryInterceptor = Interceptor { chain ->
-        val request = chain.request()
-
-        try {
-            chain.proceed(request)
-        } catch (e: IOException) {
-            val isRetryable = isRetryableError(e)
-            if (isRetryable) {
-                Log.d(TAG, "Retrying request to ${request.url.host}: ${e.message}")
-                try {
-                    chain.proceed(request)
-                } catch (retryException: IOException) {
-                    throw retryException
-                }
-            } else {
-                throw e
-            }
-        }
-    }
-
-    /**
-     * 判断是否为可重试的错误
-     */
-    private fun isRetryableError(e: IOException): Boolean {
-        val msg = e.message ?: return false
-        return msg.contains("Connection reset", ignoreCase = true) ||
-            msg.contains("Connection refused", ignoreCase = true) ||
-            msg.contains("timeout", ignoreCase = true) ||
-            msg.contains("connection closed", ignoreCase = true) ||
-            msg.contains("broken pipe", ignoreCase = true) ||
-            msg.contains("ECONNRESET", ignoreCase = true)
-    }
-
-    /**
      * 主 Client - 支持 HTTP/2 多路复用
      */
     val client: OkHttpClient by lazy {
@@ -117,7 +76,7 @@ object NetworkClient {
             .dispatcher(dispatcher)
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1)) // 优先 HTTP/2
             .addInterceptor(statsInterceptor)
-            .addInterceptor(retryInterceptor)
+            // Rely on OkHttp built-in retry logic to avoid retry amplification.
             .retryOnConnectionFailure(true)
             .followRedirects(true)
             .followSslRedirects(true)

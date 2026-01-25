@@ -61,6 +61,7 @@ class SettingsStore private constructor(context: Context) {
         loadSettings()
     }
 
+    @Suppress("NestedBlockDepth")
     private fun loadSettings() {
         try {
             val startTime = System.currentTimeMillis()
@@ -70,7 +71,14 @@ class SettingsStore private constructor(context: Context) {
             if (entity != null) {
                 val loaded = gson.fromJson(entity.data, AppSettings::class.java)
                 if (loaded != null) {
-                    _settings.value = loaded
+                    val migrated = migrateIfNeeded(entity.version, loaded)
+                    _settings.value = migrated
+                    // Persist migration if we upgraded settings.
+                    if (entity.version != SettingsEntity.CURRENT_VERSION) {
+                        scope.launch {
+                            saveSettingsInternal(migrated)
+                        }
+                    }
                     val elapsed = System.currentTimeMillis() - startTime
                     Log.i(TAG, "Settings loaded from Room in ${elapsed}ms")
                     return
@@ -82,6 +90,18 @@ class SettingsStore private constructor(context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load settings", e)
         }
+    }
+
+    private fun migrateIfNeeded(version: Int, settings: AppSettings): AppSettings {
+        var result = settings
+
+        // v2: introduce tunMtuAuto and improved throughput defaults.
+        // For existing installs, enable auto MTU by default to improve throughput while keeping manual MTU as fallback.
+        if (version < 2) {
+            result = result.copy(tunMtuAuto = true)
+        }
+
+        return result
     }
 
     /**

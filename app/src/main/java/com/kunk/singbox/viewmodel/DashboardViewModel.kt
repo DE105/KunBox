@@ -649,10 +649,27 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 blocklist = settings.vpnBlocklist
             )
 
-            Log.d(TAG, "restartVpn: useTun=$useTun, isRunning=${SingBoxRemote.isRunning.value}, perAppChanged=$perAppSettingsChanged")
-            Log.d(TAG, "restartVpn: currentMode=${settings.vpnAppMode.name}, allowlist=${settings.vpnAllowlist.take(100)}, blocklist=${settings.vpnBlocklist.take(100)}")
-            Log.d(TAG, "restartVpn: savedMode=${VpnStateStore.getLastAppMode()}, savedAllowHash=${VpnStateStore.getLastAllowlistHash()}, savedBlockHash=${VpnStateStore.getLastBlocklistHash()}")
-            Log.d(TAG, "restartVpn: currentAllowHash=${settings.vpnAllowlist.hashCode()}, currentBlockHash=${settings.vpnBlocklist.hashCode()}")
+            Log.d(
+                TAG,
+                "restartVpn: useTun=$useTun, isRunning=${SingBoxRemote.isRunning.value}, " +
+                    "perAppChanged=$perAppSettingsChanged"
+            )
+            Log.d(
+                TAG,
+                "restartVpn: currentMode=${settings.vpnAppMode.name}, " +
+                    "allowlist=${settings.vpnAllowlist.take(100)}, blocklist=${settings.vpnBlocklist.take(100)}"
+            )
+            Log.d(
+                TAG,
+                "restartVpn: savedMode=${VpnStateStore.getLastAppMode()}, " +
+                    "savedAllowHash=${VpnStateStore.getLastAllowlistHash()}, " +
+                    "savedBlockHash=${VpnStateStore.getLastBlocklistHash()}"
+            )
+            Log.d(
+                TAG,
+                "restartVpn: currentAllowHash=${settings.vpnAllowlist.hashCode()}, " +
+                    "currentBlockHash=${settings.vpnBlocklist.hashCode()}"
+            )
 
             if (useTun && SingBoxRemote.isRunning.value && !perAppSettingsChanged) {
                 val configContent = withContext(Dispatchers.IO) {
@@ -698,9 +715,17 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
 
             runCatching {
-                context.startService(Intent(context, SingBoxService::class.java).apply {
-                    action = SingBoxService.ACTION_PREPARE_RESTART
-                })
+                if (!com.kunk.singbox.ipc.VpnStateStore.shouldTriggerPrepareRestart(1500L)) {
+                    Log.d(TAG, "PREPARE_RESTART suppressed (sender throttle)")
+                } else {
+                    context.startService(Intent(context, SingBoxService::class.java).apply {
+                        action = SingBoxService.ACTION_PREPARE_RESTART
+                        putExtra(
+                            SingBoxService.EXTRA_PREPARE_RESTART_REASON,
+                            "DashboardViewModel:restartVpn"
+                        )
+                    })
+                }
             }
 
             delay(150)

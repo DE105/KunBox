@@ -250,6 +250,7 @@ class SingBoxService : VpnService() {
         const val EXTRA_CLEAN_CACHE = ServiceStateHolder.EXTRA_CLEAN_CACHE
         const val EXTRA_SETTING_KEY = ServiceStateHolder.EXTRA_SETTING_KEY
         const val EXTRA_SETTING_VALUE_BOOL = ServiceStateHolder.EXTRA_SETTING_VALUE_BOOL
+        const val EXTRA_PREPARE_RESTART_REASON = ServiceStateHolder.EXTRA_PREPARE_RESTART_REASON
 
         var instance: SingBoxService?
             get() = ServiceStateHolder.instance
@@ -392,7 +393,10 @@ class SingBoxService : VpnService() {
                         val closed = BoxWrapperManager.closeIdleConnections(60)
                         if (closed > 0) {
                             Log.i(TAG, "[Foreground] closeIdleConnections: closed $closed idle connections")
-                            runCatching { LogRepository.getInstance().addLog("INFO [Foreground] closeIdleConnections closed=$closed") }
+                            runCatching {
+                                LogRepository.getInstance()
+                                    .addLog("INFO [Foreground] closeIdleConnections closed=$closed")
+                            }
                         }
                     }
                 }
@@ -429,6 +433,18 @@ class SingBoxService : VpnService() {
 
             override suspend fun restartVpnService(reason: String) {
                 this@SingBoxService.restartVpnService(reason)
+            }
+
+            override suspend fun closeIdleConnections(maxIdleSeconds: Int, reason: String): Int {
+                val closed = BoxWrapperManager.closeIdleConnections(maxIdleSeconds)
+                if (closed > 0) {
+                    Log.i(
+                        TAG,
+                        "[$reason] closeIdleConnections: closed $closed " +
+                            "idle connections (maxIdle=${maxIdleSeconds}s)"
+                    )
+                }
+                return closed
             }
 
             override fun addLog(message: String) {
@@ -543,9 +559,9 @@ class SingBoxService : VpnService() {
                     }.onFailure { e ->
                         Log.w(TAG, "[PowerSaving] Failed to suppress WifiLock", e)
                     }
-                    LogRepository.getInstance().addLog(
-                        "INFO: Entered power saving mode (background ${backgroundPowerSavingThresholdMs / 1000 / 60}min)"
-                    )
+                    val mins = backgroundPowerSavingThresholdMs / 1000 / 60
+                    LogRepository.getInstance()
+                        .addLog("INFO: Entered power saving mode (background ${mins}min)")
                 }
 
                 override fun resumeNonEssentialProcesses() {
@@ -603,6 +619,8 @@ class SingBoxService : VpnService() {
         override fun onStarted(configContent: String) {
             Log.i(TAG, "KunBox VPN started successfully")
             notificationManager.setSuppressUpdates(false)
+
+            startIdleConnectionCleanupLoop()
         }
 
         override fun onFailed(error: String) {
@@ -1094,6 +1112,44 @@ class SingBoxService : VpnService() {
         }
     }
 
+    // Periodic idle connection cleanup:
+    // Some apps (e.g., Telegram-like) can get stuck on a stale/blackholed TCP connection after background.
+    // If other apps keep producing traffic, global stall/idle detectors may never trigger.
+    // Closing long-idle connections periodically forces fast reconnect without requiring user to reopen KunBox.
+    @Volatile private var idleConnectionCleanupJob: Job? = null
+    private val idleCleanupIntervalMs: Long = 60_000L
+    private val idleCleanupMaxIdleSeconds: Int = 60
+    private val idleCleanupInitialDelayMs: Long = 15_000L
+
+    private fun startIdleConnectionCleanupLoop() {
+        if (idleConnectionCleanupJob?.isActive == true) return
+
+        idleConnectionCleanupJob = serviceScope.launch {
+            delay(idleCleanupInitialDelayMs)
+            while (isActive) {
+                delay(idleCleanupIntervalMs)
+                if (!isRunning || isStopping || coreManager.isStopping) continue
+                if (!BoxWrapperManager.isAvailable()) continue
+
+                // Stable behavior: only attempt cleanup when there are active connections.
+                val connCount = runCatching { BoxWrapperManager.getConnectionCount() }.getOrDefault(0)
+                if (connCount <= 0) continue
+
+                recoveryCoordinator.request(
+                    RecoveryCoordinator.Request.CloseIdleConnections(
+                        maxIdleSeconds = idleCleanupMaxIdleSeconds,
+                        reason = "periodic_idle_cleanup"
+                    )
+                )
+            }
+        }
+    }
+
+    private fun stopIdleConnectionCleanupLoop() {
+        idleConnectionCleanupJob?.cancel()
+        idleConnectionCleanupJob = null
+    }
+
     //  P1修复: 连续stall刷新失败后自动重启服务
     private var stallRefreshAttempts: Int = 0
     private val maxStallRefreshAttempts: Int = 3 // 连续3次stall刷新后仍无流量则重启服务
@@ -1190,6 +1246,10 @@ class SingBoxService : VpnService() {
     // NekoBox-style: 连接重置防抖，避免多次重置导致 Telegram 反复加载
     @Volatile private var lastConnectionsResetAtMs: Long = 0L
     private val connectionsResetDebounceMs: Long = 2000L // 2秒内不重复重置
+
+    // ACTION_PREPARE_RESTART 防抖：避免短时间内重复触发导致网络反复震荡
+    private val lastPrepareRestartAtMs = AtomicLong(0L)
+    private val prepareRestartDebounceMs: Long = 1500L
 
     private fun findBestPhysicalNetwork(): Network? {
         // 优先使用 ConnectManager (新架构)
@@ -1442,7 +1502,8 @@ class SingBoxService : VpnService() {
                 // ⭐ 2025-fix: 跨配置切换预清理机制
                 // 在 VPN 重启前先关闭所有现有连接并触发网络震荡
                 // 让应用（如 Telegram）立即感知网络中断，而不是在旧连接上等待超时
-                Log.i(TAG, "Received ACTION_PREPARE_RESTART -> preparing for VPN restart")
+                val reason = intent.getStringExtra(EXTRA_PREPARE_RESTART_REASON).orEmpty()
+                Log.i(TAG, "Received ACTION_PREPARE_RESTART (reason='$reason') -> preparing for VPN restart")
                 performPrepareRestart()
             }
             ACTION_HOT_RELOAD -> {
@@ -1488,6 +1549,15 @@ class SingBoxService : VpnService() {
             Log.w(TAG, "performPrepareRestart: VPN not running, skip")
             return
         }
+
+        val now = SystemClock.elapsedRealtime()
+        val last = lastPrepareRestartAtMs.get()
+        val elapsed = now - last
+        if (elapsed < prepareRestartDebounceMs) {
+            Log.d(TAG, "performPrepareRestart: skipped (debounce, elapsed=${elapsed}ms)")
+            return
+        }
+        lastPrepareRestartAtMs.set(now)
 
         serviceScope.launch {
             try {
@@ -1761,6 +1831,8 @@ class SingBoxService : VpnService() {
             isStopping = true
         }
 
+        stopIdleConnectionCleanupLoop()
+
         // 更新状态
         updateServiceState(ServiceState.STOPPING)
         notificationManager.setSuppressUpdates(true)
@@ -1845,6 +1917,8 @@ class SingBoxService : VpnService() {
     override fun onDestroy() {
         Log.i(TAG, "onDestroy called -> stopVpn(stopService=false) pid=${android.os.Process.myPid()}")
         TrafficRepository.getInstance(this).saveStats()
+
+        stopIdleConnectionCleanupLoop()
 
         // 清理省电管理器引用
         SingBoxIpcHub.setPowerManager(null)

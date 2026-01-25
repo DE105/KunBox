@@ -4,14 +4,16 @@ import com.kunk.singbox.R
 import android.content.Intent
 import android.content.Context
 import android.os.Build
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import com.kunk.singbox.core.SingBoxCore
-import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.ipc.SingBoxRemote
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.*
 import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.service.ProxyOnlyService
@@ -37,7 +39,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import com.kunk.singbox.utils.NetworkClient
+import com.kunk.singbox.utils.ProxyAwareOkHttpClient
 import com.kunk.singbox.utils.StringBuilderPool
 import com.tencent.mmkv.MMKV
 
@@ -166,6 +168,39 @@ class ConfigRepository(private val context: Context) {
         return userSelected
     }
 
+    private fun getEffectiveTunMtu(settings: AppSettings): Int {
+        val configuredMtu = settings.tunMtu
+        if (!settings.tunMtuAuto) return configuredMtu
+
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return configuredMtu
+
+        // In VPN process, activeNetwork may be the VPN network. Prefer a physical (NOT_VPN) network.
+        val physicalCaps = cm.allNetworks
+            .asSequence()
+            .mapNotNull { cm.getNetworkCapabilities(it) }
+            .firstOrNull {
+                it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            }
+
+        val caps = physicalCaps ?: cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+            ?: return configuredMtu
+
+        // Throughput-first for Wi-Fi/Ethernet; conservative for cellular.
+        // QUIC-based proxies (Hysteria2/TUIC) + YouTube QUIC = double encapsulation,
+        // requiring higher MTU to avoid fragmentation blackholes.
+        val recommendedMtu = when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 1480
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 1480
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1400
+            else -> configuredMtu
+        }
+
+        // Auto MTU should never be more aggressive than user-configured MTU.
+        return minOf(configuredMtu, recommendedMtu)
+    }
+
     // client 改为动态获取，以支持可配置的超时
     // 使用不带重试的 Client，避免订阅获取时超时时间被重试机制延长
     // 当 VPN 运行时，使用代理客户端让请求走 sing-box 代理
@@ -174,15 +209,17 @@ class ConfigRepository(private val context: Context) {
         val settings = cachedSettings ?: AppSettings() // 使用缓存，无阻塞；首次为空时使用默认值
         val timeout = settings.subscriptionUpdateTimeout.toLong()
 
-        // 检测 VPN 是否正在运行，如果是则使用代理
-        val isVpnRunning = SingBoxRemote.isRunning.value
-        return if (isVpnRunning) {
-            val proxyPort = settings.proxyPort
-            Log.d(TAG, "VPN is running, using proxy on port $proxyPort for subscription fetch")
-            NetworkClient.createClientWithProxy(proxyPort, timeout, timeout, timeout)
-        } else {
-            NetworkClient.createClientWithoutRetry(timeout, timeout, timeout)
+        val client = ProxyAwareOkHttpClient.get(
+            settings = settings,
+            connectTimeoutSeconds = timeout,
+            readTimeoutSeconds = timeout,
+            writeTimeoutSeconds = timeout,
+            directWithRetry = false
+        )
+        if (VpnStateStore.getActive()) {
+            Log.d(TAG, "Core active, using local proxy 127.0.0.1:${settings.proxyPort} for subscription fetch")
         }
+        return client
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -1685,16 +1722,28 @@ class ConfigRepository(private val context: Context) {
                 // 这样应用（如 Telegram）能立即感知网络中断，而不是在旧连接上等待超时
                 if (tagsChanged && remoteRunning) {
                     Log.i(TAG, "Sending PREPARE_RESTART before VPN restart")
-                    val prepareIntent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
-                        Intent(context, ProxyOnlyService::class.java).apply {
-                            action = ProxyOnlyService.ACTION_PREPARE_RESTART
-                        }
+                    if (!VpnStateStore.shouldTriggerPrepareRestart(1500L)) {
+                        Log.d(TAG, "PREPARE_RESTART suppressed (sender throttle)")
                     } else {
-                        Intent(context, SingBoxService::class.java).apply {
-                            action = SingBoxService.ACTION_PREPARE_RESTART
+                        val prepareIntent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
+                            Intent(context, ProxyOnlyService::class.java).apply {
+                                action = ProxyOnlyService.ACTION_PREPARE_RESTART
+                                putExtra(
+                                    com.kunk.singbox.service.SingBoxService.EXTRA_PREPARE_RESTART_REASON,
+                                    "ConfigRepository:switchNode"
+                                )
+                            }
+                        } else {
+                            Intent(context, SingBoxService::class.java).apply {
+                                action = SingBoxService.ACTION_PREPARE_RESTART
+                                putExtra(
+                                    com.kunk.singbox.service.SingBoxService.EXTRA_PREPARE_RESTART_REASON,
+                                    "ConfigRepository:switchNode"
+                                )
+                            }
                         }
+                        context.startService(prepareIntent)
                     }
-                    context.startService(prepareIntent)
                     // 2025-fix-v2: 简化后的预清理只需等待网络广播发送
                     // 底层网络断开(立即) + 等待应用收到广播(100ms) + 缓冲(50ms)
                     // 注意: 不再需要等待 closeAllConnectionsImmediate，sing-box restart 会自动处理
@@ -2651,21 +2700,54 @@ class ConfigRepository(private val context: Context) {
     }
 
     private fun buildRunInbounds(settings: AppSettings): List<Inbound> =
-        InboundBuilder.build(settings, getEffectiveTunStack(settings.tunStack))
+        InboundBuilder.build(
+            settings.copy(tunMtu = getEffectiveTunMtu(settings)),
+            getEffectiveTunStack(settings.tunStack)
+        )
 
     private fun buildRunDns(settings: AppSettings, validRuleSets: List<RuleSetConfig>): DnsConfig {
         // 添加 DNS 配置
         val dnsServers = mutableListOf<DnsServer>()
         val dnsRules = mutableListOf<DnsRule>()
 
+        val proxyServerTag = if (settings.fakeDnsEnabled) "fakeip-dns" else "remote"
+        // sing-box 限制: default/final DNS server 不能是 fakeip
+        // fakeip 仅用于规则路由 (A/AAAA)，final 仍需指向真实解析器
+        val proxyFinalServerTag = "remote"
+        val directServerTag = "local"
+
+        fun dnsRouteTo(server: String, rule: DnsRule): DnsRule =
+            rule.copy(action = "route", server = server)
+
+        fun dnsReject(rule: DnsRule): DnsRule = rule.copy(action = "reject", method = "default")
+
+        fun outboundModeOf(
+            ruleOutboundMode: RuleSetOutboundMode?,
+            fallbackOutbound: OutboundTag?
+        ): RuleSetOutboundMode {
+            return ruleOutboundMode
+                ?: when (fallbackOutbound) {
+                    OutboundTag.DIRECT -> RuleSetOutboundMode.DIRECT
+                    OutboundTag.BLOCK -> RuleSetOutboundMode.BLOCK
+                    OutboundTag.PROXY -> RuleSetOutboundMode.PROXY
+                    null -> RuleSetOutboundMode.PROXY
+                }
+        }
+
+        fun dnsBehaviorForOutboundMode(mode: RuleSetOutboundMode): Pair<String?, Boolean> {
+            // Returns (serverTag, isReject)
+            return when (mode) {
+                RuleSetOutboundMode.DIRECT -> directServerTag to false
+                RuleSetOutboundMode.BLOCK -> null to true
+                RuleSetOutboundMode.PROXY,
+                RuleSetOutboundMode.NODE,
+                RuleSetOutboundMode.PROFILE -> proxyServerTag to false
+            }
+        }
+
         // 关键：代理节点服务器域名必须使用直连 DNS 解析，避免循环依赖
         // outbound: ["any"] 匹配所有 outbound 服务器的域名
-        dnsRules.add(
-            DnsRule(
-                outboundRaw = listOf("any"),
-                server = "dns-bootstrap"
-            )
-        )
+        dnsRules.add(dnsRouteTo("dns-bootstrap", DnsRule(outboundRaw = listOf("any"))))
 
         // 0. Bootstrap DNS (必须是 IP，用于解析其他 DoH/DoT 域名)
         // 使用多个 IP 以提高可靠性
@@ -2748,126 +2830,194 @@ class ConfigRepository(private val context: Context) {
             )
         )
 
-        // 自定义域名规则的 DNS 处理（优先级最高，必须在规则集之前）
-        val customDomainRulesForDns = settings.customRules.filter { it.enabled }.filter {
-            it.type == RuleType.DOMAIN || it.type == RuleType.DOMAIN_SUFFIX || it.type == RuleType.DOMAIN_KEYWORD
-        }
-        Log.d(TAG, "buildRunDns: customDomainRulesForDns.size=${customDomainRulesForDns.size}, fakeDnsEnabled=${settings.fakeDnsEnabled}")
+        // 自定义域名规则的 DNS 处理（优先级最高）
+        val customDomainRulesForDns = settings.customRules
+            .filter { it.enabled }
+            .filter {
+                it.type == RuleType.DOMAIN ||
+                    it.type == RuleType.DOMAIN_SUFFIX ||
+                    it.type == RuleType.DOMAIN_KEYWORD
+            }
 
         if (customDomainRulesForDns.isNotEmpty()) {
             val proxyDomains = mutableListOf<String>()
             val proxySuffixes = mutableListOf<String>()
+            val proxyKeywords = mutableListOf<String>()
             val directDomains = mutableListOf<String>()
             val directSuffixes = mutableListOf<String>()
+            val directKeywords = mutableListOf<String>()
+            val blockDomains = mutableListOf<String>()
+            val blockSuffixes = mutableListOf<String>()
+            val blockKeywords = mutableListOf<String>()
 
             customDomainRulesForDns.forEach { rule ->
-                val values = rule.value.split("\n", "\r", ",", "，").map { it.trim() }.filter { it.isNotEmpty() }
-                val isProxy = when (rule.outboundMode ?: when (rule.outbound) {
-                    OutboundTag.DIRECT -> RuleSetOutboundMode.DIRECT
-                    OutboundTag.BLOCK -> RuleSetOutboundMode.BLOCK
-                    OutboundTag.PROXY -> RuleSetOutboundMode.PROXY
-                }) {
-                    RuleSetOutboundMode.DIRECT, RuleSetOutboundMode.BLOCK -> false
-                    else -> true
-                }
-                Log.d(TAG, "DNS rule: type=${rule.type}, value=${rule.value}, outboundMode=${rule.outboundMode}, isProxy=$isProxy")
+                val values = rule.value
+                    .split("\n", "\r", ",", "，")
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
 
-                when (rule.type) {
-                    RuleType.DOMAIN -> if (isProxy) proxyDomains.addAll(values) else directDomains.addAll(values)
-                    RuleType.DOMAIN_SUFFIX -> if (isProxy) proxySuffixes.addAll(values) else directSuffixes.addAll(values)
-                    RuleType.DOMAIN_KEYWORD -> if (isProxy) proxySuffixes.addAll(values) else directSuffixes.addAll(values)
-                    else -> {}
+                val mode = outboundModeOf(rule.outboundMode, rule.outbound)
+                when (mode) {
+                    RuleSetOutboundMode.DIRECT -> when (rule.type) {
+                        RuleType.DOMAIN -> directDomains.addAll(values)
+                        RuleType.DOMAIN_SUFFIX -> directSuffixes.addAll(values)
+                        RuleType.DOMAIN_KEYWORD -> directKeywords.addAll(values)
+                        else -> {}
+                    }
+
+                    RuleSetOutboundMode.BLOCK -> when (rule.type) {
+                        RuleType.DOMAIN -> blockDomains.addAll(values)
+                        RuleType.DOMAIN_SUFFIX -> blockSuffixes.addAll(values)
+                        RuleType.DOMAIN_KEYWORD -> blockKeywords.addAll(values)
+                        else -> {}
+                    }
+
+                    RuleSetOutboundMode.PROXY,
+                    RuleSetOutboundMode.NODE,
+                    RuleSetOutboundMode.PROFILE -> when (rule.type) {
+                        RuleType.DOMAIN -> proxyDomains.addAll(values)
+                        RuleType.DOMAIN_SUFFIX -> proxySuffixes.addAll(values)
+                        RuleType.DOMAIN_KEYWORD -> proxyKeywords.addAll(values)
+                        else -> {}
+                    }
                 }
             }
 
-            val proxyServerTag = if (settings.fakeDnsEnabled) "fakeip-dns" else "remote"
-            Log.d(TAG, "DNS custom domains: proxyDomains=$proxyDomains, proxySuffixes=$proxySuffixes, directDomains=$directDomains, directSuffixes=$directSuffixes, server=$proxyServerTag")
+            // BLOCK: reject DNS queries (method=default)
+            if (blockDomains.isNotEmpty()) {
+                dnsRules.add(dnsReject(DnsRule(domain = blockDomains.distinct())))
+            }
+            if (blockSuffixes.isNotEmpty()) {
+                dnsRules.add(dnsReject(DnsRule(domainSuffix = blockSuffixes.distinct())))
+            }
+            if (blockKeywords.isNotEmpty()) {
+                dnsRules.add(dnsReject(DnsRule(domainKeyword = blockKeywords.distinct())))
+            }
+
             if (proxyDomains.isNotEmpty()) {
-                dnsRules.add(DnsRule(domain = proxyDomains.distinct(), server = proxyServerTag))
+                dnsRules.add(dnsRouteTo(proxyServerTag, DnsRule(domain = proxyDomains.distinct())))
             }
             if (proxySuffixes.isNotEmpty()) {
-                dnsRules.add(DnsRule(domainSuffix = proxySuffixes.distinct(), server = proxyServerTag))
+                dnsRules.add(
+                    dnsRouteTo(proxyServerTag, DnsRule(domainSuffix = proxySuffixes.distinct()))
+                )
             }
+            if (proxyKeywords.isNotEmpty()) {
+                dnsRules.add(
+                    dnsRouteTo(proxyServerTag, DnsRule(domainKeyword = proxyKeywords.distinct()))
+                )
+            }
+
             if (directDomains.isNotEmpty()) {
-                dnsRules.add(DnsRule(domain = directDomains.distinct(), server = "local"))
+                dnsRules.add(
+                    dnsRouteTo(directServerTag, DnsRule(domain = directDomains.distinct()))
+                )
             }
             if (directSuffixes.isNotEmpty()) {
-                dnsRules.add(DnsRule(domainSuffix = directSuffixes.distinct(), server = "local"))
-            }
-        }
-
-        // 规则集的 DNS 处理（在自定义规则之后）
-        val proxyRuleSets = mutableListOf<String>()
-        val possibleProxyTags = listOf(
-            "geosite-geolocation-!cn", "geosite-google", "geosite-openai",
-            "geosite-youtube", "geosite-telegram", "geosite-github",
-            "geosite-twitter", "geosite-netflix", "geosite-apple",
-            "geosite-facebook", "geosite-instagram", "geosite-tiktok",
-            "geosite-disney", "geosite-microsoft", "geosite-amazon"
-        )
-        possibleProxyTags.forEach { tag ->
-            if (validRuleSets.any { it.tag == tag }) proxyRuleSets.add(tag)
-        }
-
-        if (proxyRuleSets.isNotEmpty()) {
-            if (settings.fakeDnsEnabled) {
                 dnsRules.add(
-                    DnsRule(
-                        ruleSet = proxyRuleSets,
-                        server = "fakeip-dns"
-                    )
+                    dnsRouteTo(directServerTag, DnsRule(domainSuffix = directSuffixes.distinct()))
                 )
-            } else {
+            }
+            if (directKeywords.isNotEmpty()) {
                 dnsRules.add(
-                    DnsRule(
-                        ruleSet = proxyRuleSets,
-                        server = "remote"
-                    )
+                    dnsRouteTo(directServerTag, DnsRule(domainKeyword = directKeywords.distinct()))
                 )
             }
         }
 
-        val directRuleSets = mutableListOf<String>()
-        if (validRuleSets.any { it.tag == "geosite-cn" }) directRuleSets.add("geosite-cn")
+        // 规则集的 DNS 处理（跟随用户配置的规则集分流语义，而不是硬编码 tag）
+        val validRuleSetTags = validRuleSets.mapNotNull { it.tag }.toSet()
+        val proxyRuleSetTags = mutableListOf<String>()
+        val directRuleSetTags = mutableListOf<String>()
+        val blockRuleSetTags = mutableListOf<String>()
 
-        if (directRuleSets.isNotEmpty()) {
+        settings.ruleSets
+            .filter { it.enabled }
+            .forEach { ruleSet ->
+                // Only apply DNS mapping for rule sets that are actually available in runtime config.
+                val tag = ruleSet.tag
+                if (tag.isBlank() || tag !in validRuleSetTags) return@forEach
+
+                val mode = ruleSet.outboundMode ?: RuleSetOutboundMode.DIRECT
+                when (mode) {
+                    RuleSetOutboundMode.DIRECT -> directRuleSetTags.add(tag)
+                    RuleSetOutboundMode.BLOCK -> blockRuleSetTags.add(tag)
+                    RuleSetOutboundMode.PROXY,
+                    RuleSetOutboundMode.NODE,
+                    RuleSetOutboundMode.PROFILE -> proxyRuleSetTags.add(tag)
+                }
+            }
+
+        if (blockRuleSetTags.isNotEmpty()) {
+            dnsRules.add(dnsReject(DnsRule(ruleSet = blockRuleSetTags.distinct())))
+        }
+        if (proxyRuleSetTags.isNotEmpty()) {
+            dnsRules.add(dnsRouteTo(proxyServerTag, DnsRule(ruleSet = proxyRuleSetTags.distinct())))
+        }
+        if (directRuleSetTags.isNotEmpty()) {
             dnsRules.add(
-                DnsRule(
-                    ruleSet = directRuleSets,
-                    server = "local"
-                )
+                dnsRouteTo(directServerTag, DnsRule(ruleSet = directRuleSetTags.distinct()))
             )
         }
 
-        // 5. 应用特定 DNS 规则（确保应用分流的应用 DNS 走正确的服务器）
-        val appPackagesForDns = (settings.appRules.filter { it.enabled }.map { it.packageName } +
-            settings.appGroups.filter { it.enabled }.flatMap { it.apps.map { it.packageName } }).distinct()
+        // 应用特定 DNS 规则（跟随应用分流语义：DIRECT/PROXY/BLOCK）
+        // 注意：这只对进入 VPN/TUN 的连接有效；App 不在 VPN 里时不会走 sing-box DNS。
+        val proxyPackages = mutableListOf<String>()
+        val directPackages = mutableListOf<String>()
+        val blockPackages = mutableListOf<String>()
 
-        if (appPackagesForDns.isNotEmpty()) {
-            val serverTag = if (settings.fakeDnsEnabled) "fakeip-dns" else "remote"
-            val uids = appPackagesForDns.map {
+        fun addPackageByMode(pkg: String, mode: RuleSetOutboundMode) {
+            when (mode) {
+                RuleSetOutboundMode.DIRECT -> directPackages.add(pkg)
+                RuleSetOutboundMode.BLOCK -> blockPackages.add(pkg)
+                RuleSetOutboundMode.PROXY,
+                RuleSetOutboundMode.NODE,
+                RuleSetOutboundMode.PROFILE -> proxyPackages.add(pkg)
+            }
+        }
+
+        settings.appRules.filter { it.enabled }.forEach { rule ->
+            addPackageByMode(rule.packageName, rule.outboundMode ?: RuleSetOutboundMode.PROXY)
+        }
+        settings.appGroups.filter { it.enabled }.forEach { group ->
+            val mode = group.outboundMode ?: RuleSetOutboundMode.PROXY
+            group.apps.forEach { addPackageByMode(it.packageName, mode) }
+        }
+
+        // We keep both package_name and user_id matching for robustness.
+        // (sing-box docs mark user_id as Linux-only, but some Android clients still accept it via platform integration)
+        fun resolveUids(pkgs: List<String>): List<Int> {
+            return pkgs.mapNotNull {
                 try {
                     context.packageManager.getApplicationInfo(it, 0).uid
                 } catch (_: Exception) {
-                    0
+                    null
                 }
-            }.filter { it > 0 }.distinct()
+            }.distinct()
+        }
 
-            if (uids.isNotEmpty()) {
-                dnsRules.add(
-                    0,
-                    DnsRule(
-                        userId = uids,
-                        server = serverTag
-                    )
-                )
-            }
+        val directPkgs = directPackages.distinct().filter { it.isNotBlank() }
+        val proxyPkgs = proxyPackages.distinct().filter { it.isNotBlank() }
+        val blockPkgs = blockPackages.distinct().filter { it.isNotBlank() }
 
+        if (blockPkgs.isNotEmpty()) {
             dnsRules.add(
-                if (uids.isNotEmpty()) 1 else 0,
-                DnsRule(
-                    packageName = appPackagesForDns,
-                    server = serverTag
+                dnsReject(DnsRule(packageName = blockPkgs, userId = resolveUids(blockPkgs)))
+            )
+        }
+        if (proxyPkgs.isNotEmpty()) {
+            dnsRules.add(
+                dnsRouteTo(
+                    proxyServerTag,
+                    DnsRule(packageName = proxyPkgs, userId = resolveUids(proxyPkgs))
+                )
+            )
+        }
+        if (directPkgs.isNotEmpty()) {
+            dnsRules.add(
+                dnsRouteTo(
+                    directServerTag,
+                    DnsRule(packageName = directPkgs, userId = resolveUids(directPkgs))
                 )
             )
         }
@@ -2913,23 +3063,14 @@ class ConfigRepository(private val context: Context) {
             }.distinct()
 
             if (fakeIpExcludeDomains.isNotEmpty()) {
-                dnsRules.add(
-                    DnsRule(
-                        domainSuffix = fakeIpExcludeDomains,
-                        server = "remote"
-                    )
-                )
+                // force real IP for pinned domains
+                dnsRules.add(dnsRouteTo("remote", DnsRule(domainSuffix = fakeIpExcludeDomains)))
             }
         }
 
         // Fake DNS 兜底
         if (settings.fakeDnsEnabled) {
-            dnsRules.add(
-                DnsRule(
-                    queryType = listOf("A", "AAAA"),
-                    server = "fakeip-dns"
-                )
-            )
+            dnsRules.add(dnsRouteTo("fakeip-dns", DnsRule(queryType = listOf("A", "AAAA"))))
         }
 
         val fakeIpConfig = if (settings.fakeDnsEnabled) {
@@ -2948,13 +3089,27 @@ class ConfigRepository(private val context: Context) {
             null
         }
 
+        val finalServer = when (settings.routingMode) {
+            // sing-box 不允许 final(default) DNS server 为 fakeip，因此即使开启 fakeDns 也要落到真实解析器
+            RoutingMode.GLOBAL_PROXY -> if (settings.fakeDnsEnabled) proxyFinalServerTag else proxyServerTag
+            RoutingMode.GLOBAL_DIRECT -> directServerTag
+            RoutingMode.RULE -> when (settings.defaultRule) {
+                DefaultRule.PROXY -> if (settings.fakeDnsEnabled) proxyFinalServerTag else proxyServerTag
+                DefaultRule.DIRECT -> directServerTag
+                // If default is block, we still default DNS to proxy side to reduce local DNS leakage.
+                DefaultRule.BLOCK -> if (settings.fakeDnsEnabled) proxyFinalServerTag else proxyServerTag
+            }
+        }
+
         return DnsConfig(
             servers = dnsServers,
             rules = dnsRules,
-            finalServer = "local", // 兜底使用本地 DNS
+            finalServer = finalServer,
             strategy = mapDnsStrategy(settings.dnsStrategy),
             disableCache = !settings.dnsCacheEnabled,
-            independentCache = true,
+            // Keep cache shared by default to improve hit rate and reduce repeated resolutions.
+            // sing-box doc notes independent_cache slightly degrades performance.
+            independentCache = false,
             fakeip = fakeIpConfig
         )
     }
@@ -3267,6 +3422,7 @@ class ConfigRepository(private val context: Context) {
         )
     }
 
+    @Suppress("CyclomaticComplexMethod", "CognitiveComplexMethod")
     private fun buildRunRoute(
         settings: AppSettings,
         selectorTag: String,
@@ -3274,6 +3430,12 @@ class ConfigRepository(private val context: Context) {
         nodeTagResolver: (String?) -> String?,
         validRuleSets: List<RuleSetConfig>
     ): RouteConfig {
+        val hasAppRouting = settings.appRules.any { it.enabled } || settings.appGroups.any { it.enabled }
+        val hasRuleSetRouting = settings.ruleSets.any { it.enabled }
+        val hasCustomDomainRouting = settings.customRules.any { it.enabled &&
+            (it.type == RuleType.DOMAIN || it.type == RuleType.DOMAIN_SUFFIX || it.type == RuleType.DOMAIN_KEYWORD)
+        }
+
         // 构建应用分流规则
         val appRoutingRules = buildAppRoutingRules(settings, selectorTag, outbounds, nodeTagResolver)
 
@@ -3322,9 +3484,10 @@ class ConfigRepository(private val context: Context) {
             DefaultRule.PROXY -> listOf(RouteRule(outbound = selectorTag))
         }
 
-        // sing-box 1.10+ 需要显式添加 sniff action 规则来启用协议嗅探
-        // 这是域名分流生效的关键：通过嗅探 TLS/HTTP 协议获取原始域名
-        val sniffRule = listOf(RouteRule(action = "sniff"))
+        // sniff 会引入额外 CPU/延迟开销。
+        // 仅在存在域名类分流/规则集分流/广告拦截等需要域名信息的场景启用。
+        val needSniff = hasCustomDomainRouting || hasRuleSetRouting || adBlockEnabled
+        val sniffRule = if (needSniff) listOf(RouteRule(action = "sniff")) else emptyList()
 
         // DNS 劫持规则：将 DNS 流量重定向到 sing-box DNS 模块处理
         val hijackDnsRule = listOf(RouteRule(protocolRaw = listOf("dns"), action = "hijack-dns"))
@@ -3353,7 +3516,9 @@ class ConfigRepository(private val context: Context) {
             ruleSet = validRuleSets,
             rules = allRules,
             finalOutbound = selectorTag, // 路由指向 Selector
-            findProcess = true,
+            // find_process 会触发频繁的连接归属查询（Android: getConnectionOwnerUid / ProcFS fallback），显著影响 CPU/耗电。
+            // 仅当用户启用了应用分流（package_name）时开启。
+            findProcess = hasAppRouting,
             autoDetectInterface = true
         )
     }

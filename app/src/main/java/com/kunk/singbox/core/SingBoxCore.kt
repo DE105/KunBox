@@ -1070,7 +1070,13 @@ class SingBoxCore private constructor(private val context: Context) {
         // 这会导致 VPN 运行时测速流量被拦截，形成回环，返回 502 错误
         override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
         override fun useProcFS(): Boolean = false
-        override fun findConnectionOwner(p0: Int, p1: String?, p2: Int, p3: String?, p4: Int): io.nekohasekai.libbox.ConnectionOwner {
+        override fun findConnectionOwner(
+            p0: Int,
+            p1: String?,
+            p2: Int,
+            p3: String?,
+            p4: Int
+        ): io.nekohasekai.libbox.ConnectionOwner {
             return io.nekohasekai.libbox.ConnectionOwner()
         }
         override fun underNetworkExtension(): Boolean = false

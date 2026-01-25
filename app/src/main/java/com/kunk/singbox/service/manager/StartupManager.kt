@@ -101,6 +101,7 @@ class StartupManager(
     /**
      * 执行完整的 VPN 启动流程
      */
+    @Suppress("CognitiveComplexMethod")
     suspend fun startVpn(
         configPath: String,
         cleanCache: Boolean,

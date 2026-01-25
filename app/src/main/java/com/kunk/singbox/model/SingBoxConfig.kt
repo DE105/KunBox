@@ -54,8 +54,18 @@ data class DnsFakeIpConfig(
 
 @Keep
 data class DnsRule(
+    // sing-box 1.11.0+: action-based DNS rule
+    // https://sing-box.sagernet.org/configuration/dns/rule/
+    // https://sing-box.sagernet.org/configuration/dns/rule_action/
+    @SerializedName("action") val action: String? = null,
+    // reject action fields
+    @SerializedName("method") val method: String? = null,
+    @SerializedName("no_drop") val noDrop: Boolean? = null,
+
     @SerializedName("domain") val domain: List<String>? = null,
     @SerializedName("domain_suffix") val domainSuffix: List<String>? = null,
+    @SerializedName("domain_keyword") val domainKeyword: List<String>? = null,
+    @SerializedName("domain_regex") val domainRegex: List<String>? = null,
     @SerializedName("geosite") val geosite: List<String>? = null,
     @SerializedName("rule_set") val ruleSet: List<String>? = null,
     @SerializedName("query_type") val queryType: List<String>? = null,

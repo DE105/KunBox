@@ -49,6 +49,10 @@ fun SettingsStore.setTunMtu(value: Int) {
     updateSettings { it.copy(tunMtu = value) }
 }
 
+fun SettingsStore.setTunMtuAuto(value: Boolean) {
+    updateSettings { it.copy(tunMtuAuto = value) }
+}
+
 fun SettingsStore.setTunInterfaceName(value: String) {
     updateSettings { it.copy(tunInterfaceName = value) }
 }

@@ -11,6 +11,7 @@ import com.tencent.mmkv.MMKV
  * - 原子写入，无竞态条件
  * - 性能比 SharedPreferences 快 100x
  */
+@Suppress("TooManyFunctions")
 object VpnStateStore {
     private const val MMKV_ID = "vpn_state"
 
@@ -23,6 +24,9 @@ object VpnStateStore {
     private const val KEY_LAST_APP_MODE = "last_app_mode"
     private const val KEY_LAST_ALLOWLIST_HASH = "last_allowlist_hash"
     private const val KEY_LAST_BLOCKLIST_HASH = "last_blocklist_hash"
+
+    // Sender-side throttle for ACTION_PREPARE_RESTART to reduce repeated network oscillations.
+    private const val KEY_LAST_PREPARE_RESTART_AT_MS = "last_prepare_restart_at_ms"
 
     enum class CoreMode {
         NONE,
@@ -112,8 +116,29 @@ object VpnStateStore {
         val currentBlockHash = blocklist?.hashCode() ?: 0
 
         val changed = lastMode != appMode || lastAllowHash != currentAllowHash || lastBlockHash != currentBlockHash
-        Log.d("VpnStateStore", "hasPerAppVpnSettingsChanged: lastMode=$lastMode, appMode=$appMode, lastAllowHash=$lastAllowHash, currentAllowHash=$currentAllowHash, changed=$changed")
+        Log.d(
+            "VpnStateStore",
+            "hasPerAppVpnSettingsChanged: lastMode=$lastMode, appMode=$appMode, " +
+                "lastAllowHash=$lastAllowHash, currentAllowHash=$currentAllowHash, changed=$changed"
+        )
         return changed
+    }
+
+    /**
+     * Cross-process throttle for ACTION_PREPARE_RESTART senders.
+     *
+     * Returns true if the caller should proceed (and records the timestamp), false if it's too soon.
+     */
+    fun shouldTriggerPrepareRestart(minIntervalMs: Long): Boolean {
+        if (minIntervalMs <= 0) return true
+        val now = System.currentTimeMillis()
+        val last = mmkv.decodeLong(KEY_LAST_PREPARE_RESTART_AT_MS, 0L)
+        val elapsed = now - last
+        if (elapsed in 0 until minIntervalMs) {
+            return false
+        }
+        mmkv.encode(KEY_LAST_PREPARE_RESTART_AT_MS, now)
+        return true
     }
 
     /**

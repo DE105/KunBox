@@ -225,6 +225,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.setTunMtu(value) }
     }
 
+    fun setTunMtuAuto(value: Boolean) {
+        viewModelScope.launch { repository.setTunMtuAuto(value) }
+    }
+
     fun setTunInterfaceName(value: String) {
         viewModelScope.launch { repository.setTunInterfaceName(value) }
     }

@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import okhttp3.Request
-import com.kunk.singbox.utils.NetworkClient
+import com.kunk.singbox.utils.ProxyAwareOkHttpClient
 import android.util.Log
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
@@ -23,6 +23,7 @@ import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.ipc.SingBoxRemote
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 
 class RuleSetViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -58,7 +59,6 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    private val client = NetworkClient.client
     private val gson = Gson()
 
     init {
@@ -93,7 +93,8 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
             _isLoading.value = true
             _error.value = null
             try {
-                val sagerNetRules = fetchFromSagerNet()
+                val currentSettings = settingsRepository.settings.first()
+                val sagerNetRules = fetchFromSagerNet(currentSettings)
 
                 if (sagerNetRules.isEmpty()) {
                     Log.w(TAG, "Online results empty, using built-in rule sets")
@@ -142,7 +143,7 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun fetchFromSagerNet(): List<HubRuleSet> {
+    private fun fetchFromSagerNet(currentSettings: AppSettings): List<HubRuleSet> {
         // 使用 ghp.ci 镜像代理 GitHub API 请求可能不合适，API 还是直接连，但下载链接用镜像
         val rawUrl = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
         val url = "https://api.github.com/repos/SagerNet/sing-geosite/git/trees/rule-set?recursive=1"
@@ -152,11 +153,14 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
                 .header("User-Agent", "KunK-KunBox-App")
                 .build()
 
-            // 使用较短的超时时间，避免卡住太久
-            val shortTimeoutClient = client.newBuilder()
-                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
+            // Important: this app package is excluded from TUN routing in VPN mode.
+            // When core is active, we must use local proxy for GitHub API access.
+            val shortTimeoutClient = ProxyAwareOkHttpClient.get(
+                settings = currentSettings,
+                connectTimeoutSeconds = 10,
+                readTimeoutSeconds = 10,
+                writeTimeoutSeconds = 10
+            )
 
             shortTimeoutClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {

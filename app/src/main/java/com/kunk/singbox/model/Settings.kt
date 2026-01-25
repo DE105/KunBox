@@ -18,7 +18,14 @@ data class AppSettings(
     // TUN/VPN 设置
     @SerializedName("tunEnabled") val tunEnabled: Boolean = true,
     @SerializedName("tunStack") val tunStack: TunStack = TunStack.MIXED,
-    @SerializedName("tunMtu") val tunMtu: Int = 1280, // 与 SettingsRepository 默认值保持一致
+    // Throughput defaults:
+    // - 1280 is IPv6 minimum MTU, safe but often reduces throughput.
+    // - 1500 is the common Ethernet/Wi‑Fi MTU and typically improves throughput.
+    @SerializedName("tunMtu") val tunMtu: Int = 1500,
+    // When enabled, MTU is auto-selected by network type (Wi‑Fi/Ethernet=1480, Cellular=1400).
+    // Higher MTU for QUIC-based proxies (Hysteria2/TUIC) to avoid fragmentation blackholes.
+    // Note: For existing installs, Gson may deserialize missing boolean fields as false.
+    @SerializedName("tunMtuAuto") val tunMtuAuto: Boolean = true,
     @SerializedName("tunInterfaceName") val tunInterfaceName: String = "tun0",
     @SerializedName("autoRoute") val autoRoute: Boolean = false,
     @SerializedName("strictRoute") val strictRoute: Boolean = true,
@@ -51,7 +58,8 @@ data class AppSettings(
     @SerializedName("defaultRule") val defaultRule: DefaultRule = DefaultRule.PROXY,
     @SerializedName("blockAds") val blockAds: Boolean = true,
     @SerializedName("bypassLan") val bypassLan: Boolean = true,
-    @SerializedName("blockQuic") val blockQuic: Boolean = true,
+    // Throughput default: allow QUIC/HTTP3; users can enable blocking if their network/ISP has QUIC issues.
+    @SerializedName("blockQuic") val blockQuic: Boolean = false,
     @SerializedName("debugLoggingEnabled") val debugLoggingEnabled: Boolean = false,
 
     // 连接重置设置 (参考 NekoBox)

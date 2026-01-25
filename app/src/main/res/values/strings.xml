@@ -51,6 +51,7 @@
     <string name="common_all">全部</string>
     <string name="common_yes">是</string>
     <string name="common_no">否</string>
+    <string name="common_auto">自动</string>
     <string name="common_menu">菜单</string>
     <string name="common_more_options">更多选项</string>
     <string name="common_view">查看</string>
@@ -161,7 +162,7 @@
     <string name="routing_settings_block_ads">拦截广告</string>
     <string name="routing_settings_block_ads_subtitle">拦截常见广告域名</string>
     <string name="routing_settings_block_quic">屏蔽 QUIC</string>
-    <string name="routing_settings_block_quic_subtitle">屏蔽 UDP 443 以减少初始加载延迟</string>
+    <string name="routing_settings_block_quic_subtitle">部分网络 QUIC 不稳定可开启；关闭可提升 HTTP/3 吞吐</string>
     <string name="routing_settings_bypass_lan">绕过局域网</string>
     <string name="routing_settings_bypass_lan_subtitle">局域网流量不经过代理</string>
     <string name="routing_settings_app_routing">应用分流</string>
@@ -175,6 +176,8 @@
     <string name="tun_settings_enable_subtitle">创建 VPN 接口以接管系统流量</string>
     <string name="tun_settings_stack">堆栈</string>
     <string name="tun_settings_mtu">MTU</string>
+    <string name="tun_settings_mtu_auto">自动 MTU</string>
+    <string name="tun_settings_mtu_auto_subtitle">Wi-Fi/有线 1480，蜂窝 1400；适配 QUIC 代理协议，可关闭后手动设置</string>
     <string name="tun_settings_interface_name">接口名称</string>
     <string name="tun_settings_auto_route">自动路由</string>
     <string name="tun_settings_auto_route_subtitle">自动配置系统路由表</string>

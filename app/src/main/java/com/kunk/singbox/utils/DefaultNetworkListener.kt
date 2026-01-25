@@ -10,8 +10,10 @@ import android.os.Looper
 import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.actor
+import kotlinx.coroutines.channels.Channel
 import java.lang.ref.WeakReference
 
 /**
@@ -35,8 +37,10 @@ object DefaultNetworkListener {
         class Lost(val network: Network) : NetworkMessage()
     }
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     @Suppress("OPT_IN_USAGE")
-    private val networkActor = GlobalScope.actor<NetworkMessage>(Dispatchers.Unconfined) {
+    private val networkActor = scope.actor<NetworkMessage>(capacity = Channel.BUFFERED) {
         val listeners = mutableMapOf<Any, (Network?) -> Unit>()
         var network: Network? = null
         val pendingRequests = arrayListOf<NetworkMessage.Get>()
@@ -92,6 +96,8 @@ object DefaultNetworkListener {
     private val request = NetworkRequest.Builder().apply {
         addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+        // Ensure we never cache a VPN network as the "physical" underlying network.
+        addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
         if (Build.VERSION.SDK_INT == 23) {
             // API 23 OEM bugs workaround
             removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
@@ -160,9 +166,6 @@ object DefaultNetworkListener {
             when {
                 Build.VERSION.SDK_INT >= 31 -> {
                     cm.registerBestMatchingNetworkCallback(request, Callback, mainHandler)
-                }
-                Build.VERSION.SDK_INT >= 28 -> {
-                    cm.requestNetwork(request, Callback, mainHandler)
                 }
                 Build.VERSION.SDK_INT >= 26 -> {
                     cm.registerDefaultNetworkCallback(Callback, mainHandler)

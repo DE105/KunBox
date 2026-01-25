@@ -1,6 +1,8 @@
 package com.kunk.singbox.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,9 +18,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -54,7 +61,11 @@ fun SettingItem(
             Spacer(modifier = Modifier.width(16.dp))
         }
 
-        val titleModifier = if (value != null) Modifier.padding(end = 8.dp) else Modifier.weight(1f)
+        val titleModifier = if (value != null) {
+            Modifier.padding(end = 8.dp)
+        } else {
+            Modifier.weight(1f).padding(end = 12.dp)
+        }
 
         Column(modifier = titleModifier) {
             Text(
@@ -67,13 +78,37 @@ fun SettingItem(
             )
             if (subtitle != null) {
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                val surfaceColor = MaterialTheme.colorScheme.surface
+                val scrollState = rememberScrollState()
+                val needsFade = scrollState.maxValue > 0
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawWithContent {
+                            drawContent()
+                            if (needsFade) {
+                                val fadeWidth = 24.dp.toPx()
+                                drawRect(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(Color.Transparent, surfaceColor),
+                                        startX = size.width - fadeWidth,
+                                        endX = size.width
+                                    ),
+                                    topLeft = Offset(size.width - fadeWidth, 0f),
+                                    size = Size(fadeWidth, size.height)
+                                )
+                            }
+                        }
+                ) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.horizontalScroll(scrollState)
+                    )
+                }
             }
         }
 

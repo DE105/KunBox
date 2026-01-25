@@ -15,9 +15,11 @@ import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.model.VpnRouteMode
+import com.kunk.singbox.repository.LogRepository
 import io.nekohasekai.libbox.TunOptions
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * VPN TUN 接口管理器
@@ -35,6 +37,11 @@ class VpnTunManager(
     private var preallocatedBuilder: VpnService.Builder? = null
 
     val isConnecting = AtomicBoolean(false)
+
+    // Avoid spamming logs if Builder is recreated multiple times.
+    private val lastMtuLogAtMs = AtomicLong(0L)
+    @Volatile private var lastLoggedMtu: Int = -1
+    private val mtuLogDebounceMs: Long = 10_000L
 
     /**
      * 预分配 TUN Builder
@@ -74,8 +81,11 @@ class VpnTunManager(
         options: TunOptions?,
         settings: AppSettings?
     ) {
+        val effectiveMtu = resolveEffectiveMtu(options, settings)
+        logEffectiveMtuIfNeeded(options, settings, effectiveMtu)
+
         builder.setSession("KunBox VPN")
-            .setMtu(if (options != null && options.mtu > 0) options.mtu else (settings?.tunMtu ?: 1500))
+            .setMtu(effectiveMtu)
 
         // 添加地址
         builder.addAddress("172.19.0.1", 30)
@@ -94,7 +104,11 @@ class VpnTunManager(
         val appModeName = (settings?.vpnAppMode ?: VpnAppMode.ALL).name
         val allowlist = settings?.vpnAllowlist
         val blocklist = settings?.vpnBlocklist
-        Log.d(TAG, "Saving per-app settings: mode=$appModeName, allowHash=${allowlist?.hashCode() ?: 0}, blockHash=${blocklist?.hashCode() ?: 0}")
+        Log.d(
+            TAG,
+            "Saving per-app settings: mode=$appModeName, " +
+                "allowHash=${allowlist?.hashCode() ?: 0}, blockHash=${blocklist?.hashCode() ?: 0}"
+        )
         VpnStateStore.savePerAppVpnSettings(
             appMode = appModeName,
             allowlist = allowlist,
@@ -109,6 +123,70 @@ class VpnTunManager(
             builder.setMetered(false)
             configureHttpProxy(builder, settings)
         }
+    }
+
+    private fun logEffectiveMtuIfNeeded(options: TunOptions?, settings: AppSettings?, effectiveMtu: Int) {
+        val now = SystemClock.elapsedRealtime()
+        val elapsed = now - lastMtuLogAtMs.get()
+        if (effectiveMtu == lastLoggedMtu && elapsed < mtuLogDebounceMs) return
+        lastMtuLogAtMs.set(now)
+        lastLoggedMtu = effectiveMtu
+
+        val configuredMtu = if (options != null && options.mtu > 0) options.mtu else (settings?.tunMtu ?: 1500)
+        val autoEnabled = settings?.tunMtuAuto == true
+
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val physicalCaps = cm?.allNetworks
+            ?.asSequence()
+            ?.mapNotNull { cm.getNetworkCapabilities(it) }
+            ?.firstOrNull {
+                it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            }
+        val caps = physicalCaps ?: cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+        val networkType = when {
+            caps == null -> "unknown"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            else -> "other"
+        }
+
+        val msg = "INFO [VPN] Effective MTU=$effectiveMtu " +
+            "(auto=$autoEnabled, configured=$configuredMtu) network=$networkType"
+        Log.i(TAG, msg)
+        runCatching { LogRepository.getInstance().addLog(msg) }
+    }
+
+    private fun resolveEffectiveMtu(options: TunOptions?, settings: AppSettings?): Int {
+        val configuredMtu = if (options != null && options.mtu > 0) options.mtu else (settings?.tunMtu ?: 1500)
+        if (settings?.tunMtuAuto != true) return configuredMtu
+
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return configuredMtu
+
+        val physicalCaps = cm.allNetworks
+            .asSequence()
+            .mapNotNull { cm.getNetworkCapabilities(it) }
+            .firstOrNull {
+                it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            }
+        val caps = physicalCaps ?: cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+            ?: return configuredMtu
+
+        // Throughput-first for Wi-Fi/Ethernet; conservative for cellular.
+        // QUIC-based proxies (Hysteria2/TUIC) + YouTube QUIC = double encapsulation,
+        // requiring higher MTU to avoid fragmentation blackholes.
+        val recommendedMtu = when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 1480
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 1480
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1400
+            else -> configuredMtu
+        }
+
+        // Auto MTU should never be more aggressive than configured MTU.
+        return minOf(configuredMtu, recommendedMtu)
     }
 
     private fun configureRoutes(builder: VpnService.Builder, settings: AppSettings?) {

@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
-import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -27,8 +26,6 @@ class ScreenStateManager(
     companion object {
         private const val TAG = "ScreenStateManager"
         private const val SCREEN_ON_CHECK_DEBOUNCE_MS = 3000L
-        private const val BACKGROUND_THRESHOLD_MS = 30_000L
-        private const val SHORT_BACKGROUND_THRESHOLD_MS = 10_000L
 
         // Recovery modes (must match Go side constants)
         const val RECOVERY_MODE_AUTO = 0
@@ -205,10 +202,6 @@ class ScreenStateManager(
                     if (!isAppInForeground) {
                         Log.i(TAG, "App returned to FOREGROUND (${activity.localClassName})")
                         isAppInForeground = true
-
-                        val backgroundDuration = SystemClock.elapsedRealtime() - lastAppBackgroundAtMs
-                        val wasInBackgroundLong = lastAppBackgroundAtMs > 0 && backgroundDuration >= BACKGROUND_THRESHOLD_MS
-                        val wasInBackgroundShort = lastAppBackgroundAtMs > 0 && backgroundDuration >= SHORT_BACKGROUND_THRESHOLD_MS
 
                         serviceScope.launch {
                             delay(300) // Reduced from 500ms for faster response
