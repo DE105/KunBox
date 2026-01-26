@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.4](https://github.com/roseforljh/KunBox/compare/v2.6.3...v2.6.4) (2026-01-26)
+
+
+### Bug Fixes
+
+* 多处变动 ([9299dcb](https://github.com/roseforljh/KunBox/commit/9299dcb9159b8643e6aca234f4a723070d202b92))
+
 ## [2.6.3](https://github.com/roseforljh/KunBox/compare/v2.6.2...v2.6.3) (2026-01-25)
 
 
