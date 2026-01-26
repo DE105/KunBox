@@ -2721,6 +2721,20 @@ class ConfigRepository(private val context: Context) {
 
         fun dnsReject(rule: DnsRule): DnsRule = rule.copy(action = "reject", method = "default")
 
+        val fakeipQueryTypes = listOf("A", "AAAA")
+
+        fun dnsRouteToProxy(rule: DnsRule): List<DnsRule> {
+            if (!settings.fakeDnsEnabled) {
+                return listOf(dnsRouteTo(proxyServerTag, rule))
+            }
+
+            return listOf(
+                dnsRouteTo("fakeip-dns", rule.copy(queryType = fakeipQueryTypes)),
+                // 非 A/AAAA 查询（例如 HTTPS/SVCB）必须走真实解析器，fakeip 只支持 A/AAAA
+                dnsRouteTo(proxyFinalServerTag, rule)
+            )
+        }
+
         fun outboundModeOf(
             ruleOutboundMode: RuleSetOutboundMode?,
             fallbackOutbound: OutboundTag?
@@ -2736,12 +2750,14 @@ class ConfigRepository(private val context: Context) {
 
         fun dnsBehaviorForOutboundMode(mode: RuleSetOutboundMode): Pair<String?, Boolean> {
             // Returns (serverTag, isReject)
+            // 注意：开启 Fake DNS 时，DNS 规则里不应直接把所有查询都 route 到 fakeip。
+            // fakeip 仅支持 A/AAAA，其他类型（例如 HTTPS/SVCB）必须走真实解析器，否则会导致解析超时。
             return when (mode) {
                 RuleSetOutboundMode.DIRECT -> directServerTag to false
                 RuleSetOutboundMode.BLOCK -> null to true
                 RuleSetOutboundMode.PROXY,
                 RuleSetOutboundMode.NODE,
-                RuleSetOutboundMode.PROFILE -> proxyServerTag to false
+                RuleSetOutboundMode.PROFILE -> proxyFinalServerTag to false
             }
         }
 
@@ -2773,25 +2789,30 @@ class ConfigRepository(private val context: Context) {
 
         // 1. 本地 DNS
         val localDnsAddr = settings.localDns.takeIf { it.isNotBlank() } ?: "https://dns.alidns.com/dns-query"
+        // 只有当是域名且不是 local 关键字时才需要 resolver
+        val localResolver = if (localDnsAddr == "local" || isIpAddress(localDnsAddr)) null else "dns-bootstrap"
         dnsServers.add(
             DnsServer(
                 tag = "local",
                 address = localDnsAddr,
                 detour = "direct",
                 strategy = mapDnsStrategy(settings.directDnsStrategy),
-                addressResolver = "dns-bootstrap"
+                addressResolver = localResolver
             )
         )
 
         // 2. 远程 DNS (走代理)
         val remoteDnsAddr = settings.remoteDns.takeIf { it.isNotBlank() } ?: "https://dns.google/dns-query"
+        // 如果是纯 IP DoH (如 https://1.1.1.1/...) 或者是 local，不需要 resolver
+        // 但通常 remote 推荐用域名以支持证书验证 (虽然 1.1.1.1 支持 IP SAN)
+        val remoteResolver = if (remoteDnsAddr == "local" || isIpAddress(extractHost(remoteDnsAddr))) null else "dns-bootstrap"
         dnsServers.add(
             DnsServer(
                 tag = "remote",
                 address = remoteDnsAddr,
                 detour = "PROXY",
                 strategy = mapDnsStrategy(settings.remoteDnsStrategy),
-                addressResolver = "dns-bootstrap" // 必须指定解析器
+                addressResolver = remoteResolver // 必须指定解析器
             )
         )
 
@@ -2895,17 +2916,13 @@ class ConfigRepository(private val context: Context) {
             }
 
             if (proxyDomains.isNotEmpty()) {
-                dnsRules.add(dnsRouteTo(proxyServerTag, DnsRule(domain = proxyDomains.distinct())))
+                dnsRules.addAll(dnsRouteToProxy(DnsRule(domain = proxyDomains.distinct())))
             }
             if (proxySuffixes.isNotEmpty()) {
-                dnsRules.add(
-                    dnsRouteTo(proxyServerTag, DnsRule(domainSuffix = proxySuffixes.distinct()))
-                )
+                dnsRules.addAll(dnsRouteToProxy(DnsRule(domainSuffix = proxySuffixes.distinct())))
             }
             if (proxyKeywords.isNotEmpty()) {
-                dnsRules.add(
-                    dnsRouteTo(proxyServerTag, DnsRule(domainKeyword = proxyKeywords.distinct()))
-                )
+                dnsRules.addAll(dnsRouteToProxy(DnsRule(domainKeyword = proxyKeywords.distinct())))
             }
 
             if (directDomains.isNotEmpty()) {
@@ -2952,7 +2969,7 @@ class ConfigRepository(private val context: Context) {
             dnsRules.add(dnsReject(DnsRule(ruleSet = blockRuleSetTags.distinct())))
         }
         if (proxyRuleSetTags.isNotEmpty()) {
-            dnsRules.add(dnsRouteTo(proxyServerTag, DnsRule(ruleSet = proxyRuleSetTags.distinct())))
+            dnsRules.addAll(dnsRouteToProxy(DnsRule(ruleSet = proxyRuleSetTags.distinct())))
         }
         if (directRuleSetTags.isNotEmpty()) {
             dnsRules.add(
@@ -3006,11 +3023,8 @@ class ConfigRepository(private val context: Context) {
             )
         }
         if (proxyPkgs.isNotEmpty()) {
-            dnsRules.add(
-                dnsRouteTo(
-                    proxyServerTag,
-                    DnsRule(packageName = proxyPkgs, userId = resolveUids(proxyPkgs))
-                )
+            dnsRules.addAll(
+                dnsRouteToProxy(DnsRule(packageName = proxyPkgs, userId = resolveUids(proxyPkgs)))
             )
         }
         if (directPkgs.isNotEmpty()) {
@@ -3070,7 +3084,7 @@ class ConfigRepository(private val context: Context) {
 
         // Fake DNS 兜底
         if (settings.fakeDnsEnabled) {
-            dnsRules.add(dnsRouteTo("fakeip-dns", DnsRule(queryType = listOf("A", "AAAA"))))
+            dnsRules.add(dnsRouteTo("fakeip-dns", DnsRule(queryType = fakeipQueryTypes)))
         }
 
         val fakeIpConfig = if (settings.fakeDnsEnabled) {
@@ -4082,5 +4096,20 @@ class ConfigRepository(private val context: Context) {
         savedNodeLatencies.clear()
         inFlightLatencyTests.clear()
         Log.i(TAG, "ConfigRepository cleanup completed")
+    }
+
+    private fun isIpAddress(address: String?): Boolean {
+        if (address.isNullOrBlank()) return false
+        // 简单判断 IPv4 或 IPv6 特征
+        return (address.count { it == '.' } == 3 && address.all { it.isDigit() || it == '.' }) || address.contains(":")
+    }
+
+    private fun extractHost(url: String): String {
+        return try {
+            val uri = java.net.URI(url)
+            uri.host ?: url
+        } catch (e: Exception) {
+            url
+        }
     }
 }

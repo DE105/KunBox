@@ -149,17 +149,22 @@ fun SingBoxApp() {
 
     // 2025-fix: 每次 Activity resume 时刷新 VPN 状态
     // 解决通过快捷方式/通知栏操作后返回 App 时 UI 不更新的问题
+    // 2025-fix-v10: 增加回调失效检测，如果回调超时则强制重连
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        // 检测回调是否失效 (超过 10 秒无回调)
+        if (SingBoxRemote.isCallbackStale()) {
+            android.util.Log.w("MainActivity", "Callback stale on resume, forcing rebind")
+            SingBoxRemote.rebindAndNotifyForeground(context)
+        }
         dashboardViewModel.refreshState()
     }
 
     // 2025-fix-v5: NekoBox 风格 - 在 ON_START 时强制重新绑定 IPC
     // 参考 NekoBox MainActivity: onStart() 调用 connection.updateConnectionId()
     // 这确保从后台返回时 IPC 连接是有效的
+    // 2025-fix-v10: 使用原子化方法，避免 rebind 和 notifyAppLifecycle 的竞态条件
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
-        SingBoxRemote.rebind(context)
-        // 2025-fix-v6: 通知服务端应用进入前台
-        SingBoxRemote.notifyAppLifecycle(isForeground = true)
+        SingBoxRemote.rebindAndNotifyForeground(context)
     }
 
     // 2025-fix-v6: 在 ON_STOP 时通知服务端应用进入后台

@@ -596,9 +596,12 @@ class SingBoxService : VpnService() {
         // 设置 IPC Hub 的 PowerManager 引用，用于接收主进程的生命周期通知
         SingBoxIpcHub.setPowerManager(backgroundPowerManager)
         // Serialize foreground recovery via RecoveryCoordinator to avoid concurrent libbox calls.
+        // 2025-fix-v10: 使用 PROACTIVE 模式替代 AUTO 模式
+        // PROACTIVE 模式会主动唤醒内核并重置所有连接，更激进但更可靠
+        // 解决后台恢复后应用加载卡住的问题
         SingBoxIpcHub.setForegroundRecoveryHandler {
             recoveryCoordinator.request(
-                RecoveryCoordinator.Request.Recover(ScreenStateManager.RECOVERY_MODE_AUTO, "app_foreground")
+                RecoveryCoordinator.Request.Recover(ScreenStateManager.RECOVERY_MODE_PROACTIVE, "app_foreground")
             )
         }
         // 设置 ScreenStateManager 的 PowerManager 引用，用于接收屏幕状态通知
@@ -1102,10 +1105,32 @@ class SingBoxService : VpnService() {
         }
 
         override fun onProxyIdle(idleDurationMs: Long) {
-            Log.i(TAG, "Proxy idle detected (${idleDurationMs / 1000}s), preemptively resetting connections")
+            val idleSeconds = idleDurationMs / 1000
+
+            // 条件化恢复：避免在“无连接/无需恢复”时触发重置导致抖动。
+            if (!BoxWrapperManager.isAvailable()) {
+                Log.d(TAG, "Proxy idle detected (${idleSeconds}s) but Box not available, skip reset")
+                return
+            }
+
+            val connCount = runCatching { BoxWrapperManager.getConnectionCount() }.getOrDefault(0)
+            val needRecovery = runCatching { BoxWrapperManager.isNetworkRecoveryNeeded() }.getOrDefault(false)
+
+            if (connCount <= 0 && !needRecovery) {
+                Log.d(
+                    TAG,
+                    "Proxy idle detected (${idleSeconds}s) but no active connections and recovery not needed, skip reset"
+                )
+                return
+            }
+
+            Log.i(
+                TAG,
+                "Proxy idle detected (${idleSeconds}s), resetting connections (connCount=$connCount needRecovery=$needRecovery)"
+            )
             recoveryCoordinator.request(
                 RecoveryCoordinator.Request.ResetConnections(
-                    reason = "proxy_idle_${idleDurationMs / 1000}s",
+                    reason = "proxy_idle_${idleSeconds}s",
                     skipDebounce = false
                 )
             )
@@ -2027,8 +2052,8 @@ class SingBoxService : VpnService() {
      */
     private suspend fun ensureNetworkCallbackReadyWithTimeout(timeoutMs: Long = 2000L) {
         networkHelper.ensureNetworkCallbackReady(
-            networkCallbackReady = networkCallbackReady,
-            lastKnownNetwork = lastKnownNetwork,
+            isCallbackReady = { networkCallbackReady },
+            lastKnownNetwork = { lastKnownNetwork },
             findBestPhysicalNetwork = { findBestPhysicalNetwork() },
             updateNetworkState = { network, ready ->
                 lastKnownNetwork = network

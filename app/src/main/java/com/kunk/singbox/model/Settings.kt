@@ -42,8 +42,17 @@ data class AppSettings(
     @SerializedName("appendHttpProxy") val appendHttpProxy: Boolean = false,
 
     // DNS 设置
-    @SerializedName("localDns") val localDns: String = "223.5.5.5",
-    @SerializedName("remoteDns") val remoteDns: String = "1.1.1.1",
+    // 完美方案配置 (去大厂版)：
+    // Local: 使用 "local" (系统/运营商 DNS)。
+    // 原因:
+    // 1. 避开阿里/腾讯等互联网巨头的数据收集。
+    // 2. 运营商物理网络本就知晓国内流量去向，使用其 DNS 不增加隐私风险。
+    // 3. 拥有最快的解析速度和最准确的国内 CDN 调度。
+    @SerializedName("localDns") val localDns: String = "local",
+    // Remote: Cloudflare DoH (IP直连版)，强制走代理。
+    // 1. 隐私性极强，不记录日志。
+    // 2. 走代理隐藏用户真实 IP。
+    @SerializedName("remoteDns") val remoteDns: String = "https://1.1.1.1/dns-query",
     @SerializedName("fakeDnsEnabled") val fakeDnsEnabled: Boolean = true,
     @SerializedName("fakeIpRange") val fakeIpRange: String = "198.18.0.0/15",
     @SerializedName("fakeIpExcludeDomains") val fakeIpExcludeDomains: String = "", // 用户自定义 Fake IP 排除域名，逗号分隔

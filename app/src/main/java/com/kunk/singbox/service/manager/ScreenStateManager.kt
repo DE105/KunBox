@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -26,6 +27,8 @@ class ScreenStateManager(
     companion object {
         private const val TAG = "ScreenStateManager"
         private const val SCREEN_ON_CHECK_DEBOUNCE_MS = 3000L
+        private const val SCREEN_ON_RECOVERY_DEBOUNCE_MS = 10_000L
+        private const val DOZE_EXIT_RECOVERY_DEBOUNCE_MS = 10_000L
 
         // Recovery modes (must match Go side constants)
         const val RECOVERY_MODE_AUTO = 0
@@ -64,6 +67,9 @@ class ScreenStateManager(
     private var powerManager: BackgroundPowerManager? = null
 
     @Volatile private var lastScreenOnCheckMs: Long = 0L
+    @Volatile private var lastScreenOnRecoveryAtMs: Long = 0L
+    @Volatile private var lastDozeExitRecoveryAtMs: Long = 0L
+
     @Volatile var isScreenOn: Boolean = true
         private set
     @Volatile var isAppInForeground: Boolean = true
@@ -98,16 +104,29 @@ class ScreenStateManager(
                             // 通知省电管理器屏幕点亮
                             powerManager?.onScreenOn()
 
-                            // ===== 早期恢复：屏幕亮起时立即开始网络恢复 =====
-                            // 不等待用户解锁，提前开始恢复网络连接
+                            // ===== 早期恢复：屏幕亮起时立即开始网络恢复（带节流 + 条件化） =====
+                            // 不等待用户解锁，提前开始恢复网络连接，但避免短时间内重复触发导致抖动。
                             if (callbacks?.isRunning == true) {
-                                serviceScope.launch {
-                                    Log.i(TAG, "[ScreenOn] Early recovery triggered")
-                                    try {
-                                        // 使用快速恢复模式，不阻塞用户解锁
-                                        callbacks?.performNetworkRecovery(RECOVERY_MODE_QUICK, "screen_on")
-                                    } catch (e: Exception) {
-                                        Log.w(TAG, "[ScreenOn] Early recovery failed", e)
+                                val now = SystemClock.elapsedRealtime()
+                                val elapsed = now - lastScreenOnRecoveryAtMs
+                                if (elapsed < SCREEN_ON_RECOVERY_DEBOUNCE_MS) {
+                                    Log.d(TAG, "[ScreenOn] Early recovery skipped (debounce, elapsed=${elapsed}ms)")
+                                } else {
+                                    val needRecovery = runCatching { BoxWrapperManager.isNetworkRecoveryNeeded() }
+                                        .getOrDefault(false)
+                                    if (!needRecovery) {
+                                        Log.d(TAG, "[ScreenOn] Recovery not needed, skip")
+                                    } else {
+                                        lastScreenOnRecoveryAtMs = now
+                                        serviceScope.launch {
+                                            Log.i(TAG, "[ScreenOn] Early recovery triggered")
+                                            try {
+                                                // 使用快速恢复模式，不阻塞用户解锁
+                                                callbacks?.performNetworkRecovery(RECOVERY_MODE_QUICK, "screen_on")
+                                            } catch (e: Exception) {
+                                                Log.w(TAG, "[ScreenOn] Early recovery failed", e)
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -276,6 +295,22 @@ class ScreenStateManager(
         if (callbacks?.isRunning != true) return
 
         try {
+            val now = SystemClock.elapsedRealtime()
+            val elapsed = now - lastDozeExitRecoveryAtMs
+            if (elapsed < DOZE_EXIT_RECOVERY_DEBOUNCE_MS) {
+                Log.d(TAG, "[Doze] Wake recovery skipped (debounce, elapsed=${elapsed}ms)")
+                callbacks?.notifyRemoteStateUpdate(true)
+                return
+            }
+
+            val needRecovery = runCatching { BoxWrapperManager.isNetworkRecoveryNeeded() }.getOrDefault(false)
+            if (!needRecovery) {
+                Log.d(TAG, "[Doze] Recovery not needed on wake, skip")
+                callbacks?.notifyRemoteStateUpdate(true)
+                return
+            }
+
+            lastDozeExitRecoveryAtMs = now
             Log.i(TAG, "[Doze] Device wake - performing deep network recovery")
 
             // ===== 核心修复：Doze 唤醒时使用深度恢复 =====

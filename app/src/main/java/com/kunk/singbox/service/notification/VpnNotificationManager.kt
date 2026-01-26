@@ -34,7 +34,7 @@ class VpnNotificationManager(
         const val NOTIFICATION_ID = 1
         const val CHANNEL_ID = "singbox_vpn_service_silent"
         private const val LEGACY_CHANNEL_ID = "singbox_vpn_service"
-        private const val UPDATE_DEBOUNCE_MS = 900L
+        private const val UPDATE_DEBOUNCE_MS = 3000L
     }
 
     private val notificationManager: NotificationManager by lazy {

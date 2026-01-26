@@ -45,8 +45,18 @@ object SingBoxIpcHub {
     // 2025-fix-v7: 上次应用返回前台的时间戳，用于防抖
     private val lastForegroundAtMs = AtomicLong(0L)
 
-    // 2025-fix-v7: 前台恢复后重置连接的最小间隔 (5秒)
-    private const val FOREGROUND_RESET_DEBOUNCE_MS = 5_000L
+    // 2025-fix-v11: 上次应用进入后台的时间戳，用于计算后台时长
+    private val lastBackgroundAtMs = AtomicLong(0L)
+
+    // 2025-fix-v11: 前台恢复防抖最小间隔 (2秒，从5秒缩短)
+    // 快速切换前后台时跳过恢复，避免恢复风暴
+    private const val FOREGROUND_RESET_DEBOUNCE_MS = 2_000L
+
+    // 2025-fix-v11: 智能恢复模式阈值
+    // 根据后台时长选择恢复激进程度，比其他代理软件更智能
+    private const val BACKGROUND_QUICK_THRESHOLD_MS = 30_000L    // <30秒: QUICK模式
+    private const val BACKGROUND_FULL_THRESHOLD_MS = 5 * 60_000L // <5分钟: FULL模式
+    // >5分钟: DEEP模式
 
     fun setPowerManager(manager: BackgroundPowerManager?) {
         powerManager = manager
@@ -61,62 +71,135 @@ object SingBoxIpcHub {
     /**
      * 接收主进程的 App 生命周期通知
      *
-     * 2025-fix-v7: 当应用返回前台时，立即重置所有连接
-     * 这是解决 "后台恢复后 TG 等应用一直加载中" 问题的关键修复
+     * 2025-fix-v11: 完全重写前台恢复逻辑，解决 "后台恢复后 TG 等应用一直加载中" 问题
      *
-     * 2025-fix-v9: 同时清理闲置连接，解决 "TG 图片加载慢" 问题
+     * 根因: CheckNetworkRecoveryNeeded() 只返回 IsPaused()，导致大多数情况下跳过恢复
+     * 但 TCP 连接可能因服务器超时、NAT超时、网络切换等原因失效，即使 VPN 未暂停
      *
-     * 参考 NekoBox: 在 onServiceConnected() 时无条件调用 resetAllConnections()
+     * 修复方案:
+     * 1. 删除错误的 isNetworkRecoveryNeeded() 条件检查
+     * 2. 添加智能恢复模式: 根据后台时长选择恢复激进程度
+     * 3. 保留防抖机制: 避免快速前后台切换时的恢复风暴
+     *
+     * 恢复模式:
+     * - QUICK (后台<30秒): 仅关闭闲置连接，轻量恢复
+     * - FULL (后台30秒-5分钟): 完整恢复，重置网络栈
+     * - DEEP (后台>5分钟): 最激进恢复，包含网络探测
      */
-    @Suppress("CognitiveComplexMethod")
+    @Suppress("CognitiveComplexMethod", "NestedBlockDepth")
     fun onAppLifecycle(isForeground: Boolean) {
         Log.i(TAG, "onAppLifecycle: isForeground=$isForeground")
 
         if (isForeground) {
             powerManager?.onAppForeground()
-
-            // 2025-fix-v7 + v9: 应用返回前台时，网络恢复 + 清理闲置连接
-            // 这确保 sing-box 内核不会使用后台期间可能已失效的连接
-            val isVpnRunning = stateOrdinal == SingBoxService.ServiceState.RUNNING.ordinal
-            if (isVpnRunning) {
-                val now = SystemClock.elapsedRealtime()
-                val lastForeground = lastForegroundAtMs.get()
-                val elapsed = now - lastForeground
-
-                // 防抖: 避免频繁切换前后台时重复重置
-                if (elapsed >= FOREGROUND_RESET_DEBOUNCE_MS) {
-                    lastForegroundAtMs.set(now)
-
-                    Log.i(TAG, "[Foreground] VPN running, triggering network recovery")
-                    val handler = foregroundRecoveryHandler
-                    if (handler != null) {
-                        runCatching { handler.invoke() }
-                            .onFailure { e -> Log.w(TAG, "[Foreground] recovery handler failed", e) }
-                    } else {
-                        // Fallback for early startup or tests.
-                        // 2025-fix-v8: Use recoverNetworkAuto which calls CloseAllTrackedConnections
-                        // This properly sends RST/FIN to apps, fixing "TG stuck loading" issue
-                        val success = BoxWrapperManager.recoverNetworkAuto()
-                        if (success) {
-                            Log.i(TAG, "[Foreground] recoverNetworkAuto success")
-                        } else {
-                            Log.w(TAG, "[Foreground] recoverNetworkAuto failed, VPN may have stale connections")
-                        }
-
-                        // 2025-fix-v9: Also close idle connections to fix "TG image loading slow"
-                        // Close connections idle for more than 60 seconds
-                        val closedIdle = BoxWrapperManager.closeIdleConnections(60)
-                        if (closedIdle > 0) {
-                            Log.i(TAG, "[Foreground] closeIdleConnections: closed $closedIdle idle connections")
-                        }
-                    }
-                } else {
-                    Log.d(TAG, "[Foreground] skipped reset (debounce, elapsed=${elapsed}ms)")
-                }
-            }
+            performForegroundRecovery()
         } else {
+            lastBackgroundAtMs.set(SystemClock.elapsedRealtime())
             powerManager?.onAppBackground()
         }
+    }
+
+    /**
+     * 2025-fix-v11: 前台恢复核心逻辑
+     *
+     * 设计原则:
+     * 1. 永不猜测，始终恢复 - 当用户从后台返回时，确保连接是新鲜的
+     * 2. 最小干扰 - 不重启 VPN 服务，只重置连接
+     * 3. 智能选择 - 根据后台时长选择恢复激进程度
+     */
+    @Suppress("CognitiveComplexMethod", "NestedBlockDepth", "ReturnCount")
+    private fun performForegroundRecovery() {
+        val isVpnRunning = stateOrdinal == SingBoxService.ServiceState.RUNNING.ordinal
+        if (!isVpnRunning) {
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        val lastForeground = lastForegroundAtMs.get()
+        val timeSinceLastForeground = now - lastForeground
+
+        if (timeSinceLastForeground < FOREGROUND_RESET_DEBOUNCE_MS) {
+            Log.d(TAG, "[Foreground] skipped (debounce, elapsed=${timeSinceLastForeground}ms)")
+            return
+        }
+
+        val backgroundDuration = now - lastBackgroundAtMs.get()
+        val recoveryMode = selectRecoveryMode(backgroundDuration)
+
+        if (recoveryMode == null) {
+            Log.d(TAG, "[Foreground] skipped (background too short: ${backgroundDuration}ms)")
+            return
+        }
+
+        Log.i(TAG, "[Foreground] VPN running, background=${backgroundDuration}ms, mode=$recoveryMode")
+
+        val recoverySuccess = executeRecovery(recoveryMode)
+
+        if (recoverySuccess) {
+            lastForegroundAtMs.set(now)
+            Log.i(TAG, "[Foreground] recovery success ($recoveryMode)")
+        } else {
+            Log.w(TAG, "[Foreground] recovery failed, will retry on next foreground event")
+        }
+    }
+
+    /**
+     * 2025-fix-v11: 根据后台时长智能选择恢复模式
+     * 这比其他代理软件更智能 - 它们都是无脑全量恢复
+     */
+    private fun selectRecoveryMode(backgroundDurationMs: Long): RecoveryMode? {
+        return when {
+            backgroundDurationMs < FOREGROUND_RESET_DEBOUNCE_MS -> null
+            backgroundDurationMs < BACKGROUND_QUICK_THRESHOLD_MS -> RecoveryMode.QUICK
+            backgroundDurationMs < BACKGROUND_FULL_THRESHOLD_MS -> RecoveryMode.FULL
+            else -> RecoveryMode.DEEP
+        }
+    }
+
+    /**
+     * 2025-fix-v11: 执行恢复操作
+     */
+    @Suppress("CognitiveComplexMethod")
+    private fun executeRecovery(mode: RecoveryMode): Boolean {
+        val handler = foregroundRecoveryHandler
+        if (handler != null) {
+            return runCatching {
+                handler.invoke()
+                true
+            }.getOrElse { e ->
+                Log.w(TAG, "[Foreground] recovery handler failed", e)
+                false
+            }
+        }
+
+        return when (mode) {
+            RecoveryMode.QUICK -> {
+                val closed = BoxWrapperManager.closeIdleConnections(30)
+                Log.i(TAG, "[Foreground] QUICK: closed $closed idle connections")
+                true
+            }
+            RecoveryMode.FULL -> {
+                val success = BoxWrapperManager.recoverNetworkFull()
+                val closed = BoxWrapperManager.closeIdleConnections(30)
+                Log.i(TAG, "[Foreground] FULL: recoverNetworkFull=$success, closedIdle=$closed")
+                success
+            }
+            RecoveryMode.DEEP -> {
+                val success = BoxWrapperManager.recoverNetworkDeep()
+                val closed = BoxWrapperManager.closeIdleConnections(30)
+                Log.i(TAG, "[Foreground] DEEP: recoverNetworkDeep=$success, closedIdle=$closed")
+                success
+            }
+        }
+    }
+
+    /**
+     * 2025-fix-v11: 恢复模式枚举
+     */
+    private enum class RecoveryMode {
+        QUICK,
+        FULL,
+        DEEP
     }
 
     fun getStateOrdinal(): Int = stateOrdinal

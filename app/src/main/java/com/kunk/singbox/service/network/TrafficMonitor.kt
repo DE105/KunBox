@@ -14,7 +14,7 @@ class TrafficMonitor(
 ) {
     companion object {
         private const val TAG = "TrafficMonitor"
-        private const val SAMPLE_INTERVAL_MS = 1000L
+        private const val SAMPLE_INTERVAL_MS = 3000L
         private const val STALL_CHECK_INTERVAL_MS = 15000L
         private const val STALL_MIN_BYTES_DELTA = 1024L
         private const val STALL_MIN_SAMPLES = 3

@@ -101,6 +101,40 @@ class SettingsStore private constructor(context: Context) {
             result = result.copy(tunMtuAuto = true)
         }
 
+        // v3: DNS 配置优化（去大厂 + 隐私增强）
+        // 仅当用户使用的是旧默认值时才迁移，保留用户自定义配置
+        if (version < 3) {
+            // 旧版本可能的默认值列表
+            val oldLocalDefaults = listOf(
+                "https://dns.alidns.com/dns-query",
+                "https://1.1.1.1/dns-query",
+                "223.5.5.5",
+                ""
+            )
+            val oldRemoteDefaults = listOf(
+                "https://dns.google/dns-query",
+                "https://1.1.1.1/dns-query",
+                "8.8.8.8",
+                "1.1.1.1",
+                ""
+            )
+
+            var newLocal = result.localDns
+            var newRemote = result.remoteDns
+
+            // 如果是旧默认值，迁移到新默认值
+            if (result.localDns in oldLocalDefaults) {
+                newLocal = "local" // 系统/运营商 DNS
+                Log.i(TAG, "Migrating localDns from '${result.localDns}' to 'local'")
+            }
+            if (result.remoteDns in oldRemoteDefaults) {
+                newRemote = "https://1.1.1.1/dns-query" // Cloudflare DoH
+                Log.i(TAG, "Migrating remoteDns from '${result.remoteDns}' to 'https://1.1.1.1/dns-query'")
+            }
+
+            result = result.copy(localDns = newLocal, remoteDns = newRemote)
+        }
+
         return result
     }
 

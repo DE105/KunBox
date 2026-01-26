@@ -32,8 +32,8 @@ class VpnKeepaliveWorker(
         private const val TAG = "VpnKeepaliveWorker"
         private const val WORK_NAME = "vpn_keepalive"
 
-        // 检查间隔: 30秒一次,平衡及时性和电池消耗
-        private const val CHECK_INTERVAL_MINUTES = 1L // 改为1分钟,保证及时恢复
+        // 检查间隔: 15分钟一次 (WorkManager PeriodicWorkRequest 最小周期)
+        private const val CHECK_INTERVAL_MINUTES = 15L
 
         /**
          * 调度保活任务
@@ -55,7 +55,7 @@ class VpnKeepaliveWorker(
                 repeatIntervalTimeUnit = TimeUnit.MINUTES
             )
                 .setConstraints(constraints)
-                .setInitialDelay(30, TimeUnit.SECONDS) // 启动后30秒开始第一次检查
+                .setInitialDelay(15, TimeUnit.MINUTES) // 周期任务对齐 15 分钟，避免启动后短时间唤醒
                 .build()
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(

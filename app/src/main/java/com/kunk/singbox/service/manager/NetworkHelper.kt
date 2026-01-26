@@ -53,8 +53,11 @@ class NetworkHelper(
     ): Triple<Network?, Boolean, AppSettings> = coroutineScope {
         val networkDeferred = async(Dispatchers.IO) {
             ensureNetworkCallbackReady(
-                networkCallbackReady, lastKnownNetwork,
-                findBestPhysicalNetwork, updateNetworkState, 1500L
+                isCallbackReady = { networkCallbackReady },
+                lastKnownNetwork = { lastKnownNetwork },
+                findBestPhysicalNetwork = findBestPhysicalNetwork,
+                updateNetworkState = updateNetworkState,
+                timeoutMs = 1500L
             )
             waitForUsablePhysicalNetwork(
                 lastKnownNetwork, networkManager,
@@ -91,13 +94,13 @@ class NetworkHelper(
      * 等待网络回调就绪
      */
     suspend fun ensureNetworkCallbackReady(
-        networkCallbackReady: Boolean,
-        lastKnownNetwork: Network?,
+        isCallbackReady: () -> Boolean,
+        lastKnownNetwork: () -> Network?,
         findBestPhysicalNetwork: () -> Network?,
         updateNetworkState: (Network?, Boolean) -> Unit,
         timeoutMs: Long = 2000L
     ) {
-        if (networkCallbackReady && lastKnownNetwork != null) {
+        if (isCallbackReady() && lastKnownNetwork() != null) {
             return
         }
 
@@ -120,11 +123,11 @@ class NetworkHelper(
 
         // 等待回调就绪
         val startTime = System.currentTimeMillis()
-        while (!networkCallbackReady && System.currentTimeMillis() - startTime < timeoutMs) {
+        while (!isCallbackReady() && System.currentTimeMillis() - startTime < timeoutMs) {
             delay(100)
         }
 
-        if (!networkCallbackReady) {
+        if (!isCallbackReady()) {
             val bestNetwork = findBestPhysicalNetwork()
             if (bestNetwork != null) {
                 updateNetworkState(bestNetwork, true)

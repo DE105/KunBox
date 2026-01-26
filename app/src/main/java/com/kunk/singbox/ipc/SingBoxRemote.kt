@@ -396,6 +396,36 @@ object SingBoxRemote {
     }
 
     /**
+     * 2025-fix-v10: 原子化 rebind + foreground 通知
+     *
+     * 解决竞态条件: rebind() 是异步的，notifyAppLifecycle() 在 IPC 未连接时执行会导致
+     * pendingAppLifecycle 可能在 onServiceConnected 之前/之后被设置，造成恢复通知丢失。
+     *
+     * 此方法确保:
+     * 1. 先设置 pendingAppLifecycle = true，确保不丢失
+     * 2. 再断开并重连 IPC
+     * 3. onServiceConnected 会处理 pendingAppLifecycle 并触发恢复
+     */
+    fun rebindAndNotifyForeground(context: Context) {
+        Log.i(TAG, "rebindAndNotifyForeground: start (atomic rebind + foreground)")
+        contextRef = WeakReference(context.applicationContext)
+        reconnectAttempts = 0
+
+        // 1. 先设置 pending 标记，确保不丢失
+        // 这是关键: 在 disconnect 之前设置，避免竞态
+        pendingAppLifecycle = true
+
+        // 2. 断开旧连接
+        disconnect(context)
+
+        // 3. 重新连接 (onServiceConnected 会处理 pendingAppLifecycle)
+        connect(context)
+
+        // 4. 同步状态兜底 - UI 立即显示正确状态
+        syncStateFromStore()
+    }
+
+    /**
      * 2025-fix-v6: 检测回调通道是否超时
      * 如果超过阈值未收到回调，返回 true
      */
