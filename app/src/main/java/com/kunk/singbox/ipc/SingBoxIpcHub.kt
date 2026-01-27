@@ -146,8 +146,18 @@ object SingBoxIpcHub {
     /**
      * 2025-fix-v11: 根据后台时长智能选择恢复模式
      * 这比其他代理软件更智能 - 它们都是无脑全量恢复
+     *
+     * 2025-fix-v12: 修复 lastBackgroundAtMs=0 导致首次前台误触发 DEEP 恢复
+     * 当应用首次启动时 lastBackgroundAtMs 为 0，导致 backgroundDuration 变成巨大数字，
+     * 错误触发 DEEP 模式重置 DNS 缓存，造成连接卡住。
      */
     private fun selectRecoveryMode(backgroundDurationMs: Long): RecoveryMode? {
+        // 2025-fix-v12: 如果从未进入过后台，不需要恢复
+        // lastBackgroundAtMs = 0 表示应用启动后从未进入后台
+        if (lastBackgroundAtMs.get() == 0L) {
+            return null
+        }
+
         return when {
             backgroundDurationMs < FOREGROUND_RESET_DEBOUNCE_MS -> null
             backgroundDurationMs < BACKGROUND_QUICK_THRESHOLD_MS -> RecoveryMode.QUICK
