@@ -9,12 +9,12 @@ import android.net.Network
 import android.net.VpnService
 import android.util.Log
 import com.google.gson.Gson
-import com.kunk.singbox.R
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.SingBoxConfig
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.service.notification.VpnNotificationManager
+import com.kunk.singbox.utils.perf.DnsPrewarmer
 import com.kunk.singbox.utils.perf.PerfTracer
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -99,9 +99,20 @@ class StartupManager(
     }
 
     /**
+     * 并行初始化结果
+     */
+    private data class ParallelInitResult(
+        val network: Network?,
+        val ruleSetReady: Boolean,
+        val settings: AppSettings,
+        val configContent: String,
+        val dnsPrewarmResult: DnsPrewarmer.PrewarmResult?
+    )
+
+    /**
      * 执行完整的 VPN 启动流程
      */
-    @Suppress("CognitiveComplexMethod")
+    @Suppress("CognitiveComplexMethod", "LongMethod")
     suspend fun startVpn(
         configPath: String,
         cleanCache: Boolean,
@@ -130,34 +141,42 @@ class StartupManager(
 
             callbacks.startForeignVpnMonitor()
 
-            // 3. 并行初始化
+            // 3. 并行初始化（包括配置读取和 DNS 预热）
             PerfTracer.begin(PerfTracer.Phases.PARALLEL_INIT)
-            val (physicalNetwork, ruleSetReady, settings) = parallelInit(callbacks)
+            val initResult = parallelInit(configPath, callbacks)
             PerfTracer.end(PerfTracer.Phases.PARALLEL_INIT)
 
-            if (physicalNetwork == null) {
+            // 记录 DNS 预热结果
+            initResult.dnsPrewarmResult?.let { result ->
+                Log.i(
+                    TAG,
+                    "DNS prewarm: ${result.resolvedDomains}/${result.totalDomains} resolved " +
+                        "in ${result.durationMs}ms"
+                )
+            }
+
+            if (initResult.network == null) {
                 throw IllegalStateException("No usable physical network before VPN start")
             }
 
             // 更新网络状态
-            callbacks.setLastKnownNetwork(physicalNetwork)
+            callbacks.setLastKnownNetwork(initResult.network)
             callbacks.setNetworkCallbackReady(true)
 
             // 设置 CoreManager 的当前设置 (用于 TUN 配置中的分应用代理等)
-            coreManager.setCurrentSettings(settings)
+            coreManager.setCurrentSettings(initResult.settings)
 
-            // 4. 读取和修补配置
-            val configContent = loadAndPatchConfig(configPath, settings)
+            val configContent = initResult.configContent
 
-            // 5. 清理缓存（如果需要）
+            // 4. 清理缓存（如果需要）
             if (cleanCache) {
                 coreManager.cleanCacheDb()
             }
 
-            // 6. 创建并启动 CommandServer (必须在 startLibbox 之前)
+            // 5. 创建并启动 CommandServer (必须在 startLibbox 之前)
             callbacks.createAndStartCommandServer().getOrThrow()
 
-            // 7. 启动 Libbox
+            // 6. 启动 Libbox
             when (val result = coreManager.startLibbox(configContent)) {
                 is CoreManager.StartResult.Success -> {
                     Log.i(TAG, "Libbox started in ${result.durationMs}ms")
@@ -215,7 +234,18 @@ class StartupManager(
         }
     }
 
-    private suspend fun parallelInit(callbacks: Callbacks): Triple<Network?, Boolean, AppSettings> = coroutineScope {
+    private suspend fun parallelInit(
+        configPath: String,
+        callbacks: Callbacks
+    ): ParallelInitResult = coroutineScope {
+        // 1. 读取配置文件（同步，因为后续任务依赖它）
+        val configFile = File(configPath)
+        if (!configFile.exists()) {
+            throw IllegalStateException("Config file not found: $configPath")
+        }
+        val rawConfigContent = configFile.readText()
+
+        // 2. 启动并行任务
         val networkDeferred = async {
             callbacks.ensureNetworkCallbackReady(1500L)
             callbacks.waitForUsablePhysicalNetwork(3000L)
@@ -234,20 +264,28 @@ class StartupManager(
             SettingsRepository.getInstance(context).settings.first()
         }
 
-        Triple(
-            networkDeferred.await(),
-            ruleSetDeferred.await(),
-            settingsDeferred.await()
+        // 3. DNS 预热（使用原始配置内容提取域名）
+        val dnsPrewarmDeferred = async {
+            runCatching {
+                DnsPrewarmer.prewarm(rawConfigContent)
+            }.getOrNull()
+        }
+
+        // 4. 等待设置加载完成，然后修补配置
+        val settings = settingsDeferred.await()
+        val configContent = patchConfig(rawConfigContent, settings)
+
+        ParallelInitResult(
+            network = networkDeferred.await(),
+            ruleSetReady = ruleSetDeferred.await(),
+            settings = settings,
+            configContent = configContent,
+            dnsPrewarmResult = dnsPrewarmDeferred.await()
         )
     }
 
-    private fun loadAndPatchConfig(configPath: String, settings: AppSettings): String {
-        val configFile = File(configPath)
-        if (!configFile.exists()) {
-            throw IllegalStateException("Config file not found: $configPath")
-        }
-
-        var configContent = configFile.readText()
+    private fun patchConfig(rawConfigContent: String, settings: AppSettings): String {
+        var configContent = rawConfigContent
         val logLevel = if (settings.debugLoggingEnabled) "debug" else "info"
 
         try {

@@ -153,5 +153,6 @@ object PerfTracer {
         const val TUN_CREATE = "tun_create"
         const val VPN_VALIDATE = "vpn_validate"
         const val CORE_READY = "core_ready"
+        const val DNS_PREWARM = "dns_prewarm"
     }
 }
