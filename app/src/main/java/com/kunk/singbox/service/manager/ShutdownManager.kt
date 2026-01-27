@@ -11,7 +11,6 @@ import android.util.Log
 import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.core.SelectorManager as CoreSelectorManager
 import com.kunk.singbox.ipc.VpnStateStore
-import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.service.ServiceState
 import com.kunk.singbox.service.VpnKeepaliveWorker
 import com.kunk.singbox.service.VpnTileService

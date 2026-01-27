@@ -185,6 +185,9 @@ class StartupManager(
             // 设置 CoreManager 的当前设置 (用于 TUN 配置中的分应用代理等)
             coreManager.setCurrentSettings(initResult.settings)
 
+            // 应用网络变化重置连接设置
+            connectManager.setNetworkChangeResetEnabled(initResult.settings.networkChangeResetConnections)
+
             val configContent = initResult.configContent
 
             // 4. 清理缓存（如果需要）

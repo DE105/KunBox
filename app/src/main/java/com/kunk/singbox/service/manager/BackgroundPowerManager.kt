@@ -42,6 +42,17 @@ class BackgroundPowerManager(
 
         /** 最大阈值: 2 小时 */
         const val MAX_THRESHOLD_MS = 2 * 60 * 60 * 1000L
+
+        // ==================== 后台恢复阈值 (解决 TG 加载问题) ====================
+
+        /** 后台超过此时间后回前台，触发 NetworkBump (30秒) */
+        const val BACKGROUND_BUMP_THRESHOLD_MS = 30_000L
+
+        /** 后台超过此时间后回前台，触发完整恢复 (5分钟) */
+        const val BACKGROUND_FULL_RECOVERY_THRESHOLD_MS = 5 * 60 * 1000L
+
+        /** 前台恢复防抖时间 (5秒内不重复触发) */
+        const val FOREGROUND_RECOVERY_DEBOUNCE_MS = 5_000L
     }
 
     /**
@@ -66,6 +77,12 @@ class BackgroundPowerManager(
 
         /** 恢复非核心进程 (退出省电模式) */
         fun resumeNonEssentialProcesses()
+
+        /** 触发 NetworkBump (短暂改变底层网络，强制应用重建连接) */
+        fun triggerNetworkBump(reason: String)
+
+        /** 触发完整网络恢复 */
+        fun triggerFullRecovery(reason: String)
     }
 
     private var callbacks: Callbacks? = null
@@ -83,6 +100,11 @@ class BackgroundPowerManager(
     private var isAppInBackground: Boolean = false
     @Volatile
     private var isScreenOff: Boolean = false
+
+    @Volatile
+    private var backgroundStartTimeMs: Long = 0L
+    @Volatile
+    private var lastForegroundRecoveryAtMs: Long = 0L
 
     /**
      * 当前省电模式
@@ -138,17 +160,28 @@ class BackgroundPowerManager(
     fun onAppBackground() {
         if (isAppInBackground) return
         isAppInBackground = true
-        Log.i(TAG, "[IPC] App entered background")
+        backgroundStartTimeMs = SystemClock.elapsedRealtime()
+        Log.i(TAG, "[IPC] App entered background at $backgroundStartTimeMs")
         evaluateUserPresence()
     }
 
     /**
      * App 返回前台 (来自主进程 IPC)
+     * 根据后台时长决定是否触发网络恢复
      */
     fun onAppForeground() {
         if (!isAppInBackground) return
         isAppInBackground = false
-        Log.i(TAG, "[IPC] App returned to foreground")
+
+        val backgroundDuration = if (backgroundStartTimeMs > 0) {
+            SystemClock.elapsedRealtime() - backgroundStartTimeMs
+        } else 0L
+
+        Log.i(TAG, "[IPC] App returned to foreground after ${backgroundDuration / 1000}s")
+
+        triggerForegroundRecoveryIfNeeded(backgroundDuration, "app_foreground")
+
+        backgroundStartTimeMs = 0L
         evaluateUserPresence()
     }
 
@@ -170,8 +203,55 @@ class BackgroundPowerManager(
     fun onScreenOn() {
         if (!isScreenOff) return
         isScreenOff = false
-        Log.i(TAG, "[Screen] Screen turned ON")
+
+        val backgroundDuration = if (backgroundStartTimeMs > 0) {
+            SystemClock.elapsedRealtime() - backgroundStartTimeMs
+        } else 0L
+
+        Log.i(TAG, "[Screen] Screen turned ON after ${backgroundDuration / 1000}s background")
+
+        triggerForegroundRecoveryIfNeeded(backgroundDuration, "screen_on")
+
         evaluateUserPresence()
+    }
+
+    // ==================== 后台恢复逻辑 (解决 TG 加载问题) ====================
+
+    private fun triggerForegroundRecoveryIfNeeded(backgroundDurationMs: Long, source: String) {
+        if (callbacks?.isVpnRunning != true) {
+            Log.d(TAG, "[$source] VPN not running, skip recovery")
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastForegroundRecoveryAtMs < FOREGROUND_RECOVERY_DEBOUNCE_MS) {
+            Log.d(TAG, "[$source] Recovery skipped (debounce)")
+            return
+        }
+
+        when {
+            backgroundDurationMs > BACKGROUND_FULL_RECOVERY_THRESHOLD_MS -> {
+                Log.i(
+                    TAG,
+                    "[$source] Long background (${backgroundDurationMs / 1000}s > 5min), " +
+                        "triggering full recovery"
+                )
+                lastForegroundRecoveryAtMs = now
+                callbacks?.triggerFullRecovery("${source}_${backgroundDurationMs / 1000}s")
+            }
+            backgroundDurationMs > BACKGROUND_BUMP_THRESHOLD_MS -> {
+                Log.i(
+                    TAG,
+                    "[$source] Medium background (${backgroundDurationMs / 1000}s > 30s), " +
+                        "triggering network bump"
+                )
+                lastForegroundRecoveryAtMs = now
+                callbacks?.triggerNetworkBump("${source}_${backgroundDurationMs / 1000}s")
+            }
+            else -> {
+                Log.d(TAG, "[$source] Short background (${backgroundDurationMs / 1000}s), no recovery needed")
+            }
+        }
     }
 
     // ==================== 统一判断逻辑 ====================
@@ -294,6 +374,8 @@ class BackgroundPowerManager(
         isAppInBackground = false
         isScreenOff = false
         userAwayAtMs = 0L
+        backgroundStartTimeMs = 0L
+        lastForegroundRecoveryAtMs = 0L
         callbacks = null
         Log.i(TAG, "BackgroundPowerManager cleaned up")
     }
@@ -310,6 +392,9 @@ class BackgroundPowerManager(
             "thresholdMin" to (backgroundThresholdMs / 1000 / 60),
             "awayDurationSec" to if (userAwayAtMs > 0) {
                 (SystemClock.elapsedRealtime() - userAwayAtMs) / 1000
+            } else 0L,
+            "backgroundDurationSec" to if (backgroundStartTimeMs > 0) {
+                (SystemClock.elapsedRealtime() - backgroundStartTimeMs) / 1000
             } else 0L
         )
     }

@@ -15,7 +15,6 @@ import android.util.Log
 import com.kunk.singbox.aidl.ISingBoxService
 import com.kunk.singbox.aidl.ISingBoxServiceCallback
 import com.kunk.singbox.service.ServiceState
-import com.kunk.singbox.service.SingBoxService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

@@ -59,6 +59,11 @@ class ScreenStateManager(
          * 必须走串行协调器，避免与恢复/重置并发。
          */
         suspend fun enterDeviceIdle(reason: String)
+
+        /**
+         * 执行网络闪断，触发应用重建连接
+         */
+        suspend fun performNetworkBump(reason: String)
     }
 
     private var callbacks: Callbacks? = null
@@ -311,18 +316,14 @@ class ScreenStateManager(
                 return
             }
 
-            val needRecovery = runCatching { BoxWrapperManager.isNetworkRecoveryNeeded() }.getOrDefault(false)
-            if (!needRecovery) {
-                Log.d(TAG, "[Doze] Recovery not needed on wake, skip")
-                callbacks?.notifyRemoteStateUpdate(true)
-                return
-            }
-
             lastDozeExitRecoveryAtMs = now
-            Log.i(TAG, "[Doze] Device wake - performing deep network recovery")
+            Log.i(TAG, "[Doze] Device wake - performing network bump + deep recovery")
 
-            // ===== 核心修复：Doze 唤醒时使用深度恢复 =====
-            // 深度恢复包含：唤醒 pause.Manager -> 关闭连接 -> 清除 DNS -> 重置网络栈
+            // 2025-fix-v14: Doze 退出时触发 NetworkBump，强制应用重建连接
+            // 参考 v2rayNG: 在网络状态变化时调用 setUnderlyingNetworks
+            callbacks?.performNetworkBump("doze_exit")
+
+            // 深度恢复：唤醒 pause.Manager -> 关闭连接 -> 清除 DNS -> 重置网络栈
             try {
                 callbacks?.performNetworkRecovery(RECOVERY_MODE_DEEP, "doze_exit")
             } catch (e: Exception) {
@@ -331,7 +332,6 @@ class ScreenStateManager(
                     callbacks?.performNetworkRecovery(RECOVERY_MODE_FULL, "doze_exit_fallback")
                 }.onFailure { e2 ->
                     Log.w(TAG, "[Doze] Full recovery also failed", e2)
-                    // As the last fallback, only do connection reset if explicitly enabled.
                     val settings = SettingsRepository.getInstance(context).settings.value
                     if (settings.wakeResetConnections) {
                         Log.i(TAG, "[Doze] wakeResetConnections enabled, resetting connections")
@@ -340,7 +340,6 @@ class ScreenStateManager(
                 }
             }
 
-            // Fix A: Doze 唤醒后强制推送状态到 UI，修复 IPC 状态同步问题
             callbacks?.notifyRemoteStateUpdate(true)
         } catch (e: Exception) {
             Log.e(TAG, "[Doze] handleDeviceWake failed", e)

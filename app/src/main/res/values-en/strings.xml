@@ -487,6 +487,7 @@
 
     <!-- Service Notifications -->
     <string name="notification_switch_node">Switch Node</string>
+    <string name="notification_reset_connections">Reset</string>
     <string name="notification_disconnect">Disconnect</string>
     <string name="notification_speed_format">↑ %s  ↓ %s</string>
 

@@ -286,6 +286,24 @@ object BoxWrapperManager {
     }
 
     /**
+     * 关闭所有跟踪连接
+     * 通过 TrafficManager 关闭连接，确保应用收到 RST/FIN 信号
+     * 这是解决"TG 后台恢复后一直加载中"问题的关键
+     */
+    fun closeAllTrackedConnections(): Int {
+        return try {
+            val count = Libbox.closeAllTrackedConnections()
+            if (count > 0) {
+                Log.i(TAG, "closeAllTrackedConnections: closed $count connections")
+            }
+            count
+        } catch (e: Exception) {
+            Log.w(TAG, "closeAllTrackedConnections failed: ${e.message}")
+            0
+        }
+    }
+
+    /**
      * 获取扩展版本
      */
     fun getExtensionVersion(): String {

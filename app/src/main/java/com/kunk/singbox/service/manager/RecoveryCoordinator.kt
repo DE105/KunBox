@@ -27,6 +27,8 @@ class RecoveryCoordinator(
         // 2025-fix-v10: 从 30 秒缩短到 10 秒
         // 原来 30 秒太长，导致从 Doze 恢复后如果第一次 deep recovery 失败，需要等很久才能重试
         private const val DEEP_COOLDOWN_MS = 10000L
+        // NetworkBump 冷却时间：10 秒内不重复执行
+        private const val NETWORK_BUMP_COOLDOWN_MS = 10000L
 
         private const val MAX_REASON_LEN = 240
 
@@ -47,6 +49,13 @@ class RecoveryCoordinator(
 
         suspend fun closeIdleConnections(maxIdleSeconds: Int, reason: String): Int
 
+        /**
+         * 执行网络闪断（Network Bump）
+         * 通过短暂改变底层网络设置，触发应用重建连接
+         * 这是解决"后台恢复后应用一直加载中"问题的根治方案
+         */
+        suspend fun performNetworkBump(reason: String): Boolean
+
         fun addLog(message: String)
     }
 
@@ -54,6 +63,7 @@ class RecoveryCoordinator(
 
     private val lastRestartAtMs = AtomicLong(0L)
     private val lastDeepAtMs = AtomicLong(0L)
+    private val lastNetworkBumpAtMs = AtomicLong(0L)
 
     private val stateLock = Any()
     private var pending: Request? = null
@@ -215,6 +225,7 @@ class RecoveryCoordinator(
         return when (req) {
             is Request.Restart -> checkRestartCooldown(req, cb, now)
             is Request.Recover -> checkRecoverCooldown(req, cb, now)
+            is Request.NetworkBump -> checkNetworkBumpCooldown(req, cb, now)
             else -> true
         }
     }
@@ -258,6 +269,22 @@ class RecoveryCoordinator(
             }
             lastDeepAtMs.set(now)
         }
+        return true
+    }
+
+    private fun checkNetworkBumpCooldown(req: Request.NetworkBump, cb: Callbacks, now: Long): Boolean {
+        val isExempt = COOLDOWN_EXEMPT_KEYWORDS.any { keyword ->
+            req.reason.contains(keyword, ignoreCase = true)
+        }
+
+        if (!isExempt) {
+            val last = lastNetworkBumpAtMs.get()
+            if (now - last < NETWORK_BUMP_COOLDOWN_MS) {
+                Log.d(TAG, "NetworkBump in cooldown, skip. reason=${req.reason}")
+                return false
+            }
+        }
+        lastNetworkBumpAtMs.set(now)
         return true
     }
 
@@ -315,6 +342,14 @@ class RecoveryCoordinator(
 
                 is Request.Restart -> {
                     cb.restartVpnService(req.reason)
+                }
+
+                is Request.NetworkBump -> {
+                    val ok = cb.performNetworkBump(req.reason)
+                    cb.addLog(
+                        "INFO [Recovery] networkBump ok=$ok " +
+                            "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
+                    )
                 }
             }
         } catch (e: Exception) {
@@ -396,6 +431,14 @@ class RecoveryCoordinator(
             override val requestedAtMs: Long = SystemClock.elapsedRealtime()
         ) : Request {
             override val priority: Int = 20
+            override fun withReason(reason: String): Request = copy(reason = reason)
+        }
+
+        data class NetworkBump(
+            override val reason: String,
+            override val requestedAtMs: Long = SystemClock.elapsedRealtime()
+        ) : Request {
+            override val priority: Int = 85
             override fun withReason(reason: String): Request = copy(reason = reason)
         }
     }

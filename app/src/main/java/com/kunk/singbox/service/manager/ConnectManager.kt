@@ -25,6 +25,7 @@ class ConnectManager(
         private const val TAG = "ConnectManager"
         private const val DEBOUNCE_MS = 2000L
         private const val STARTUP_WINDOW_MS = 3000L
+        private const val NETWORK_CHANGE_RESET_DELAY_MS = 100L
     }
 
     private val connectivityManager: ConnectivityManager? by lazy {
@@ -37,13 +38,17 @@ class ConnectManager(
     @Volatile
     private var isReady = false
 
+    @Volatile
+    private var networkChangeResetEnabled = true
+
     private val lastSetUnderlyingAtMs = AtomicLong(0)
     private val vpnStartedAtMs = AtomicLong(0)
     private val lastConnectionResetAtMs = AtomicLong(0)
+    private val lastNetworkChangeAtMs = AtomicLong(0)
 
-    // 回调接口
     private var onNetworkChanged: ((Network?) -> Unit)? = null
     private var onNetworkLost: (() -> Unit)? = null
+    private var onNetworkChangeReset: ((String) -> Unit)? = null
 
     /**
      * 网络状态
@@ -60,13 +65,23 @@ class ConnectManager(
      */
     fun init(
         onNetworkChanged: (Network?) -> Unit,
-        onNetworkLost: () -> Unit
+        onNetworkLost: () -> Unit,
+        onNetworkChangeReset: ((String) -> Unit)? = null
     ): Result<Unit> {
         return runCatching {
             this.onNetworkChanged = onNetworkChanged
             this.onNetworkLost = onNetworkLost
+            this.onNetworkChangeReset = onNetworkChangeReset
             Log.i(TAG, "ConnectManager initialized")
         }
+    }
+
+    /**
+     * 设置网络变化时是否重置连接
+     */
+    fun setNetworkChangeResetEnabled(enabled: Boolean) {
+        networkChangeResetEnabled = enabled
+        Log.i(TAG, "Network change reset enabled: $enabled")
     }
 
     /**
@@ -89,31 +104,18 @@ class ConnectManager(
 
             networkCallback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    Log.i(TAG, "Network available: $network")
-                    lastKnownNetwork = network
-                    StateCache.updateNetworkCache(network)
-                    isReady = true
-                    onNetworkChanged?.invoke(network)
+                    handleNetworkAvailable(network)
                 }
 
                 override fun onLost(network: Network) {
-                    Log.i(TAG, "Network lost: $network")
-                    if (lastKnownNetwork == network) {
-                        lastKnownNetwork = null
-                        StateCache.invalidateNetworkCache()
-                    }
-                    onNetworkLost?.invoke()
+                    handleNetworkLost(network)
                 }
 
                 override fun onCapabilitiesChanged(
                     network: Network,
                     caps: NetworkCapabilities
                 ) {
-                    if (lastKnownNetwork != network) {
-                        lastKnownNetwork = network
-                        StateCache.updateNetworkCache(network)
-                        onNetworkChanged?.invoke(network)
-                    }
+                    handleCapabilitiesChanged(network)
                 }
             }
 
@@ -281,8 +283,44 @@ class ConnectManager(
             isReady = false
             onNetworkChanged = null
             onNetworkLost = null
+            onNetworkChangeReset = null
             StateCache.invalidateNetworkCache()
             Log.i(TAG, "ConnectManager cleaned up")
+        }
+    }
+
+    private fun handleNetworkAvailable(network: Network) {
+        Log.i(TAG, "Network available: $network")
+        val previousNetwork = lastKnownNetwork
+        lastKnownNetwork = network
+        StateCache.updateNetworkCache(network)
+        isReady = true
+        onNetworkChanged?.invoke(network)
+
+        if (previousNetwork != null && previousNetwork != network) {
+            triggerNetworkChangeReset("network_switch")
+        }
+    }
+
+    private fun handleNetworkLost(network: Network) {
+        Log.i(TAG, "Network lost: $network")
+        if (lastKnownNetwork == network) {
+            lastKnownNetwork = null
+            StateCache.invalidateNetworkCache()
+        }
+        onNetworkLost?.invoke()
+    }
+
+    private fun handleCapabilitiesChanged(network: Network) {
+        if (lastKnownNetwork != network) {
+            val previousNetwork = lastKnownNetwork
+            lastKnownNetwork = network
+            StateCache.updateNetworkCache(network)
+            onNetworkChanged?.invoke(network)
+
+            if (previousNetwork != null) {
+                triggerNetworkChangeReset("capabilities_change")
+            }
         }
     }
 
@@ -290,5 +328,26 @@ class ConnectManager(
         if (caps == null) return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+    }
+
+    private fun triggerNetworkChangeReset(reason: String) {
+        if (!networkChangeResetEnabled) {
+            Log.d(TAG, "Network change reset disabled, skipping")
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        val last = lastNetworkChangeAtMs.get()
+        if ((now - last) < DEBOUNCE_MS) {
+            Log.d(TAG, "Debouncing network change reset")
+            return
+        }
+
+        lastNetworkChangeAtMs.set(now)
+        serviceScope.launch {
+            delay(NETWORK_CHANGE_RESET_DELAY_MS)
+            Log.i(TAG, "Triggering network change reset: $reason")
+            onNetworkChangeReset?.invoke(reason)
+        }
     }
 }

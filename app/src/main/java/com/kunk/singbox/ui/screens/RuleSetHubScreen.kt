@@ -265,15 +265,9 @@ fun HubRuleSetItem(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = stringResource(R.string.ruleset_hub_rule_count, ruleSet.ruleCount),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
                 Icon(
                     imageVector = Icons.Rounded.Visibility,
                     contentDescription = stringResource(R.string.common_view),

@@ -501,6 +501,7 @@
 
     <!-- Service Notifications -->
     <string name="notification_switch_node">切换节点</string>
+    <string name="notification_reset_connections">重置连接</string>
     <string name="notification_disconnect">断开</string>
     <string name="notification_speed_format">↑ %1$s  ↓ %2$s</string>
 

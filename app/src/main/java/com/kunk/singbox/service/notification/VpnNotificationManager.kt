@@ -14,6 +14,7 @@ import com.kunk.singbox.R
 import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.service.SingBoxService.Companion.ACTION_STOP
 import com.kunk.singbox.service.SingBoxService.Companion.ACTION_SWITCH_NODE
+import com.kunk.singbox.service.SingBoxService.Companion.ACTION_RESET_CONNECTIONS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -208,6 +209,15 @@ class VpnNotificationManager(
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        // 重置连接按钮
+        val resetIntent = Intent(context, SingBoxService::class.java).apply {
+            action = ACTION_RESET_CONNECTIONS
+        }
+        val resetPendingIntent = PendingIntent.getService(
+            context, 3, resetIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         // 节点名称
         val nodeName = state.activeNodeName ?: context.getString(R.string.connection_connected)
 
@@ -231,6 +241,13 @@ class VpnNotificationManager(
                     android.R.drawable.ic_menu_revert,
                     context.getString(R.string.notification_switch_node),
                     switchPendingIntent
+                ).build()
+            )
+            .addAction(
+                Notification.Action.Builder(
+                    android.R.drawable.ic_menu_rotate,
+                    context.getString(R.string.notification_reset_connections),
+                    resetPendingIntent
                 ).build()
             )
             .addAction(

@@ -23,7 +23,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.NetworkInterface
@@ -885,164 +884,164 @@ class SingBoxCore private constructor(private val context: Context) {
 
     // --- Inner Classes for Platform Interface ---
 
-private class TestPlatformInterface(private val context: Context) : PlatformInterface {
-    private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private class TestPlatformInterface(private val context: Context) : PlatformInterface {
+        private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-    override fun autoDetectInterfaceControl(fd: Int) {
-        // 如果 VPN 正在运行，必须 protect 测速 socket，否则流量会被 VPN 拦截
-        val service = com.kunk.singbox.service.SingBoxService.instance
-        if (service != null) {
+        override fun autoDetectInterfaceControl(fd: Int) {
+            // 如果 VPN 正在运行，必须 protect 测速 socket，否则流量会被 VPN 拦截
+            val service = com.kunk.singbox.service.SingBoxService.instance
+            if (service != null) {
+                try {
+                    val protected = service.protect(fd)
+                    if (!protected) {
+                        Log.w(TAG, "Failed to protect socket fd=$fd, continuing anyway")
+                    } else {
+                        Log.d(TAG, "autoDetectInterfaceControl: protected fd=$fd")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Socket protection error for fd=$fd: ${e.message}")
+                }
+                return
+            }
+
+            // VPN 未运行时，需要将 socket 绑定到默认网络
+            // 否则 sing-box 无法确定使用哪个网络接口，报错 "no available network interface"
             try {
-                val protected = service.protect(fd)
-                if (!protected) {
-                    Log.w(TAG, "Failed to protect socket fd=$fd, continuing anyway")
+                val network = connectivityManager.activeNetwork
+                if (network != null) {
+                    // 使用 ParcelFileDescriptor 包装 fd，然后绑定到网络
+                    val pfd = android.os.ParcelFileDescriptor.adoptFd(fd)
+                    try {
+                        network.bindSocket(pfd.fileDescriptor)
+                        Log.d(TAG, "autoDetectInterfaceControl: bound fd=$fd to network")
+                    } finally {
+                        // detachFd 防止 ParcelFileDescriptor.close() 关闭原始 fd
+                        pfd.detachFd()
+                    }
                 } else {
-                    Log.d(TAG, "autoDetectInterfaceControl: protected fd=$fd")
+                    Log.w(TAG, "autoDetectInterfaceControl: no active network for fd=$fd")
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Socket protection error for fd=$fd: ${e.message}")
+                Log.w(TAG, "autoDetectInterfaceControl: bind network error for fd=$fd: ${e.message}")
             }
-            return
         }
 
-        // VPN 未运行时，需要将 socket 绑定到默认网络
-        // 否则 sing-box 无法确定使用哪个网络接口，报错 "no available network interface"
-        try {
-            val network = connectivityManager.activeNetwork
-            if (network != null) {
-                // 使用 ParcelFileDescriptor 包装 fd，然后绑定到网络
-                val pfd = android.os.ParcelFileDescriptor.adoptFd(fd)
-                try {
-                    network.bindSocket(pfd.fileDescriptor)
-                    Log.d(TAG, "autoDetectInterfaceControl: bound fd=$fd to network")
-                } finally {
-                    // detachFd 防止 ParcelFileDescriptor.close() 关闭原始 fd
-                    pfd.detachFd()
-                }
-            } else {
-                Log.w(TAG, "autoDetectInterfaceControl: no active network for fd=$fd")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "autoDetectInterfaceControl: bind network error for fd=$fd: ${e.message}")
+        override fun openTun(options: TunOptions?): Int {
+            // Should not be called as we don't provide tun inbound
+            Log.w(TAG, "TestPlatformInterface: openTun called unexpected!")
+            return -1
         }
-    }
 
-    override fun openTun(options: TunOptions?): Int {
-        // Should not be called as we don't provide tun inbound
-        Log.w(TAG, "TestPlatformInterface: openTun called unexpected!")
-        return -1
-    }
+        override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
+            // 关键修复: 必须立即通知 sing-box 当前的默认网络接口
+            // 否则 sing-box 会报 "no available network interface" 错误
+            // 注意: 不能在 cgo 回调中注册 NetworkCallback，会导致 Go runtime 栈溢出崩溃
+            // 但我们可以同步获取当前网络状态并立即通知
+            if (listener == null) return
 
-    override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
-        // 关键修复: 必须立即通知 sing-box 当前的默认网络接口
-        // 否则 sing-box 会报 "no available network interface" 错误
-        // 注意: 不能在 cgo 回调中注册 NetworkCallback，会导致 Go runtime 栈溢出崩溃
-        // 但我们可以同步获取当前网络状态并立即通知
-        if (listener == null) return
-
-        try {
-            val activeNetwork = connectivityManager.activeNetwork
-            if (activeNetwork != null) {
-                val linkProperties = connectivityManager.getLinkProperties(activeNetwork)
-                val interfaceName = linkProperties?.interfaceName ?: ""
-                if (interfaceName.isNotEmpty()) {
-                    val index = try {
-                        java.net.NetworkInterface.getByName(interfaceName)?.index ?: 0
-                    } catch (e: Exception) { 0 }
-                    val caps = connectivityManager.getNetworkCapabilities(activeNetwork)
-                    val isExpensive = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
-                    listener.updateDefaultInterface(interfaceName, index, isExpensive, false)
-                    Log.d(TAG, "TestPlatformInterface: initialized default interface: $interfaceName (index=$index)")
+            try {
+                val activeNetwork = connectivityManager.activeNetwork
+                if (activeNetwork != null) {
+                    val linkProperties = connectivityManager.getLinkProperties(activeNetwork)
+                    val interfaceName = linkProperties?.interfaceName ?: ""
+                    if (interfaceName.isNotEmpty()) {
+                        val index = try {
+                            java.net.NetworkInterface.getByName(interfaceName)?.index ?: 0
+                        } catch (e: Exception) { 0 }
+                        val caps = connectivityManager.getNetworkCapabilities(activeNetwork)
+                        val isExpensive = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
+                        listener.updateDefaultInterface(interfaceName, index, isExpensive, false)
+                        Log.d(TAG, "TestPlatformInterface: initialized default interface: $interfaceName (index=$index)")
+                    } else {
+                        Log.w(TAG, "TestPlatformInterface: no interface name for active network")
+                    }
                 } else {
-                    Log.w(TAG, "TestPlatformInterface: no interface name for active network")
+                    Log.w(TAG, "TestPlatformInterface: no active network available")
                 }
-            } else {
-                Log.w(TAG, "TestPlatformInterface: no active network available")
+            } catch (e: Exception) {
+                Log.w(TAG, "TestPlatformInterface: failed to get default interface: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "TestPlatformInterface: failed to get default interface: ${e.message}")
         }
-    }
 
-    override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
-        // 测速服务是短暂的，无需清理网络监听
-    }
+        override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
+            // 测速服务是短暂的，无需清理网络监听
+        }
 
-    override fun getInterfaces(): NetworkInterfaceIterator? {
-        return try {
-            val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
-            object : NetworkInterfaceIterator {
-                private val iterator = interfaces.filter { it.isUp && !it.isLoopback }.iterator()
-                override fun hasNext(): Boolean = iterator.hasNext()
-                override fun next(): io.nekohasekai.libbox.NetworkInterface {
-                    val iface = iterator.next()
-                    return io.nekohasekai.libbox.NetworkInterface().apply {
-                        name = iface.name
-                        index = iface.index
-                        mtu = iface.mtu
-                        // type = ... (Field removed/renamed in v1.10)
-                        var flagsStr = 0
-                        if (iface.isUp) flagsStr = flagsStr or 1
-                        if (iface.isLoopback) flagsStr = flagsStr or 4
-                        if (iface.isPointToPoint) flagsStr = flagsStr or 8
-                        if (iface.supportsMulticast()) flagsStr = flagsStr or 16
-                        flags = flagsStr
-                        val addrList = ArrayList<String>()
-                        for (addr in iface.interfaceAddresses) {
-                            val ip = addr.address.hostAddress
-                            val cleanIp = if (ip != null && ip.contains("%")) ip.substring(0, ip.indexOf("%")) else ip
-                            if (cleanIp != null) addrList.add("$cleanIp/${addr.networkPrefixLength}")
+        override fun getInterfaces(): NetworkInterfaceIterator? {
+            return try {
+                val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+                object : NetworkInterfaceIterator {
+                    private val iterator = interfaces.filter { it.isUp && !it.isLoopback }.iterator()
+                    override fun hasNext(): Boolean = iterator.hasNext()
+                    override fun next(): io.nekohasekai.libbox.NetworkInterface {
+                        val iface = iterator.next()
+                        return io.nekohasekai.libbox.NetworkInterface().apply {
+                            name = iface.name
+                            index = iface.index
+                            mtu = iface.mtu
+                            // type = ... (Field removed/renamed in v1.10)
+                            var flagsStr = 0
+                            if (iface.isUp) flagsStr = flagsStr or 1
+                            if (iface.isLoopback) flagsStr = flagsStr or 4
+                            if (iface.isPointToPoint) flagsStr = flagsStr or 8
+                            if (iface.supportsMulticast()) flagsStr = flagsStr or 16
+                            flags = flagsStr
+                            val addrList = ArrayList<String>()
+                            for (addr in iface.interfaceAddresses) {
+                                val ip = addr.address.hostAddress
+                                val cleanIp = if (ip != null && ip.contains("%")) ip.substring(0, ip.indexOf("%")) else ip
+                                if (cleanIp != null) addrList.add("$cleanIp/${addr.networkPrefixLength}")
+                            }
+                            addresses = StringIteratorImpl(addrList)
                         }
-                        addresses = StringIteratorImpl(addrList)
                     }
                 }
-            }
-        } catch (e: Exception) { null }
-    }
+            } catch (e: Exception) { null }
+        }
 
-    // 关键: 必须返回 true，否则 sing-box 不会调用 autoDetectInterfaceControl 来 protect socket
-    // 这会导致 VPN 运行时测速流量被拦截，形成回环，返回 502 错误
-    override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
-    override fun useProcFS(): Boolean = false
-    override fun findConnectionOwner(
-        p0: Int,
-        p1: String?,
-        p2: Int,
-        p3: String?,
-        p4: Int
-    ): io.nekohasekai.libbox.ConnectionOwner {
-        return io.nekohasekai.libbox.ConnectionOwner()
+        // 关键: 必须返回 true，否则 sing-box 不会调用 autoDetectInterfaceControl 来 protect socket
+        // 这会导致 VPN 运行时测速流量被拦截，形成回环，返回 502 错误
+        override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
+        override fun useProcFS(): Boolean = false
+        override fun findConnectionOwner(
+            p0: Int,
+            p1: String?,
+            p2: Int,
+            p3: String?,
+            p4: Int
+        ): io.nekohasekai.libbox.ConnectionOwner {
+            return io.nekohasekai.libbox.ConnectionOwner()
+        }
+        override fun underNetworkExtension(): Boolean = false
+        override fun includeAllNetworks(): Boolean = false
+        override fun readWIFIState(): WIFIState? = null
+        override fun clearDNSCache() {}
+        override fun sendNotification(p0: io.nekohasekai.libbox.Notification?) {}
+        override fun localDNSTransport(): io.nekohasekai.libbox.LocalDNSTransport {
+            return com.kunk.singbox.core.LocalResolverImpl
+        }
+        override fun systemCertificates(): StringIterator? = null
     }
-    override fun underNetworkExtension(): Boolean = false
-    override fun includeAllNetworks(): Boolean = false
-    override fun readWIFIState(): WIFIState? = null
-    override fun clearDNSCache() {}
-    override fun sendNotification(p0: io.nekohasekai.libbox.Notification?) {}
-    override fun localDNSTransport(): io.nekohasekai.libbox.LocalDNSTransport {
-        return com.kunk.singbox.core.LocalResolverImpl
-    }
-    override fun systemCertificates(): StringIterator? = null
-}
 
 /**
- * 测速服务用的 CommandServerHandler 实现
- * 仅提供必要的空实现，因为测速服务不需要处理任何命令回调
- */
-private class TestCommandServerHandler : io.nekohasekai.libbox.CommandServerHandler {
-    override fun serviceStop() {}
-    override fun serviceReload() {}
-    override fun getSystemProxyStatus(): io.nekohasekai.libbox.SystemProxyStatus? = null
-    override fun setSystemProxyEnabled(isEnabled: Boolean) {}
-    override fun writeDebugMessage(message: String?) {}
-}
+     * 测速服务用的 CommandServerHandler 实现
+     * 仅提供必要的空实现，因为测速服务不需要处理任何命令回调
+     */
+    private class TestCommandServerHandler : io.nekohasekai.libbox.CommandServerHandler {
+        override fun serviceStop() {}
+        override fun serviceReload() {}
+        override fun getSystemProxyStatus(): io.nekohasekai.libbox.SystemProxyStatus? = null
+        override fun setSystemProxyEnabled(isEnabled: Boolean) {}
+        override fun writeDebugMessage(message: String?) {}
+    }
 
-private class StringIteratorImpl(private val list: List<String>) : StringIterator {
-    private var index = 0
-    override fun hasNext(): Boolean = index < list.size
-    override fun next(): String = list[index++]
-    override fun len(): Int = list.size
-}
+    private class StringIteratorImpl(private val list: List<String>) : StringIterator {
+        private var index = 0
+        override fun hasNext(): Boolean = index < list.size
+        override fun next(): String = list[index++]
+        override fun len(): Int = list.size
+    }
 
-fun cleanup() {
-}
+    fun cleanup() {
+    }
 }
