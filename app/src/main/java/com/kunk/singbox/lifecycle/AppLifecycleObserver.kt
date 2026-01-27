@@ -8,6 +8,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.kunk.singbox.ipc.SingBoxRemote
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.BackgroundPowerSavingDelay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -88,8 +89,9 @@ object AppLifecycleObserver : DefaultLifecycleObserver {
         }
 
         // 只有 VPN 在运行时才需要杀主进程省电
-        if (!SingBoxRemote.isRunning.value) {
-            Log.d(TAG, "VPN not running, skip scheduling kill process")
+        // 2026-fix: 使用 VpnStateStore 跨进程安全检查，避免 IPC 回调失效导致误判
+        if (!VpnStateStore.getActive()) {
+            Log.d(TAG, "VPN not running (VpnStateStore), skip scheduling kill process")
             return
         }
 
@@ -97,7 +99,8 @@ object AppLifecycleObserver : DefaultLifecycleObserver {
 
         killProcessRunnable = Runnable {
             // 再次检查是否仍在后台且 VPN 在运行
-            if (!_isAppInForeground.value && SingBoxRemote.isRunning.value) {
+            // 使用 VpnStateStore 跨进程安全检查
+            if (!_isAppInForeground.value && VpnStateStore.getActive()) {
                 Log.i(TAG, ">>> Background timeout reached, killing main process to save power")
                 Log.i(TAG, ">>> VPN will continue running in :bg process")
 
