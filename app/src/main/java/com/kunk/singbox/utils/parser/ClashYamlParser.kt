@@ -603,7 +603,30 @@ class ClashYamlParser : SubscriptionParser {
             utls = fingerprint?.let { UtlsConfig(enabled = true, fingerprint = it) }
         )
 
-        val transport = when (network) {
+        val transport = parseTrojanTransport(network, map, sni, fingerprint)
+
+        // 解析 smux 多路复用配置
+        val multiplex = parseSmux(map)
+
+        return Outbound(
+            type = "trojan",
+            tag = name,
+            server = server,
+            serverPort = port,
+            password = password,
+            tls = tlsConfig,
+            transport = transport,
+            multiplex = multiplex
+        )
+    }
+
+    private fun parseTrojanTransport(
+        network: String?,
+        map: Map<*, *>,
+        sni: String,
+        fingerprint: String?
+    ): TransportConfig? {
+        return when (network) {
             "ws" -> {
                 val wsOpts = map["ws-opts"] as? Map<*, *>
                 val path = asString(wsOpts?.get("path")) ?: "/"
@@ -653,20 +676,6 @@ class ClashYamlParser : SubscriptionParser {
             }
             else -> null
         }
-
-        // 解析 smux 多路复用配置
-        val multiplex = parseSmux(map)
-
-        return Outbound(
-            type = "trojan",
-            tag = name,
-            server = server,
-            serverPort = port,
-            password = password,
-            tls = tlsConfig,
-            transport = transport,
-            multiplex = multiplex
-        )
     }
 
     private fun parseHysteria2(map: Map<*, *>, name: String, server: String?, port: Int?, globalFingerprint: String? = null, globalTlsMinVersion: String? = null): Outbound? {

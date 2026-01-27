@@ -98,79 +98,87 @@ class ScreenStateManager(
             screenStateReceiver = object : BroadcastReceiver() {
                 override fun onReceive(ctx: Context, intent: Intent) {
                     when (intent.action) {
-                        Intent.ACTION_SCREEN_ON -> {
-                            Log.i(TAG, "Screen ON detected")
-                            isScreenOn = true
-                            // 通知省电管理器屏幕点亮
-                            powerManager?.onScreenOn()
+                        Intent.ACTION_SCREEN_ON -> handleScreenOn()
+                        Intent.ACTION_SCREEN_OFF -> handleScreenOff()
+                        Intent.ACTION_USER_PRESENT -> handleUserPresent()
+                        PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> handleDeviceIdleModeChanged(ctx)
+                    }
+                }
 
-                            // ===== 早期恢复：屏幕亮起时立即开始网络恢复（带节流 + 条件化） =====
-                            // 不等待用户解锁，提前开始恢复网络连接，但避免短时间内重复触发导致抖动。
-                            if (callbacks?.isRunning == true) {
-                                val now = SystemClock.elapsedRealtime()
-                                val elapsed = now - lastScreenOnRecoveryAtMs
-                                if (elapsed < SCREEN_ON_RECOVERY_DEBOUNCE_MS) {
-                                    Log.d(TAG, "[ScreenOn] Early recovery skipped (debounce, elapsed=${elapsed}ms)")
-                                } else {
-                                    val needRecovery = runCatching { BoxWrapperManager.isNetworkRecoveryNeeded() }
-                                        .getOrDefault(false)
-                                    if (!needRecovery) {
-                                        Log.d(TAG, "[ScreenOn] Recovery not needed, skip")
-                                    } else {
-                                        lastScreenOnRecoveryAtMs = now
-                                        serviceScope.launch {
-                                            Log.i(TAG, "[ScreenOn] Early recovery triggered")
-                                            try {
-                                                // 使用快速恢复模式，不阻塞用户解锁
-                                                callbacks?.performNetworkRecovery(RECOVERY_MODE_QUICK, "screen_on")
-                                            } catch (e: Exception) {
-                                                Log.w(TAG, "[ScreenOn] Early recovery failed", e)
-                                            }
-                                        }
+                private fun handleScreenOn() {
+                    Log.i(TAG, "Screen ON detected")
+                    isScreenOn = true
+                    // 通知省电管理器屏幕点亮
+                    powerManager?.onScreenOn()
+
+                    // ===== 早期恢复：屏幕亮起时立即开始网络恢复（带节流 + 条件化） =====
+                    // 不等待用户解锁，提前开始恢复网络连接，但避免短时间内重复触发导致抖动。
+                    if (callbacks?.isRunning == true) {
+                        val now = SystemClock.elapsedRealtime()
+                        val elapsed = now - lastScreenOnRecoveryAtMs
+                        if (elapsed < SCREEN_ON_RECOVERY_DEBOUNCE_MS) {
+                            Log.d(TAG, "[ScreenOn] Early recovery skipped (debounce, elapsed=${elapsed}ms)")
+                        } else {
+                            val needRecovery = runCatching { BoxWrapperManager.isNetworkRecoveryNeeded() }
+                                .getOrDefault(false)
+                            if (!needRecovery) {
+                                Log.d(TAG, "[ScreenOn] Recovery not needed, skip")
+                            } else {
+                                lastScreenOnRecoveryAtMs = now
+                                serviceScope.launch {
+                                    Log.i(TAG, "[ScreenOn] Early recovery triggered")
+                                    try {
+                                        // 使用快速恢复模式，不阻塞用户解锁
+                                        callbacks?.performNetworkRecovery(RECOVERY_MODE_QUICK, "screen_on")
+                                    } catch (e: Exception) {
+                                        Log.w(TAG, "[ScreenOn] Early recovery failed", e)
                                     }
                                 }
                             }
                         }
-                        Intent.ACTION_SCREEN_OFF -> {
-                            Log.i(TAG, "Screen OFF detected")
-                            isScreenOn = false
-                            // 通知省电管理器屏幕关闭
-                            powerManager?.onScreenOff()
+                    }
+                }
+
+                private fun handleScreenOff() {
+                    Log.i(TAG, "Screen OFF detected")
+                    isScreenOn = false
+                    // 通知省电管理器屏幕关闭
+                    powerManager?.onScreenOff()
+                }
+
+                private fun handleUserPresent() {
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastScreenOnCheckMs < SCREEN_ON_CHECK_DEBOUNCE_MS) return
+
+                    lastScreenOnCheckMs = now
+                    Log.i(TAG, "[Unlock] User unlocked device")
+
+                    serviceScope.launch {
+                        delay(800) // Reduced from 1200ms for faster response
+                        callbacks?.performScreenOnCheck()
+
+                        // 参考 NekoBox: 唤醒后按需重置出站连接，避免应用(如 Telegram)卡在旧连接上等待超时
+                        val settings = runCatching {
+                            SettingsRepository.getInstance(context).settings.value
+                        }.getOrNull()
+                        if (callbacks?.isRunning == true && settings?.wakeResetConnections == true) {
+                            Log.i(TAG, "[Unlock] wakeResetConnections enabled, resetting connections")
+                            callbacks?.resetConnectionsOptimal("user_present", false)
                         }
-                        Intent.ACTION_USER_PRESENT -> {
-                            val now = SystemClock.elapsedRealtime()
-                            if (now - lastScreenOnCheckMs < SCREEN_ON_CHECK_DEBOUNCE_MS) return
+                    }
+                }
 
-                            lastScreenOnCheckMs = now
-                            Log.i(TAG, "[Unlock] User unlocked device")
+                private fun handleDeviceIdleModeChanged(ctx: Context) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val pm = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                        val isIdleMode = pm?.isDeviceIdleMode == true
 
-                            serviceScope.launch {
-                                delay(800) // Reduced from 1200ms for faster response
-                                callbacks?.performScreenOnCheck()
-
-                                // 参考 NekoBox: 唤醒后按需重置出站连接，避免应用(如 Telegram)卡在旧连接上等待超时
-                                val settings = runCatching {
-                                    SettingsRepository.getInstance(context).settings.value
-                                }.getOrNull()
-                                if (callbacks?.isRunning == true && settings?.wakeResetConnections == true) {
-                                    Log.i(TAG, "[Unlock] wakeResetConnections enabled, resetting connections")
-                                    callbacks?.resetConnectionsOptimal("user_present", false)
-                                }
-                            }
-                        }
-                        PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                val pm = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
-                                val isIdleMode = pm?.isDeviceIdleMode == true
-
-                                if (isIdleMode) {
-                                    Log.i(TAG, "[Doze Enter] Device entering idle mode")
-                                    serviceScope.launch { handleDeviceIdle() }
-                                } else {
-                                    Log.i(TAG, "[Doze Exit] Device exiting idle mode")
-                                    serviceScope.launch { handleDeviceWake() }
-                                }
-                            }
+                        if (isIdleMode) {
+                            Log.i(TAG, "[Doze Enter] Device entering idle mode")
+                            serviceScope.launch { handleDeviceIdle() }
+                        } else {
+                            Log.i(TAG, "[Doze Exit] Device exiting idle mode")
+                            serviceScope.launch { handleDeviceWake() }
                         }
                     }
                 }

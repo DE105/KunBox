@@ -205,51 +205,63 @@ class RecoveryCoordinator(
             return
         }
 
+        if (!checkCooldown(req, cb)) return
+
+        performRequest(req, cb)
+    }
+
+    private fun checkCooldown(req: Request, cb: Callbacks): Boolean {
         val now = SystemClock.elapsedRealtime()
-        when (req) {
-            is Request.Restart -> {
-                if (!cb.isRunning || cb.isStopping) {
-                    Log.w(
-                        TAG,
-                        "Skip restart: running=${cb.isRunning} stopping=${cb.isStopping} " +
-                            "reason=${req.reason}"
-                    )
-                    cb.addLog("INFO [Recovery] restart skipped (state) reason=${req.reason}")
-                    return
-                }
-                val last = lastRestartAtMs.get()
-                if (now - last < RESTART_COOLDOWN_MS) {
-                    Log.w(TAG, "Restart in cooldown, skip. reason=${req.reason}")
-                    cb.addLog("INFO [Recovery] restart skipped (cooldown) reason=${req.reason}")
-                    return
-                }
-                lastRestartAtMs.set(now)
-            }
-
-            is Request.Recover -> {
-                if (req.mode == 3) {
-                    // 2025-fix-v10: 检查是否有冷却豁免
-                    val isExempt = COOLDOWN_EXEMPT_KEYWORDS.any { keyword ->
-                        req.reason.contains(keyword, ignoreCase = true)
-                    }
-
-                    if (!isExempt) {
-                        val last = lastDeepAtMs.get()
-                        if (now - last < DEEP_COOLDOWN_MS) {
-                            Log.w(TAG, "Deep recovery in cooldown, skip. reason=${req.reason}")
-                            cb.addLog("INFO [Recovery] deep skipped (cooldown) reason=${req.reason}")
-                            return
-                        }
-                    } else {
-                        Log.i(TAG, "Deep recovery cooldown exempt for reason=${req.reason}")
-                    }
-                    lastDeepAtMs.set(now)
-                }
-            }
-
-            else -> Unit
+        return when (req) {
+            is Request.Restart -> checkRestartCooldown(req, cb, now)
+            is Request.Recover -> checkRecoverCooldown(req, cb, now)
+            else -> true
         }
+    }
 
+    private fun checkRestartCooldown(req: Request.Restart, cb: Callbacks, now: Long): Boolean {
+        if (!cb.isRunning || cb.isStopping) {
+            Log.w(
+                TAG,
+                "Skip restart: running=${cb.isRunning} stopping=${cb.isStopping} " +
+                    "reason=${req.reason}"
+            )
+            cb.addLog("INFO [Recovery] restart skipped (state) reason=${req.reason}")
+            return false
+        }
+        val last = lastRestartAtMs.get()
+        if (now - last < RESTART_COOLDOWN_MS) {
+            Log.w(TAG, "Restart in cooldown, skip. reason=${req.reason}")
+            cb.addLog("INFO [Recovery] restart skipped (cooldown) reason=${req.reason}")
+            return false
+        }
+        lastRestartAtMs.set(now)
+        return true
+    }
+
+    private fun checkRecoverCooldown(req: Request.Recover, cb: Callbacks, now: Long): Boolean {
+        if (req.mode == 3) {
+            // 2025-fix-v10: 检查是否有冷却豁免
+            val isExempt = COOLDOWN_EXEMPT_KEYWORDS.any { keyword ->
+                req.reason.contains(keyword, ignoreCase = true)
+            }
+
+            if (!isExempt) {
+                val last = lastDeepAtMs.get()
+                if (now - last < DEEP_COOLDOWN_MS) {
+                    Log.w(TAG, "Deep recovery in cooldown, skip. reason=${req.reason}")
+                    cb.addLog("INFO [Recovery] deep skipped (cooldown) reason=${req.reason}")
+                    return false
+                }
+            } else {
+                Log.i(TAG, "Deep recovery cooldown exempt for reason=${req.reason}")
+            }
+            lastDeepAtMs.set(now)
+        }
+        return true
+    }
+
+    private suspend fun performRequest(req: Request, cb: Callbacks) {
         val start = SystemClock.elapsedRealtime()
         try {
             when (req) {
@@ -285,34 +297,29 @@ class RecoveryCoordinator(
                     )
                 }
 
-                is Request.Restart -> {
-                    cb.restartVpnService(req.reason)
-                    cb.addLog(
-                        "INFO [Recovery] restart cost=${SystemClock.elapsedRealtime() - start}ms " +
-                            "reason=${req.reason}"
-                    )
-                }
-
                 is Request.CloseIdleConnections -> {
-                    val closed = cb.closeIdleConnections(req.maxIdleSeconds, req.reason)
-                    if (closed > 0) {
+                    val count = cb.closeIdleConnections(req.maxIdleSeconds, req.reason)
+                    if (count > 0) {
                         cb.addLog(
-                            "INFO [Recovery] closeIdleConnections(maxIdle=${req.maxIdleSeconds}s) closed=$closed " +
-                                "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
-                        )
-                    } else {
-                        cb.addLog(
-                            "INFO [Recovery] closeIdleConnections(maxIdle=${req.maxIdleSeconds}s) closed=0 " +
-                                "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
+                            "INFO [Recovery] closeIdle(maxIdle=${req.maxIdleSeconds}s) closed=$count " +
+                                "cost=${SystemClock.elapsedRealtime() - start}ms"
                         )
                     }
                 }
 
-                else -> Unit
+                is Request.Composite -> {
+                    for (item in req.items) {
+                        performRequest(item, cb)
+                    }
+                }
+
+                is Request.Restart -> {
+                    cb.restartVpnService(req.reason)
+                }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Recovery request failed: ${req.javaClass.simpleName} reason=${req.reason}", e)
-            cb.addLog("WARN [Recovery] ${req.javaClass.simpleName} failed: ${e.message} reason=${req.reason}")
+            Log.e(TAG, "Request failed: ${req.javaClass.simpleName}", e)
+            cb.addLog("WARN [Recovery] ${req.javaClass.simpleName} failed: ${e.message}")
         }
     }
 

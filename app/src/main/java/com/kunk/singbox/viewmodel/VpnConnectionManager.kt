@@ -14,6 +14,7 @@ import com.kunk.singbox.model.ConnectionState
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.service.ProxyOnlyService
+import com.kunk.singbox.service.ServiceState
 import com.kunk.singbox.service.SingBoxService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -102,7 +103,7 @@ class VpnConnectionManager(
         try {
             withTimeout(5000L) {
                 SingBoxRemote.state.drop(1)
-                    .first { it == SingBoxService.ServiceState.STOPPED }
+                    .first { it == ServiceState.STOPPED }
             }
         } catch (@Suppress("SwallowedException") e: TimeoutCancellationException) {
             Log.w(TAG, "Timeout waiting for VPN to stop during restart")
@@ -207,7 +208,7 @@ class VpnConnectionManager(
             try {
                 withTimeout(3000L) {
                     SingBoxRemote.state.drop(1)
-                        .first { it == SingBoxService.ServiceState.STOPPED }
+                        .first { it == ServiceState.STOPPED }
                 }
             } catch (@Suppress("SwallowedException") e: TimeoutCancellationException) {
                 Log.w(TAG, "Timeout waiting for opposite service to stop")

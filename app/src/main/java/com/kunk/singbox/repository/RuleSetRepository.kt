@@ -2,6 +2,7 @@ package com.kunk.singbox.repository
 
 import android.content.Context
 import android.util.Log
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.RuleSet
 import com.kunk.singbox.model.RuleSetType
@@ -9,7 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.Request
-import com.kunk.singbox.utils.ProxyAwareOkHttpClient
+import com.kunk.singbox.utils.NetworkClient
 import okhttp3.OkHttpClient
 import java.io.File
 
@@ -33,14 +34,33 @@ class RuleSetRepository(private val context: Context) {
         }
     }
 
-    // NOTE: Do NOT cache a single OkHttpClient here.
-    // When the core is active, we must use local proxy (127.0.0.1:proxyPort) because this app package
-    // is excluded from TUN routing in VPN mode. The chosen client may change with core state.
+    // 2026-01-27 修复: 代理优先+直连回退，解决被墙和代理崩溃问题
+    // 规则集 URL 通常是 GitHub/jsDelivr，已有镜像机制
 
     private val ruleSetDir: File
         get() = File(context.filesDir, "rulesets").also { it.mkdirs() }
 
     private val settingsRepository = SettingsRepository.getInstance(context)
+
+    private fun getDirectClient(): OkHttpClient {
+        return NetworkClient.createClientWithTimeout(
+            connectTimeoutSeconds = 30,
+            readTimeoutSeconds = 60,
+            writeTimeoutSeconds = 30
+        )
+    }
+
+    private fun getProxyClient(settings: AppSettings): OkHttpClient? {
+        if (!VpnStateStore.getActive() || settings.proxyPort <= 0) {
+            return null
+        }
+        return NetworkClient.createClientWithProxy(
+            proxyPort = settings.proxyPort,
+            connectTimeoutSeconds = 30,
+            readTimeoutSeconds = 60,
+            writeTimeoutSeconds = 30
+        )
+    }
 
     /**
      * 检查本地规则集是否存在
@@ -88,8 +108,6 @@ class RuleSetRepository(private val context: Context) {
         val settings = settingsRepository.settings.first()
         var allReady = true
 
-        val httpClient = ProxyAwareOkHttpClient.get(settings)
-
         // 1. 处理广告拦截规则集
         if (settings.blockAds) {
             val adBlockFile = getRuleSetFile(AD_BLOCK_TAG)
@@ -102,7 +120,7 @@ class RuleSetRepository(private val context: Context) {
 
             if (allowNetwork && (!adBlockFile.exists() || (forceUpdate && isExpired(adBlockFile)))) {
                 onProgress("正在更新广告规则集...")
-                val success = downloadAdBlockRuleSet(httpClient, settings)
+                val success = downloadAdBlockRuleSet(settings)
                 if (!success && !adBlockFile.exists()) {
                     // 如果下载失败但本地有缓存，不视为整体失败
                     if (!adBlockFile.exists()) {
@@ -126,7 +144,7 @@ class RuleSetRepository(private val context: Context) {
 
             if (allowNetwork && (!file.exists() || (forceUpdate && isExpired(file)))) {
                 onProgress("正在更新规则集: ${ruleSet.tag}...")
-                val success = downloadCustomRuleSet(httpClient, ruleSet, settings)
+                val success = downloadCustomRuleSet(ruleSet, settings)
                 if (!success && !file.exists()) {
                     allReady = false
                     Log.e(TAG, "Failed to download rule set ${ruleSet.tag} and no cache available")
@@ -151,7 +169,6 @@ class RuleSetRepository(private val context: Context) {
         if (!ruleSet.enabled) return@withContext true
 
         val settings = settingsRepository.settings.first()
-        val httpClient = ProxyAwareOkHttpClient.get(settings)
 
         return@withContext when (ruleSet.type) {
             RuleSetType.LOCAL -> File(ruleSet.path).exists()
@@ -163,7 +180,7 @@ class RuleSetRepository(private val context: Context) {
                 if (!allowNetwork) {
                     file.exists()
                 } else if (!file.exists() || (forceUpdate && isExpired(file))) {
-                    val success = downloadCustomRuleSet(httpClient, ruleSet, settings)
+                    val success = downloadCustomRuleSet(ruleSet, settings)
                     success || file.exists()
                 } else {
                     true
@@ -212,15 +229,13 @@ class RuleSetRepository(private val context: Context) {
         return (now - lastModified) > 24 * 60 * 60 * 1000
     }
 
-    private suspend fun downloadAdBlockRuleSet(client: OkHttpClient, settings: AppSettings): Boolean {
+    private suspend fun downloadAdBlockRuleSet(settings: AppSettings): Boolean {
         val mirrorUrl = settings.ghProxyMirror.url
-        // AD_BLOCK_URL_SUFFIX 是完整 URL，需要规范化
         val url = normalizeRuleSetUrl(AD_BLOCK_URL_SUFFIX, mirrorUrl)
-        return downloadFile(client, url, getRuleSetFile(AD_BLOCK_TAG))
+        return downloadFileWithFallback(url, getRuleSetFile(AD_BLOCK_TAG), settings)
     }
 
     private suspend fun downloadCustomRuleSet(
-        client: OkHttpClient,
         ruleSet: RuleSet,
         settings: AppSettings
     ): Boolean {
@@ -229,14 +244,14 @@ class RuleSetRepository(private val context: Context) {
 
         // 1. 尝试使用镜像下载
         val mirrorUrlString = normalizeRuleSetUrl(ruleSet.url, mirrorUrl)
-        val success = downloadFile(client, mirrorUrlString, getRuleSetFile(ruleSet.tag))
+        val success = downloadFileWithFallback(mirrorUrlString, getRuleSetFile(ruleSet.tag), settings)
 
         if (success) return true
 
         // 2. 如果镜像下载失败，且 URL 被修改过（即使用了镜像），则尝试原始 URL
         if (mirrorUrlString != ruleSet.url) {
             Log.w(TAG, "Mirror download failed, trying original URL: ${ruleSet.url}")
-            return downloadFile(client, ruleSet.url, getRuleSetFile(ruleSet.tag))
+            return downloadFileWithFallback(ruleSet.url, getRuleSetFile(ruleSet.tag), settings)
         }
 
         return false
@@ -309,6 +324,28 @@ class RuleSetRepository(private val context: Context) {
         }
 
         return updatedUrl
+    }
+
+    private suspend fun downloadFileWithFallback(
+        url: String,
+        targetFile: File,
+        settings: AppSettings
+    ): Boolean {
+        val proxyClient = getProxyClient(settings)
+        if (proxyClient != null) {
+            try {
+                val success = downloadFile(proxyClient, url, targetFile)
+                if (success) {
+                    Log.d(TAG, "Proxy download succeeded: ${targetFile.name}")
+                    return true
+                }
+                Log.w(TAG, "Proxy download failed, falling back to direct")
+            } catch (e: Exception) {
+                Log.w(TAG, "Proxy download error: ${e.message}, falling back to direct")
+            }
+        }
+
+        return downloadFile(getDirectClient(), url, targetFile)
     }
 
     @Suppress("ReturnCount", "NestedBlockDepth", "CyclomaticComplexMethod", "CognitiveComplexMethod")

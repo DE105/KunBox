@@ -440,7 +440,7 @@ class ProxyOnlyService : Service() {
 
         setLastError(null)
 
-        notifyRemoteState(state = SingBoxService.ServiceState.STARTING)
+        notifyRemoteState(state = ServiceState.STARTING)
         updateTileState()
 
         try {
@@ -497,7 +497,7 @@ class ProxyOnlyService : Service() {
                 VpnStateStore.setMode(VpnStateStore.CoreMode.PROXY)
                 VpnTileService.persistVpnPending(applicationContext, "")
                 setLastError(null)
-                notifyRemoteState(state = SingBoxService.ServiceState.RUNNING)
+                notifyRemoteState(state = ServiceState.RUNNING)
                 updateTileState()
                 requestNotificationUpdate(force = true)
             } catch (e: CancellationException) {
@@ -508,7 +508,7 @@ class ProxyOnlyService : Service() {
                 setLastError(reason)
                 withContext(Dispatchers.Main) {
                     isRunning = false
-                    notifyRemoteState(state = SingBoxService.ServiceState.STOPPED)
+                    notifyRemoteState(state = ServiceState.STOPPED)
                     stopCore(stopService = true)
                 }
             } finally {
@@ -525,7 +525,7 @@ class ProxyOnlyService : Service() {
             isStopping = true
         }
 
-        notifyRemoteState(state = SingBoxService.ServiceState.STOPPING)
+        notifyRemoteState(state = ServiceState.STOPPING)
         updateTileState()
         isRunning = false
         NetworkClient.onVpnStateChanged(false)
@@ -559,7 +559,7 @@ class ProxyOnlyService : Service() {
                 VpnTileService.persistVpnState(applicationContext, false)
                 VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
                 VpnTileService.persistVpnPending(applicationContext, "")
-                notifyRemoteState(state = SingBoxService.ServiceState.STOPPED)
+                notifyRemoteState(state = ServiceState.STOPPED)
                 updateTileState()
             }
 
@@ -592,8 +592,8 @@ class ProxyOnlyService : Service() {
         currentInterfaceListener?.updateDefaultInterface(ifaceName, 0, isExpensive, isConstrained)
     }
 
-    private fun notifyRemoteState(state: SingBoxService.ServiceState? = null) {
-        val st = state ?: if (isRunning) SingBoxService.ServiceState.RUNNING else SingBoxService.ServiceState.STOPPED
+    private fun notifyRemoteState(state: ServiceState? = null) {
+        val st = state ?: if (isRunning) ServiceState.RUNNING else ServiceState.STOPPED
         val repo = runCatching { ConfigRepository.getInstance(applicationContext) }.getOrNull()
         val activeId = repo?.activeNodeId?.value
         // 2025-fix: 优先使用 VpnStateStore.getActiveLabel()，然后回退到 configRepository

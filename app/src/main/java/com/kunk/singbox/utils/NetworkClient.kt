@@ -224,4 +224,50 @@ object NetworkClient {
                 "successRate=${String.format("%.1f", successRate)}%, vpn=$isVpnActive)"
         }
     }
+
+    /**
+     * 执行请求，代理优先 + 直连回退
+     * 用于规则集下载、应用更新检查等可能被墙的场景
+     *
+     * @param request 要执行的请求
+     * @param proxyPort 代理端口，当 VPN 运行时使用
+     * @param isVpnActive VPN 是否运行中
+     * @return Response 或 null
+     */
+    fun executeWithFallback(
+        request: okhttp3.Request,
+        proxyPort: Int,
+        isVpnActive: Boolean,
+        connectTimeoutSeconds: Long = 15,
+        readTimeoutSeconds: Long = 30
+    ): okhttp3.Response? {
+        if (isVpnActive && proxyPort > 0) {
+            try {
+                val proxyClient = createClientWithProxy(
+                    proxyPort = proxyPort,
+                    connectTimeoutSeconds = connectTimeoutSeconds,
+                    readTimeoutSeconds = readTimeoutSeconds
+                )
+                val response = proxyClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    return response
+                }
+                response.close()
+                Log.w(TAG, "Proxy request failed with ${response.code}, falling back to direct")
+            } catch (e: Exception) {
+                Log.w(TAG, "Proxy request failed: ${e.message}, falling back to direct")
+            }
+        }
+
+        return try {
+            val directClient = createClientWithTimeout(
+                connectTimeoutSeconds = connectTimeoutSeconds,
+                readTimeoutSeconds = readTimeoutSeconds
+            )
+            directClient.newCall(request).execute()
+        } catch (e: Exception) {
+            Log.e(TAG, "Direct request also failed: ${e.message}")
+            null
+        }
+    }
 }

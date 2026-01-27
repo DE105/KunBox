@@ -203,7 +203,9 @@ class StartupManager(
             stepStart = SystemClock.elapsedRealtime()
             when (val result = coreManager.startLibbox(configContent)) {
                 is CoreManager.StartResult.Success -> {
-                    log("[STEP] startLibbox: ${SystemClock.elapsedRealtime() - stepStart}ms (internal: ${result.durationMs}ms)")
+                    log(
+                        "[STEP] startLibbox: ${SystemClock.elapsedRealtime() - stepStart}ms (internal: ${result.durationMs}ms)"
+                    )
                 }
                 is CoreManager.StartResult.Failed -> {
                     throw Exception("Libbox start failed: ${result.error}", result.exception)
@@ -281,47 +283,20 @@ class StartupManager(
             throw IllegalStateException("Config file not found: $configPath")
         }
         val rawConfigContent = configFile.readText()
-        log("[parallelInit] readConfig: ${SystemClock.elapsedRealtime() - stepStart}ms, size=${rawConfigContent.length}")
+        log(
+            "[parallelInit] readConfig: ${SystemClock.elapsedRealtime() - stepStart}ms, size=${rawConfigContent.length}"
+        )
 
         // 2. 启动并行任务
-        val networkDeferred = async {
-            val t = SystemClock.elapsedRealtime()
-            callbacks.ensureNetworkCallbackReady(1500L)
-            val afterCallback = SystemClock.elapsedRealtime()
-            log("[parallelInit] ensureNetworkCallbackReady: ${afterCallback - t}ms")
-            val network = callbacks.waitForUsablePhysicalNetwork(3000L)
-            log("[parallelInit] waitForUsablePhysicalNetwork: ${SystemClock.elapsedRealtime() - afterCallback}ms, network=$network")
-            network
-        }
-
-        val ruleSetDeferred = async {
-            val t = SystemClock.elapsedRealtime()
-            val result = runCatching {
-                RuleSetRepository.getInstance(context).ensureRuleSetsReady(
-                    forceUpdate = false,
-                    allowNetwork = false
-                ) { }
-            }.getOrDefault(false)
-            log("[parallelInit] ruleSetReady: ${SystemClock.elapsedRealtime() - t}ms, ready=$result")
-            result
-        }
-
+        val networkDeferred = async { ensureNetworkCallbackReady(callbacks) }
+        val ruleSetDeferred = async { ensureRuleSetReady() }
         val settingsDeferred = async {
             val t = SystemClock.elapsedRealtime()
             val settings = SettingsRepository.getInstance(context).settings.first()
             log("[parallelInit] loadSettings: ${SystemClock.elapsedRealtime() - t}ms")
             settings
         }
-
-        // 3. DNS 预热（使用原始配置内容提取域名）
-        val dnsPrewarmDeferred = async {
-            val t = SystemClock.elapsedRealtime()
-            val result = runCatching {
-                DnsPrewarmer.prewarm(rawConfigContent)
-            }.getOrNull()
-            log("[parallelInit] dnsPrewarm: ${SystemClock.elapsedRealtime() - t}ms, domains=${result?.totalDomains ?: 0}")
-            result
-        }
+        val dnsPrewarmDeferred = async { prewarmDns(rawConfigContent) }
 
         // 4. 等待设置加载完成，然后修补配置
         stepStart = SystemClock.elapsedRealtime()
@@ -343,6 +318,41 @@ class StartupManager(
             configContent = configContent,
             dnsPrewarmResult = dnsResult
         )
+    }
+
+    private suspend fun ensureNetworkCallbackReady(callbacks: Callbacks): Network? {
+        val t = SystemClock.elapsedRealtime()
+        callbacks.ensureNetworkCallbackReady(1500L)
+        val afterCallback = SystemClock.elapsedRealtime()
+        log("[parallelInit] ensureNetworkCallbackReady: ${afterCallback - t}ms")
+        val network = callbacks.waitForUsablePhysicalNetwork(3000L)
+        log(
+            "[parallelInit] waitForUsablePhysicalNetwork: ${SystemClock.elapsedRealtime() - afterCallback}ms, network=$network"
+        )
+        return network
+    }
+
+    private suspend fun ensureRuleSetReady(): Boolean {
+        val t = SystemClock.elapsedRealtime()
+        val result = runCatching {
+            RuleSetRepository.getInstance(context).ensureRuleSetsReady(
+                forceUpdate = false,
+                allowNetwork = false
+            ) { }
+        }.getOrDefault(false)
+        log("[parallelInit] ruleSetReady: ${SystemClock.elapsedRealtime() - t}ms, ready=$result")
+        return result
+    }
+
+    private suspend fun prewarmDns(rawConfigContent: String): DnsPrewarmer.PrewarmResult? {
+        val t = SystemClock.elapsedRealtime()
+        val result = runCatching {
+            DnsPrewarmer.prewarm(rawConfigContent)
+        }.getOrNull()
+        log(
+            "[parallelInit] dnsPrewarm: ${SystemClock.elapsedRealtime() - t}ms, domains=${result?.totalDomains ?: 0}"
+        )
+        return result
     }
 
     private fun patchConfig(rawConfigContent: String, settings: AppSettings): String {

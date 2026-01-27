@@ -5,6 +5,8 @@ import android.os.SystemClock
 import android.util.Log
 import com.kunk.singbox.aidl.ISingBoxServiceCallback
 import com.kunk.singbox.core.BoxWrapperManager
+import com.kunk.singbox.repository.LogRepository
+import com.kunk.singbox.service.ServiceState
 import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.service.manager.BackgroundPowerManager
 import com.kunk.singbox.service.manager.ServiceStateHolder
@@ -13,8 +15,15 @@ import java.util.concurrent.atomic.AtomicLong
 object SingBoxIpcHub {
     private const val TAG = "SingBoxIpcHub"
 
+    private val logRepo by lazy { LogRepository.getInstance() }
+
+    private fun log(msg: String) {
+        Log.i(TAG, msg)
+        logRepo.addLog("INFO [IPC] $msg")
+    }
+
     @Volatile
-    private var stateOrdinal: Int = SingBoxService.ServiceState.STOPPED.ordinal
+    private var stateOrdinal: Int = ServiceState.STOPPED.ordinal
 
     @Volatile
     private var activeLabel: String = ""
@@ -54,7 +63,7 @@ object SingBoxIpcHub {
 
     // 2025-fix-v11: 智能恢复模式阈值
     // 根据后台时长选择恢复激进程度，比其他代理软件更智能
-    private const val BACKGROUND_QUICK_THRESHOLD_MS = 30_000L    // <30秒: QUICK模式
+    private const val BACKGROUND_QUICK_THRESHOLD_MS = 30_000L // <30秒: QUICK模式
     private const val BACKGROUND_FULL_THRESHOLD_MS = 5 * 60_000L // <5分钟: FULL模式
     // >5分钟: DEEP模式
 
@@ -88,7 +97,8 @@ object SingBoxIpcHub {
      */
     @Suppress("CognitiveComplexMethod", "NestedBlockDepth")
     fun onAppLifecycle(isForeground: Boolean) {
-        Log.i(TAG, "onAppLifecycle: isForeground=$isForeground")
+        val vpnState = ServiceState.values().getOrNull(stateOrdinal)?.name ?: "UNKNOWN"
+        log("onAppLifecycle: isForeground=$isForeground, vpnState=$vpnState")
 
         if (isForeground) {
             powerManager?.onAppForeground()
@@ -109,7 +119,7 @@ object SingBoxIpcHub {
      */
     @Suppress("CognitiveComplexMethod", "NestedBlockDepth", "ReturnCount")
     private fun performForegroundRecovery() {
-        val isVpnRunning = stateOrdinal == SingBoxService.ServiceState.RUNNING.ordinal
+        val isVpnRunning = stateOrdinal == ServiceState.RUNNING.ordinal
         if (!isVpnRunning) {
             return
         }
@@ -131,13 +141,13 @@ object SingBoxIpcHub {
             return
         }
 
-        Log.i(TAG, "[Foreground] VPN running, background=${backgroundDuration}ms, mode=$recoveryMode")
+        log("[Foreground] VPN running, background=${backgroundDuration}ms, mode=$recoveryMode")
 
         val recoverySuccess = executeRecovery(recoveryMode)
 
         if (recoverySuccess) {
             lastForegroundAtMs.set(now)
-            Log.i(TAG, "[Foreground] recovery success ($recoveryMode)")
+            log("[Foreground] recovery success ($recoveryMode)")
         } else {
             Log.w(TAG, "[Foreground] recovery failed, will retry on next foreground event")
         }
@@ -167,39 +177,58 @@ object SingBoxIpcHub {
     }
 
     /**
-     * 2025-fix-v11: 执行恢复操作
+     * 2025-fix-v13: 执行恢复操作 (同步版本)
+     *
+     * 关键改进:
+     * 1. 不再使用 foregroundRecoveryHandler (异步，无法等待完成)
+     * 2. 直接调用 BoxWrapperManager 同步方法
+     * 3. 所有模式都强制 resetAllConnections，解决 TG 等应用卡在旧连接的问题
+     *
+     * 根因: 后台一段时间后，服务器端可能已经关闭了 TCP 连接，
+     * 但客户端 TCP 栈不知道（NAT 超时、服务器超时等）。
+     * 仅关闭"空闲"连接不够，因为 TG 等应用可能持有"活跃但失效"的连接。
      */
     @Suppress("CognitiveComplexMethod")
     private fun executeRecovery(mode: RecoveryMode): Boolean {
-        val handler = foregroundRecoveryHandler
-        if (handler != null) {
-            return runCatching {
-                handler.invoke()
-                true
-            }.getOrElse { e ->
-                Log.w(TAG, "[Foreground] recovery handler failed", e)
-                false
-            }
-        }
+        val startTime = SystemClock.elapsedRealtime()
 
-        return when (mode) {
-            RecoveryMode.QUICK -> {
-                val closed = BoxWrapperManager.closeIdleConnections(30)
-                Log.i(TAG, "[Foreground] QUICK: closed $closed idle connections")
-                true
+        // 2025-fix-v13: 不再依赖 foregroundRecoveryHandler (异步)
+        // 改为直接同步调用 BoxWrapperManager
+        // 这确保恢复完成后才返回，避免 UI 显示不一致
+
+        return try {
+            when (mode) {
+                RecoveryMode.QUICK -> {
+                    // QUICK: 关闭空闲连接 + 重置所有连接
+                    val closedIdle = BoxWrapperManager.closeIdleConnections(30)
+                    // 2025-fix-v13: 即使是 QUICK 模式也强制重置所有连接
+                    // 解决 TG 等应用持有"活跃但失效"连接的问题
+                    val resetOk = BoxWrapperManager.resetAllConnections(true)
+                    val cost = SystemClock.elapsedRealtime() - startTime
+                    log("[Foreground] QUICK: closedIdle=$closedIdle, resetAll=$resetOk, cost=${cost}ms")
+                    true
+                }
+                RecoveryMode.FULL -> {
+                    // FULL: 完整恢复 + 重置所有连接
+                    val recoverOk = BoxWrapperManager.recoverNetworkFull()
+                    val resetOk = BoxWrapperManager.resetAllConnections(true)
+                    val cost = SystemClock.elapsedRealtime() - startTime
+                    log("[Foreground] FULL: recoverFull=$recoverOk, resetAll=$resetOk, cost=${cost}ms")
+                    recoverOk
+                }
+                RecoveryMode.DEEP -> {
+                    // DEEP: 深度恢复 (包含 DNS 清理) + 重置所有连接
+                    val recoverOk = BoxWrapperManager.recoverNetworkDeep()
+                    val resetOk = BoxWrapperManager.resetAllConnections(true)
+                    val cost = SystemClock.elapsedRealtime() - startTime
+                    log("[Foreground] DEEP: recoverDeep=$recoverOk, resetAll=$resetOk, cost=${cost}ms")
+                    recoverOk
+                }
             }
-            RecoveryMode.FULL -> {
-                val success = BoxWrapperManager.recoverNetworkFull()
-                val closed = BoxWrapperManager.closeIdleConnections(30)
-                Log.i(TAG, "[Foreground] FULL: recoverNetworkFull=$success, closedIdle=$closed")
-                success
-            }
-            RecoveryMode.DEEP -> {
-                val success = BoxWrapperManager.recoverNetworkDeep()
-                val closed = BoxWrapperManager.closeIdleConnections(30)
-                Log.i(TAG, "[Foreground] DEEP: recoverNetworkDeep=$success, closedIdle=$closed")
-                success
-            }
+        } catch (e: Exception) {
+            val cost = SystemClock.elapsedRealtime() - startTime
+            Log.e(TAG, "[Foreground] recovery failed after ${cost}ms", e)
+            false
         }
     }
 
@@ -226,18 +255,21 @@ object SingBoxIpcHub {
     fun getLastStateUpdateTime(): Long = lastStateUpdateAtMs.get()
 
     fun update(
-        state: SingBoxService.ServiceState? = null,
+        state: ServiceState? = null,
         activeLabel: String? = null,
         lastError: String? = null,
         manuallyStopped: Boolean? = null
     ) {
         var shouldStartBroadcast = false
+        val updateStart = SystemClock.elapsedRealtime()
         synchronized(broadcastLock) {
             state?.let {
+                val oldState = ServiceState.values().getOrNull(stateOrdinal)?.name ?: "UNKNOWN"
                 stateOrdinal = it.ordinal
+                log("state update: $oldState -> ${it.name}")
                 // 2025-fix-v6: 同步状态到 VpnStateStore (跨进程持久化)
                 // 这确保主进程恢复时可以直接读取真实状态，不依赖回调
-                VpnStateStore.setActive(it == SingBoxService.ServiceState.RUNNING)
+                VpnStateStore.setActive(it == ServiceState.RUNNING)
             }
             activeLabel?.let {
                 this.activeLabel = it
@@ -267,6 +299,7 @@ object SingBoxIpcHub {
         if (shouldStartBroadcast) {
             drainBroadcastLoop()
         }
+        Log.d(TAG, "[IPC] update completed in ${SystemClock.elapsedRealtime() - updateStart}ms")
     }
 
     fun registerCallback(callback: ISingBoxServiceCallback) {
@@ -288,6 +321,10 @@ object SingBoxIpcHub {
             }
 
             val n = callbacks.beginBroadcast()
+            Log.d(
+                TAG,
+                "[IPC] broadcasting to $n callbacks, state=${ServiceState.values().getOrNull(snapshot.stateOrdinal)?.name}"
+            )
             try {
                 for (i in 0 until n) {
                     runCatching {
@@ -338,10 +375,10 @@ object SingBoxIpcHub {
      * @return 热重载结果码 (HotReloadResult)
      */
     fun hotReloadConfig(configContent: String): Int {
-        Log.i(TAG, "[HotReload] IPC request received")
+        log("[HotReload] IPC request received")
 
         // 检查 VPN 是否运行
-        if (stateOrdinal != SingBoxService.ServiceState.RUNNING.ordinal) {
+        if (stateOrdinal != ServiceState.RUNNING.ordinal) {
             Log.w(TAG, "[HotReload] VPN not running, state=$stateOrdinal")
             return HotReloadResult.VPN_NOT_RUNNING
         }
@@ -357,7 +394,7 @@ object SingBoxIpcHub {
         return try {
             val result = service.performHotReloadSync(configContent)
             if (result) {
-                Log.i(TAG, "[HotReload] Success")
+                log("[HotReload] Success")
                 HotReloadResult.SUCCESS
             } else {
                 Log.e(TAG, "[HotReload] Kernel returned false")

@@ -16,6 +16,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.model.ConnectionState
 import com.kunk.singbox.model.ConnectionStats
+import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.FilterMode
 import com.kunk.singbox.model.NodeFilter
 import com.kunk.singbox.model.NodeSortType
@@ -25,6 +26,7 @@ import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.ipc.SingBoxRemote
 import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.service.SingBoxService
+import com.kunk.singbox.service.ServiceState
 import com.kunk.singbox.service.ProxyOnlyService
 import com.kunk.singbox.service.VpnTileService
 import com.kunk.singbox.core.SingBoxCore
@@ -409,7 +411,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
                         // 宽限期过，再次检查 SingBoxRemote 状态
                         // 只有当服务端依然坚持是 STOPPED 时，才真正断开 UI
-                        if (SingBoxRemote.state.value == SingBoxService.ServiceState.STOPPED) {
+                        if (SingBoxRemote.state.value == ServiceState.STOPPED) {
                             performDisconnect()
                         }
                         // 宽限期结束，标记失效
@@ -425,7 +427,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                             if (pendingIdleJob?.isActive == true) return
                             pendingIdleJob = viewModelScope.launch {
                                 delay(remaining)
-                                if (SingBoxRemote.state.value == SingBoxService.ServiceState.STOPPED) {
+                                if (SingBoxRemote.state.value == ServiceState.STOPPED) {
                                     performDisconnect()
                                 }
                                 pendingIdleJob = null
@@ -473,19 +475,19 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             SingBoxRemote.state.collect { state ->
                 when (state) {
-                    SingBoxService.ServiceState.RUNNING -> {
+                    ServiceState.RUNNING -> {
                         systemVpnDetectedOnBoot = false
                         setConnectionState(ConnectionState.Connected)
                     }
-                    SingBoxService.ServiceState.STARTING -> {
+                    ServiceState.STARTING -> {
                         systemVpnDetectedOnBoot = false
                         setConnectionState(ConnectionState.Connecting)
                     }
-                    SingBoxService.ServiceState.STOPPING -> {
+                    ServiceState.STOPPING -> {
                         systemVpnDetectedOnBoot = false
                         setConnectionState(ConnectionState.Disconnecting)
                     }
-                    SingBoxService.ServiceState.STOPPED -> {
+                    ServiceState.STOPPED -> {
                         setConnectionState(ConnectionState.Idle)
                     }
                 }
@@ -561,10 +563,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             Log.i(TAG, "refreshState: state=$state, bound=${SingBoxRemote.isBound()}")
 
             when (state) {
-                SingBoxService.ServiceState.RUNNING -> setConnectionState(ConnectionState.Connected)
-                SingBoxService.ServiceState.STARTING -> setConnectionState(ConnectionState.Connecting)
-                SingBoxService.ServiceState.STOPPING -> setConnectionState(ConnectionState.Disconnecting)
-                SingBoxService.ServiceState.STOPPED -> setConnectionState(ConnectionState.Idle)
+                ServiceState.RUNNING -> setConnectionState(ConnectionState.Connected)
+                ServiceState.STARTING -> setConnectionState(ConnectionState.Connecting)
+                ServiceState.STOPPING -> setConnectionState(ConnectionState.Disconnecting)
+                ServiceState.STOPPED -> setConnectionState(ConnectionState.Idle)
             }
 
             startStateCollector()
@@ -649,106 +651,111 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 blocklist = settings.vpnBlocklist
             )
 
-            Log.d(
-                TAG,
-                "restartVpn: useTun=$useTun, isRunning=${SingBoxRemote.isRunning.value}, " +
-                    "perAppChanged=$perAppSettingsChanged"
-            )
-            Log.d(
-                TAG,
-                "restartVpn: currentMode=${settings.vpnAppMode.name}, " +
-                    "allowlist=${settings.vpnAllowlist.take(100)}, blocklist=${settings.vpnBlocklist.take(100)}"
-            )
-            Log.d(
-                TAG,
-                "restartVpn: savedMode=${VpnStateStore.getLastAppMode()}, " +
-                    "savedAllowHash=${VpnStateStore.getLastAllowlistHash()}, " +
-                    "savedBlockHash=${VpnStateStore.getLastBlocklistHash()}"
-            )
-            Log.d(
-                TAG,
-                "restartVpn: currentAllowHash=${settings.vpnAllowlist.hashCode()}, " +
-                    "currentBlockHash=${settings.vpnBlocklist.hashCode()}"
-            )
+            logRestartDebugInfo(settings)
 
             if (useTun && SingBoxRemote.isRunning.value && !perAppSettingsChanged) {
-                val configContent = withContext(Dispatchers.IO) {
-                    runCatching { java.io.File(configResult.path).readText() }.getOrNull()
-                }
-
-                if (!configContent.isNullOrEmpty()) {
-                    Log.i(TAG, "Attempting kernel hot reload via IPC...")
-
-                    val result = withContext(Dispatchers.IO) {
-                        SingBoxRemote.hotReloadConfig(configContent)
-                    }
-
-                    when (result) {
-                        SingBoxRemote.HotReloadResult.SUCCESS -> {
-                            Log.i(TAG, "Hot reload succeeded via IPC")
-                            return@launch
-                        }
-                        SingBoxRemote.HotReloadResult.IPC_ERROR -> {
-                            Log.w(TAG, "Hot reload IPC failed, falling back to traditional restart")
-                        }
-                        else -> {
-                            Log.w(TAG, "Hot reload failed (code=$result), falling back to traditional restart")
-                        }
-                    }
-                }
+                if (tryHotReload(configResult.path)) return@launch
             }
 
             Log.i(TAG, "Using traditional restart (perAppChanged=$perAppSettingsChanged)")
+            performRestart(context, configResult.path, useTun, perAppSettingsChanged)
+        }
+    }
 
-            if (perAppSettingsChanged && useTun && SingBoxRemote.isRunning.value) {
-                Log.i(TAG, "Per-app settings changed, using full restart to rebuild TUN")
-                val intent = Intent(context, SingBoxService::class.java).apply {
-                    action = SingBoxService.ACTION_FULL_RESTART
-                    putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-                return@launch
+    private fun logRestartDebugInfo(settings: AppSettings) {
+        Log.d(
+            TAG,
+            "restartVpn: useTun=${settings.tunEnabled}, isRunning=${SingBoxRemote.isRunning.value}"
+        )
+        Log.d(
+            TAG,
+            "restartVpn: currentMode=${settings.vpnAppMode.name}, " +
+                "allowlist=${settings.vpnAllowlist.take(100)}, blocklist=${settings.vpnBlocklist.take(100)}"
+        )
+    }
+
+    private suspend fun tryHotReload(configPath: String): Boolean {
+        val configContent = withContext(Dispatchers.IO) {
+            runCatching { java.io.File(configPath).readText() }.getOrNull()
+        }
+
+        if (!configContent.isNullOrEmpty()) {
+            Log.i(TAG, "Attempting kernel hot reload via IPC...")
+
+            val result = withContext(Dispatchers.IO) {
+                SingBoxRemote.hotReloadConfig(configContent)
             }
 
-            runCatching {
-                if (!com.kunk.singbox.ipc.VpnStateStore.shouldTriggerPrepareRestart(1500L)) {
-                    Log.d(TAG, "PREPARE_RESTART suppressed (sender throttle)")
-                } else {
-                    context.startService(Intent(context, SingBoxService::class.java).apply {
-                        action = SingBoxService.ACTION_PREPARE_RESTART
-                        putExtra(
-                            SingBoxService.EXTRA_PREPARE_RESTART_REASON,
-                            "DashboardViewModel:restartVpn"
-                        )
-                    })
+            when (result) {
+                SingBoxRemote.HotReloadResult.SUCCESS -> {
+                    Log.i(TAG, "Hot reload succeeded via IPC")
+                    return true
+                }
+                SingBoxRemote.HotReloadResult.IPC_ERROR -> {
+                    Log.w(TAG, "Hot reload IPC failed, falling back to traditional restart")
+                }
+                else -> {
+                    Log.w(TAG, "Hot reload failed (code=$result), falling back to traditional restart")
                 }
             }
+        }
+        return false
+    }
 
-            delay(150)
+    private suspend fun performRestart(
+        context: Context,
+        configPath: String,
+        useTun: Boolean,
+        perAppSettingsChanged: Boolean
+    ) {
+        if (perAppSettingsChanged && useTun && SingBoxRemote.isRunning.value) {
+            Log.i(TAG, "Per-app settings changed, using full restart to rebuild TUN")
+            val intent = Intent(context, SingBoxService::class.java).apply {
+                action = SingBoxService.ACTION_FULL_RESTART
+                putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPath)
+            }
+            startServiceCompat(context, intent)
+            return
+        }
 
-            val intent = if (useTun) {
-                Intent(context, SingBoxService::class.java).apply {
-                    action = SingBoxService.ACTION_START
-                    putExtra(SingBoxService.EXTRA_CONFIG_PATH, configResult.path)
-                    putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
-                }
+        runCatching {
+            if (!com.kunk.singbox.ipc.VpnStateStore.shouldTriggerPrepareRestart(1500L)) {
+                Log.d(TAG, "PREPARE_RESTART suppressed (sender throttle)")
             } else {
-                Intent(context, ProxyOnlyService::class.java).apply {
-                    action = ProxyOnlyService.ACTION_START
-                    putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, configResult.path)
-                    putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
-                }
+                context.startService(Intent(context, SingBoxService::class.java).apply {
+                    action = SingBoxService.ACTION_PREPARE_RESTART
+                    putExtra(
+                        SingBoxService.EXTRA_PREPARE_RESTART_REASON,
+                        "DashboardViewModel:restartVpn"
+                    )
+                })
             }
+        }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+        delay(150)
+
+        val intent = if (useTun) {
+            Intent(context, SingBoxService::class.java).apply {
+                action = SingBoxService.ACTION_START
+                putExtra(SingBoxService.EXTRA_CONFIG_PATH, configPath)
+                putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
             }
+        } else {
+            Intent(context, ProxyOnlyService::class.java).apply {
+                action = ProxyOnlyService.ACTION_START
+                putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, configPath)
+                putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
+            }
+        }
+
+        startServiceCompat(context, intent)
+    }
+
+    private fun startServiceCompat(context: Context, intent: Intent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
         }
     }
 
@@ -808,7 +815,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                             // 使用 drop(1) 跳过当前值，等待真正的状态变化
                             SingBoxRemote.state
                                 .drop(1)
-                                .first { it == SingBoxService.ServiceState.STOPPED }
+                                .first { it == ServiceState.STOPPED }
                         }
                     } catch (e: TimeoutCancellationException) {
                         Log.w(TAG, "Timeout waiting for opposite service to stop")

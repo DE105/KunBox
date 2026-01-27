@@ -162,18 +162,7 @@ class VpnTunManager(
         val configuredMtu = if (options != null && options.mtu > 0) options.mtu else (settings?.tunMtu ?: 1500)
         if (settings?.tunMtuAuto != true) return configuredMtu
 
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            ?: return configuredMtu
-
-        val physicalCaps = cm.allNetworks
-            .asSequence()
-            .mapNotNull { cm.getNetworkCapabilities(it) }
-            .firstOrNull {
-                it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                    !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-            }
-        val caps = physicalCaps ?: cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
-            ?: return configuredMtu
+        val caps = getNetworkCapabilities() ?: return configuredMtu
 
         // Throughput-first for Wi-Fi/Ethernet; conservative for cellular.
         // QUIC-based proxies (Hysteria2/TUIC) + YouTube QUIC = double encapsulation,
@@ -185,8 +174,22 @@ class VpnTunManager(
             else -> configuredMtu
         }
 
-        // Auto MTU should never be more aggressive than configured MTU.
+        // Auto MTU should never be more aggressive than user-configured MTU.
         return minOf(configuredMtu, recommendedMtu)
+    }
+
+    private fun getNetworkCapabilities(): NetworkCapabilities? {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return null
+
+        val physicalCaps = cm.allNetworks
+            .asSequence()
+            .mapNotNull { cm.getNetworkCapabilities(it) }
+            .firstOrNull {
+                it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            }
+        return physicalCaps ?: cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
     }
 
     private fun configureRoutes(builder: VpnService.Builder, settings: AppSettings?) {

@@ -430,20 +430,17 @@ object BoxWrapperManager {
         return try {
             val tagsStr = outboundTags.joinToString("\n")
             val result = Libbox.urlTestBatch(tagsStr, url, timeoutMs, concurrency.toLong())
-            if (result == null) {
-                emptyMap()
-            } else {
-                val map = mutableMapOf<String, Int>()
-                val count = result.len()
-                for (i in 0 until count) {
-                    val item = result.get(i)
-                    val tag = item?.tag
-                    if (!tag.isNullOrBlank()) {
-                        map[tag] = item.delay
-                    }
-                }
-                map
+                ?: return emptyMap()
+
+            val map = mutableMapOf<String, Int>()
+            val count = result.len()
+            for (i in 0 until count) {
+                val item = result.get(i) ?: continue
+                val tag = item.tag
+                if (tag.isNullOrBlank()) continue
+                map[tag] = item.delay
             }
+            map
         } catch (e: Exception) {
             Log.w(TAG, "urlTestBatch failed: ${e.message}")
             emptyMap()

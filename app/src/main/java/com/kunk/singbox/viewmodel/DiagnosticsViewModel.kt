@@ -9,8 +9,10 @@ import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
+import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.SingBoxConfig
 import com.kunk.singbox.repository.ConfigRepository
+import com.kunk.singbox.repository.ConfigRepository.ConfigGenerationResult
 import com.kunk.singbox.service.SingBoxService
 import com.kunk.singbox.utils.TcpPing
 import kotlinx.coroutines.Dispatchers
@@ -74,90 +76,20 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             _isRunConfigLoading.value = true
             _resultTitle.value = "Running Config (running_config.json)"
             try {
-                val configResult = withContext(Dispatchers.IO) { configRepository.generateConfigFile() }
+                val configResult = generateRunningConfig()
                 if (configResult?.path.isNullOrBlank()) {
                     _resultMessage.value = "Failed to generate running config: no profile selected or generation failed."
                 } else {
                     val realPath = configResult!!.path
-                    val rawJson = withContext(Dispatchers.IO) { File(realPath).readText() }
-                    val runConfig = try {
-                        gson.fromJson(rawJson, SingBoxConfig::class.java)
-                    } catch (_: Exception) {
-                        null
-                    }
+                    val runConfig = loadRunConfig(realPath)
 
                     val settings = withContext(Dispatchers.IO) { settingsRepository.settings.first() }
-                    val cm = getApplication<Application>()
-                        .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-                    val activeNetwork = cm?.activeNetwork
-                    val caps = activeNetwork?.let { cm.getNetworkCapabilities(it) }
-                    val networkType = when {
-                        caps == null -> "unknown"
-                        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
-                        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
-                        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
-                        else -> "other"
-                    }
+                    val networkType = resolveNetworkType()
 
-                    val effectiveMtu = if (!settings.tunMtuAuto) {
-                        settings.tunMtu
-                    } else {
-                        val recommended = when (networkType) {
-                            "wifi", "ethernet" -> 1480
-                            "cellular" -> 1400
-                            else -> settings.tunMtu
-                        }
-                        minOf(settings.tunMtu, recommended)
-                    }
+                    val effectiveMtu = resolveEffectiveMtu(settings, networkType)
+                    val effectiveTunStack = resolveTunStack(settings)
 
-                    // Reflect ConfigRepository's special-case behavior for known devices.
-                    val effectiveTunStack = if (Build.MODEL.contains("SM-G986U", ignoreCase = true)) {
-                        "GVISOR (forced for device ${Build.MODEL})"
-                    } else {
-                        settings.tunStack.name
-                    }
-
-                    val rules = runConfig?.route?.rules.orEmpty()
-                    val pkgRules = rules.filter { !it.packageName.isNullOrEmpty() }
-                    val finalOutbound = runConfig?.route?.finalOutbound ?: "(null)"
-
-                    val findProcess = runConfig?.route?.findProcess ?: false
-                    val hasSniffRule = rules.any { it.action == "sniff" }
-                    val tunInboundMtu = runConfig?.inbounds
-                        ?.firstOrNull { it.type == "tun" }
-                        ?.mtu
-
-                    val outboundTags = runConfig?.outbounds.orEmpty().map { it.tag }.toSet()
-
-                    val samplePkgRule = pkgRules.firstOrNull()
-                    val sampleOutbound = samplePkgRule?.outbound ?: "(none)"
-                    val samplePkgs = samplePkgRule?.packageName?.take(5).orEmpty()
-
-                    _resultMessage.value = buildString {
-                        appendLine("File: $realPath")
-                        appendLine("\n=== Throughput / Runtime Hints ===")
-                        appendLine("Network: $networkType")
-                        appendLine("TUN stack (setting): ${settings.tunStack.name}")
-                        appendLine("TUN stack (effective): $effectiveTunStack")
-                        appendLine("MTU auto: ${settings.tunMtuAuto}")
-                        appendLine("MTU manual: ${settings.tunMtu}")
-                        appendLine("MTU effective: $effectiveMtu")
-                        appendLine("MTU in running_config tun inbound: ${tunInboundMtu ?: "(null)"}")
-                        appendLine("QUIC blocked: ${settings.blockQuic}")
-                        appendLine("find_process (route): $findProcess")
-                        appendLine("sniff enabled (route rule): $hasSniffRule")
-                        appendLine("\n=== Routing Summary ===")
-                        appendLine("Final outbound: $finalOutbound")
-                        appendLine("Route rules count: ${rules.size}")
-                        appendLine("App routing rules (package_name): ${pkgRules.size}")
-                        appendLine("Contains app routing rules: ${pkgRules.isNotEmpty()}")
-                        appendLine("Example (package_name -> outbound): $samplePkgs -> $sampleOutbound")
-                        appendLine("Outbound tags contains final: ${outboundTags.contains(finalOutbound)}")
-                        appendLine()
-                        appendLine("Tips:")
-                        appendLine("- If app routing is invalid and package_name=0, rules are not generated/enabled.")
-                        appendLine("- If package_name>0 but still invalid, the runtime might not be able to identify the connection owner application (UID/package).")
-                    }
+                    _resultMessage.value = buildDiagnosticMessage(realPath, settings, runConfig, networkType, effectiveMtu, effectiveTunStack)
                 }
             } catch (e: Exception) {
                 _resultMessage.value = "读取运行配置失败: ${e.message}"
@@ -165,6 +97,99 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 _isRunConfigLoading.value = false
                 _showResultDialog.value = true
             }
+        }
+    }
+
+    private suspend fun generateRunningConfig(): ConfigGenerationResult? = withContext(Dispatchers.IO) {
+        configRepository.generateConfigFile()
+    }
+
+    private suspend fun loadRunConfig(path: String): SingBoxConfig? = withContext(Dispatchers.IO) {
+        try {
+            gson.fromJson(File(path).readText(), SingBoxConfig::class.java)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun resolveNetworkType(): String {
+        val cm = getApplication<Application>()
+            .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) } ?: return "unknown"
+        return when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            else -> "other"
+        }
+    }
+
+    private fun resolveEffectiveMtu(settings: AppSettings, networkType: String): Int {
+        if (!settings.tunMtuAuto) return settings.tunMtu
+        val recommended = when (networkType) {
+            "wifi", "ethernet" -> 1480
+            "cellular" -> 1400
+            else -> settings.tunMtu
+        }
+        return minOf(settings.tunMtu, recommended)
+    }
+
+    private fun resolveTunStack(settings: AppSettings): String {
+        return if (Build.MODEL.contains("SM-G986U", ignoreCase = true)) {
+            "GVISOR (forced for device ${Build.MODEL})"
+        } else {
+            settings.tunStack.name
+        }
+    }
+
+    private fun buildDiagnosticMessage(
+        realPath: String,
+        settings: AppSettings,
+        runConfig: SingBoxConfig?,
+        networkType: String,
+        effectiveMtu: Int,
+        effectiveTunStack: String
+    ): String {
+        val rules = runConfig?.route?.rules.orEmpty()
+        val pkgRules = rules.filter { !it.packageName.isNullOrEmpty() }
+        val finalOutbound = runConfig?.route?.finalOutbound ?: "(null)"
+
+        val findProcess = runConfig?.route?.findProcess ?: false
+        val hasSniffRule = rules.any { it.action == "sniff" }
+        val tunInboundMtu = runConfig?.inbounds
+            ?.firstOrNull { it.type == "tun" }
+            ?.mtu
+
+        val outboundTags = runConfig?.outbounds.orEmpty().map { it.tag }.toSet()
+
+        val samplePkgRule = pkgRules.firstOrNull()
+        val sampleOutbound = samplePkgRule?.outbound ?: "(none)"
+        val samplePkgs = samplePkgRule?.packageName?.take(5).orEmpty()
+
+        return buildString {
+            appendLine("File: $realPath")
+            appendLine("\n=== Throughput / Runtime Hints ===")
+            appendLine("Network: $networkType")
+            appendLine("TUN stack (setting): ${settings.tunStack.name}")
+            appendLine("TUN stack (effective): $effectiveTunStack")
+            appendLine("MTU auto: ${settings.tunMtuAuto}")
+            appendLine("MTU manual: ${settings.tunMtu}")
+            appendLine("MTU effective: $effectiveMtu")
+            appendLine("MTU in running_config tun inbound: ${tunInboundMtu ?: "(null)"}")
+            appendLine("QUIC blocked: ${settings.blockQuic}")
+            appendLine("find_process (route): $findProcess")
+            appendLine("sniff enabled (route rule): $hasSniffRule")
+            appendLine("\n=== Routing Summary ===")
+            appendLine("Final outbound: $finalOutbound")
+            appendLine("Route rules count: ${rules.size}")
+            appendLine("App routing rules (package_name): ${pkgRules.size}")
+            appendLine("Contains app routing rules: ${pkgRules.isNotEmpty()}")
+            appendLine("Example (package_name -> outbound): $samplePkgs -> $sampleOutbound")
+            appendLine("Outbound tags contains final: ${outboundTags.contains(finalOutbound)}")
+            appendLine()
+            appendLine("Tips:")
+            appendLine("- If app routing is invalid and package_name=0, rules are not generated/enabled.")
+            appendLine("- If package_name>0 but still invalid, the runtime might not be able to identify the connection owner application (UID/package).")
         }
     }
 

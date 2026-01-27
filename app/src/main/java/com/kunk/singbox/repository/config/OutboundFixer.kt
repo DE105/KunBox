@@ -145,13 +145,16 @@ object OutboundFixer {
             result = result.copy(security = null)
         }
 
-        // Hysteria/Hysteria2: 补充缺省带宽，清理空字符串字段
+        // Hysteria/Hysteria2: 补充缺省带宽，清理空字符串字段，修复端口范围格式
         if (result.type == "hysteria" || result.type == "hysteria2") {
             val up = result.upMbps
             val down = result.downMbps
             val defaultMbps = 50
-            // 清理空的 serverPorts 列表
-            val cleanedServerPorts = result.serverPorts?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
+            // 清理空的 serverPorts 列表，并将 Clash 格式 (40000-50000) 转换为 sing-box 格式 (40000:50000)
+            val cleanedServerPorts = result.serverPorts
+                ?.filter { it.isNotBlank() }
+                ?.map { convertPortRangeFormat(it) }
+                ?.takeIf { it.isNotEmpty() }
             val cleanedHopInterval = result.hopInterval?.takeIf { it.isNotBlank() }
             result = result.copy(
                 upMbps = up ?: defaultMbps,
@@ -339,5 +342,20 @@ object OutboundFixer {
             return v.split(".").all { it.toIntOrNull()?.let { n -> n in 0..255 } == true }
         }
         return v.contains(":") && REGEX_IPV6.matches(v)
+    }
+
+    /**
+     * 将端口范围从 Clash 格式 (40000-50000) 转换为 sing-box 格式 (40000:50000)
+     * 支持逗号分隔的多个范围，如 "40000-50000,60000-70000"
+     */
+    private fun convertPortRangeFormat(portSpec: String): String {
+        return portSpec.split(",").joinToString(",") { part ->
+            val trimmed = part.trim()
+            if (trimmed.contains("-") && !trimmed.contains(":")) {
+                trimmed.replace("-", ":")
+            } else {
+                trimmed
+            }
+        }
     }
 }

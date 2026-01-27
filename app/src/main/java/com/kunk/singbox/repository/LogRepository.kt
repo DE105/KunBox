@@ -69,11 +69,37 @@ class LogRepository private constructor() {
 
     fun addLog(message: String) {
         val timestamp = synchronized(dateFormat) { dateFormat.format(Date()) }
-        // 过滤掉过于频繁的无用日志
-        if (message.contains("DEBUG") &&
-            (message.contains("selector: selected outbound") ||
+        // 过滤掉过于频繁的无用日志，保留关键的启动和状态日志
+        // 1. TRACE 级别日志 (sing-box 内核的详细追踪日志)
+        if (message.contains("TRACE")) {
+            return
+        }
+        // 2. DEBUG 级别中的高频日志
+        if (message.contains("DEBUG")) {
+            val isHighFreq = message.contains("selector: selected outbound") ||
                 message.contains("dns: exchange") ||
-                message.contains("internet v4 address"))) {
+                message.contains("dns: lookup") ||
+                message.contains("dns: match") ||
+                message.contains("dns: cached") ||
+                message.contains("dns: server")
+
+            if (isHighFreq) return
+        }
+        // 3. INFO 级别中的高频日志 (每个连接都会产生)
+        if (message.contains("INFO") &&
+            (message.contains("inbound/tun") ||
+                message.contains("inbound/mixed") ||
+                message.contains("router: found package") ||
+                message.contains("router: found user") ||
+                message.contains("outbound/vless") ||
+                message.contains("outbound/vmess") ||
+                message.contains("outbound/trojan") ||
+                message.contains("outbound/shadowsocks") ||
+                message.contains("outbound/hysteria") ||
+                message.contains("outbound/tuic") ||
+                message.contains("dns: rejected") ||
+                message.contains("dns: exchanged") ||
+                message.contains("dns: cached"))) {
             return
         }
 

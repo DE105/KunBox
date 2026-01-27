@@ -39,7 +39,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import com.kunk.singbox.utils.ProxyAwareOkHttpClient
+import com.kunk.singbox.utils.NetworkClient
 import com.kunk.singbox.utils.StringBuilderPool
 import com.tencent.mmkv.MMKV
 
@@ -172,20 +172,7 @@ class ConfigRepository(private val context: Context) {
         val configuredMtu = settings.tunMtu
         if (!settings.tunMtuAuto) return configuredMtu
 
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            ?: return configuredMtu
-
-        // In VPN process, activeNetwork may be the VPN network. Prefer a physical (NOT_VPN) network.
-        val physicalCaps = cm.allNetworks
-            .asSequence()
-            .mapNotNull { cm.getNetworkCapabilities(it) }
-            .firstOrNull {
-                it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                    !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-            }
-
-        val caps = physicalCaps ?: cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
-            ?: return configuredMtu
+        val caps = getNetworkCapabilities() ?: return configuredMtu
 
         // Throughput-first for Wi-Fi/Ethernet; conservative for cellular.
         // QUIC-based proxies (Hysteria2/TUIC) + YouTube QUIC = double encapsulation,
@@ -201,25 +188,46 @@ class ConfigRepository(private val context: Context) {
         return minOf(configuredMtu, recommendedMtu)
     }
 
-    // client 改为动态获取，以支持可配置的超时
-    // 使用不带重试的 Client，避免订阅获取时超时时间被重试机制延长
-    // 当 VPN 运行时，使用代理客户端让请求走 sing-box 代理
-    // 优化: 使用缓存的 settings 值，避免 runBlocking 阻塞
+    private fun getNetworkCapabilities(): NetworkCapabilities? {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return null
+
+        val physicalCaps = cm.allNetworks
+            .asSequence()
+            .mapNotNull { cm.getNetworkCapabilities(it) }
+            .firstOrNull {
+                it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            }
+        return physicalCaps ?: cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+    }
+
+    // 2026-01-27 修复: 代理优先 + 直连回退，解决:
+    // 1. 订阅被墙 → 代理可访问
+    // 2. Hysteria2 崩溃 → 回退直连
     private fun getClient(): okhttp3.OkHttpClient {
-        val settings = cachedSettings ?: AppSettings() // 使用缓存，无阻塞；首次为空时使用默认值
+        val settings = cachedSettings ?: AppSettings()
         val timeout = settings.subscriptionUpdateTimeout.toLong()
 
-        val client = ProxyAwareOkHttpClient.get(
-            settings = settings,
+        return NetworkClient.createClientWithoutRetry(
             connectTimeoutSeconds = timeout,
             readTimeoutSeconds = timeout,
-            writeTimeoutSeconds = timeout,
-            directWithRetry = false
+            writeTimeoutSeconds = timeout
         )
-        if (VpnStateStore.getActive()) {
-            Log.d(TAG, "Core active, using local proxy 127.0.0.1:${settings.proxyPort} for subscription fetch")
+    }
+
+    private fun getProxyClient(): okhttp3.OkHttpClient? {
+        val settings = cachedSettings ?: AppSettings()
+        if (!com.kunk.singbox.ipc.VpnStateStore.getActive() || settings.proxyPort <= 0) {
+            return null
         }
-        return client
+        val timeout = settings.subscriptionUpdateTimeout.toLong()
+        return NetworkClient.createClientWithProxy(
+            proxyPort = settings.proxyPort,
+            connectTimeoutSeconds = timeout,
+            readTimeoutSeconds = timeout,
+            writeTimeoutSeconds = timeout
+        )
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -930,6 +938,7 @@ class ConfigRepository(private val context: Context) {
     /**
      * 使用多种 User-Agent 尝试获取订阅内容
      * 如果解析失败，依次尝试其他 UA
+     * 2026-01-27: 代理优先 + 直连回退，解决被墙和代理崩溃问题
      *
      * @param url 订阅链接
      * @param onProgress 进度回调
@@ -954,30 +963,35 @@ class ConfigRepository(private val context: Context) {
                 var parsedConfig: SingBoxConfig? = null
                 var userInfo: SubscriptionUserInfo? = null
 
-                getClient().newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.w(TAG, "Request failed with UA '$userAgent': HTTP ${response.code}")
+                val response = executeRequestWithFallback(request)
+                if (response == null) {
+                    Log.w(TAG, "Request failed with UA '$userAgent': no response")
+                    if (index == USER_AGENTS.lastIndex) {
+                        throw java.io.IOException("网络请求失败")
+                    }
+                    continue
+                }
+
+                response.use { resp ->
+                    if (!resp.isSuccessful) {
+                        Log.w(TAG, "Request failed with UA '$userAgent': HTTP ${resp.code}")
                         if (index == USER_AGENTS.lastIndex) {
-                            throw Exception("HTTP ${response.code}: ${response.message}")
+                            throw java.io.IOException("HTTP ${resp.code}: ${resp.message}")
                         }
                         return@use
                     }
 
-                    val responseBody = response.body?.string()
+                    val responseBody = resp.body?.string()
                     if (responseBody.isNullOrBlank()) {
                         Log.w(TAG, "Empty response with UA '$userAgent'")
                         if (index == USER_AGENTS.lastIndex) {
-                            throw Exception("服务器返回空内容")
+                            throw java.io.IOException("服务器返回空内容")
                         }
                         return@use
                     }
 
-                    // 尝试从 Header 或 Body 解析 UserInfo
-                    // 先尝试解码 Body 以便检查内容
                     val decodedBody = tryDecodeBase64(responseBody) ?: responseBody
-                    userInfo = parseSubscriptionUserInfo(response.header("Subscription-Userinfo"), decodedBody)
-
-                    val contentType = response.header("Content-Type") ?: ""
+                    userInfo = parseSubscriptionUserInfo(resp.header("Subscription-Userinfo"), decodedBody)
 
                     onProgress("正在解析配置...")
 
@@ -986,11 +1000,6 @@ class ConfigRepository(private val context: Context) {
                         parsedConfig = config
                     } else {
                         Log.w(TAG, "Failed to parse response with UA '$userAgent'")
-                        if (index == USER_AGENTS.lastIndex) {
-                            // 如果是最后一次尝试，且内容不为空但无法解析，则可能是格式问题
-                            // 但也有可能是网络截断等问题，这里我们记录为解析失败
-                            // 让外层决定是否抛出异常（外层通过返回值 null 判断）
-                        }
                     }
                 }
 
@@ -1002,16 +1011,38 @@ class ConfigRepository(private val context: Context) {
             } catch (e: Exception) {
                 Log.w(TAG, "Error with UA '$userAgent': ${e.message}")
                 lastError = e
-                // 如果是最后一次尝试，重新抛出异常以便上层捕获详细信息
                 if (index == USER_AGENTS.lastIndex) {
                     throw e
                 }
             }
         }
 
-        // 理论上不会执行到这里，因为最后一次尝试会抛出异常
         lastError?.let { Log.e(TAG, "All User-Agents failed", it) }
         return null
+    }
+
+    private fun executeRequestWithFallback(request: okhttp3.Request): okhttp3.Response? {
+        val proxyClient = getProxyClient()
+        if (proxyClient != null) {
+            try {
+                val response = proxyClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Proxy request succeeded")
+                    return response
+                }
+                response.close()
+                Log.w(TAG, "Proxy request failed with ${response.code}, falling back to direct")
+            } catch (e: Exception) {
+                Log.w(TAG, "Proxy request failed: ${e.message}, falling back to direct")
+            }
+        }
+
+        return try {
+            getClient().newCall(request).execute()
+        } catch (e: Exception) {
+            Log.e(TAG, "Direct request also failed: ${e.message}")
+            null
+        }
     }
 
     private fun sanitizeSubscriptionSnippet(body: String, maxLen: Int = 220): String {
@@ -2805,7 +2836,11 @@ class ConfigRepository(private val context: Context) {
         val remoteDnsAddr = settings.remoteDns.takeIf { it.isNotBlank() } ?: "https://dns.google/dns-query"
         // 如果是纯 IP DoH (如 https://1.1.1.1/...) 或者是 local，不需要 resolver
         // 但通常 remote 推荐用域名以支持证书验证 (虽然 1.1.1.1 支持 IP SAN)
-        val remoteResolver = if (remoteDnsAddr == "local" || isIpAddress(extractHost(remoteDnsAddr))) null else "dns-bootstrap"
+        val remoteResolver = if (remoteDnsAddr == "local" || isIpAddress(extractHost(remoteDnsAddr))) {
+            null
+        } else {
+            "dns-bootstrap"
+        }
         dnsServers.add(
             DnsServer(
                 tag = "remote",
@@ -3436,6 +3471,51 @@ class ConfigRepository(private val context: Context) {
         )
     }
 
+    private fun buildQuicBlockRule(settings: AppSettings): List<RouteRule> {
+        return if (settings.blockQuic) {
+            listOf(RouteRule(protocolRaw = listOf("quic"), outbound = "block"))
+        } else {
+            emptyList()
+        }
+    }
+
+    private fun buildBypassLanRules(settings: AppSettings): List<RouteRule> {
+        return if (settings.bypassLan) {
+            listOf(
+                RouteRule(
+                    ipCidr = listOf(
+                        "10.0.0.0/8",
+                        "172.16.0.0/12",
+                        "192.168.0.0/16",
+                        "fd00::/8", // 避免与 FakeIP IPv6 默认范围 (fc00::/18) 冲突
+                        "127.0.0.0/8",
+                        "::1/128"
+                    ),
+                    outbound = "direct"
+                )
+            )
+        } else {
+            emptyList()
+        }
+    }
+
+    private fun buildAdBlockRules(settings: AppSettings, validRuleSets: List<RuleSetConfig>): List<RouteRule> {
+        val adBlockEnabled = settings.blockAds && validRuleSets.any { it.tag == "geosite-category-ads-all" }
+        return if (adBlockEnabled) {
+            listOf(RouteRule(ruleSet = listOf("geosite-category-ads-all"), outbound = "block"))
+        } else {
+            emptyList()
+        }
+    }
+
+    private fun buildDefaultRules(settings: AppSettings, selectorTag: String): List<RouteRule> {
+        return when (settings.defaultRule) {
+            DefaultRule.DIRECT -> listOf(RouteRule(outbound = "direct"))
+            DefaultRule.BLOCK -> listOf(RouteRule(outbound = "block"))
+            DefaultRule.PROXY -> listOf(RouteRule(outbound = selectorTag))
+        }
+    }
+
     @Suppress("CyclomaticComplexMethod", "CognitiveComplexMethod")
     private fun buildRunRoute(
         settings: AppSettings,
@@ -3450,60 +3530,19 @@ class ConfigRepository(private val context: Context) {
             (it.type == RuleType.DOMAIN || it.type == RuleType.DOMAIN_SUFFIX || it.type == RuleType.DOMAIN_KEYWORD)
         }
 
-        // 构建应用分流规则
         val appRoutingRules = buildAppRoutingRules(settings, selectorTag, outbounds, nodeTagResolver)
-
-        // 构建自定义规则集路由规则（只针对有效的规则集）
         val customRuleSetRules =
             buildCustomRuleSetRules(settings, selectorTag, outbounds, nodeTagResolver, validRuleSets)
 
-        val quicRule = if (settings.blockQuic) {
-            listOf(RouteRule(protocolRaw = listOf("quic"), outbound = "block"))
-        } else {
-            emptyList()
-        }
-
-        // 局域网绕过规则
-        val bypassLanRules = if (settings.bypassLan) {
-            listOf(
-                RouteRule(
-                    ipCidr = listOf(
-                        "10.0.0.0/8",
-                        "172.16.0.0/12",
-                        "192.168.0.0/16",
-                        "fd00::/8", // 避免与 FakeIP IPv6 默认范围 (fc00::/18) 冲突
-
-                        "127.0.0.0/8",
-                        "::1/128"
-                    ),
-                    outbound = "direct"
-                )
-            )
-        } else {
-            emptyList()
-        }
+        val quicRule = buildQuicBlockRule(settings)
+        val bypassLanRules = buildBypassLanRules(settings)
+        val adBlockRules = buildAdBlockRules(settings, validRuleSets)
+        val customDomainRules = buildCustomDomainRules(settings, selectorTag, outbounds, nodeTagResolver)
+        val defaultRuleCatchAll = buildDefaultRules(settings, selectorTag)
 
         val adBlockEnabled = settings.blockAds && validRuleSets.any { it.tag == "geosite-category-ads-all" }
-        val adBlockRules = if (adBlockEnabled) {
-            listOf(RouteRule(ruleSet = listOf("geosite-category-ads-all"), outbound = "block"))
-        } else {
-            emptyList()
-        }
-
-        val customDomainRules = buildCustomDomainRules(settings, selectorTag, outbounds, nodeTagResolver)
-
-        val defaultRuleCatchAll = when (settings.defaultRule) {
-            DefaultRule.DIRECT -> listOf(RouteRule(outbound = "direct"))
-            DefaultRule.BLOCK -> listOf(RouteRule(outbound = "block"))
-            DefaultRule.PROXY -> listOf(RouteRule(outbound = selectorTag))
-        }
-
-        // sniff 会引入额外 CPU/延迟开销。
-        // 仅在存在域名类分流/规则集分流/广告拦截等需要域名信息的场景启用。
         val needSniff = hasCustomDomainRouting || hasRuleSetRouting || adBlockEnabled
         val sniffRule = if (needSniff) listOf(RouteRule(action = "sniff")) else emptyList()
-
-        // DNS 劫持规则：将 DNS 流量重定向到 sing-box DNS 模块处理
         val hijackDnsRule = listOf(RouteRule(protocolRaw = listOf("dns"), action = "hijack-dns"))
 
         val allRules = when (settings.routingMode) {

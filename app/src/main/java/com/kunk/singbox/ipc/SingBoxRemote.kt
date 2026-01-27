@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.kunk.singbox.aidl.ISingBoxService
 import com.kunk.singbox.aidl.ISingBoxServiceCallback
+import com.kunk.singbox.service.ServiceState
 import com.kunk.singbox.service.SingBoxService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,8 +43,8 @@ object SingBoxRemote {
     // 2025-fix-v6: 强制从 VpnStateStore 同步的阈值
     private const val FORCE_STORE_SYNC_THRESHOLD_MS = 5_000L
 
-    private val _state = MutableStateFlow(SingBoxService.ServiceState.STOPPED)
-    val state: StateFlow<SingBoxService.ServiceState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(ServiceState.STOPPED)
+    val state: StateFlow<ServiceState> = _state.asStateFlow()
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
@@ -99,22 +100,23 @@ object SingBoxRemote {
         override fun onStateChanged(state: Int, activeLabel: String?, lastError: String?, manuallyStopped: Boolean) {
             // 2025-fix-v6: 记录回调接收时间
             lastCallbackReceivedAtMs = SystemClock.elapsedRealtime()
-            val st = SingBoxService.ServiceState.values().getOrNull(state)
-                ?: SingBoxService.ServiceState.STOPPED
+            val st = ServiceState.values().getOrNull(state)
+                ?: ServiceState.STOPPED
+            val oldState = _state.value
             updateState(st, activeLabel, lastError, manuallyStopped)
-            Log.d(TAG, "Callback received: state=$st, activeLabel=$activeLabel")
+            Log.i(TAG, "[UI] Callback received: $oldState -> $st, activeLabel=$activeLabel")
         }
     }
 
     private fun updateState(
-        st: SingBoxService.ServiceState,
+        st: ServiceState,
         activeLabel: String? = null,
         lastError: String? = null,
         manuallyStopped: Boolean? = null
     ) {
         _state.value = st
-        _isRunning.value = st == SingBoxService.ServiceState.RUNNING
-        _isStarting.value = st == SingBoxService.ServiceState.STARTING
+        _isRunning.value = st == ServiceState.RUNNING
+        _isStarting.value = st == ServiceState.STARTING
         activeLabel?.let { _activeLabel.value = it }
         lastError?.let { _lastError.value = it }
         manuallyStopped?.let { _manuallyStopped.value = it }
@@ -132,9 +134,9 @@ object SingBoxRemote {
         val storedManuallyStopped = VpnStateStore.isManuallyStopped()
 
         val newState = if (isActive) {
-            SingBoxService.ServiceState.RUNNING
+            ServiceState.RUNNING
         } else {
-            SingBoxService.ServiceState.STOPPED
+            ServiceState.STOPPED
         }
 
         Log.i(TAG, "syncStateFromStore: isActive=$isActive, label=$storedLabel")
@@ -211,7 +213,7 @@ object SingBoxRemote {
                 Log.i(TAG, "System VPN still active, keeping current state and reconnecting")
                 scheduleReconnect()
             } else {
-                updateState(SingBoxService.ServiceState.STOPPED, "", "", false)
+                updateState(ServiceState.STOPPED, "", "", false)
             }
         }
     }
@@ -227,8 +229,8 @@ object SingBoxRemote {
     private fun syncStateFromService(s: ISingBoxService?) {
         if (s == null) return
         runCatching {
-            val st = SingBoxService.ServiceState.values().getOrNull(s.state)
-                ?: SingBoxService.ServiceState.STOPPED
+            val st = ServiceState.values().getOrNull(s.state)
+                ?: ServiceState.STOPPED
             updateState(st, s.activeLabel.orEmpty(), s.lastError.orEmpty(), s.isManuallyStopped)
             Log.i(TAG, "State synced: $st, running=${_isRunning.value}")
         }.onFailure {
@@ -356,15 +358,15 @@ object SingBoxRemote {
             Log.i(TAG, "queryAndSyncState: system VPN active but not connected, connecting")
             connect(ctx)
 
-            if (_state.value != SingBoxService.ServiceState.RUNNING) {
-                updateState(SingBoxService.ServiceState.RUNNING)
+            if (_state.value != ServiceState.RUNNING) {
+                updateState(ServiceState.RUNNING)
             }
             return true
         }
 
-        if (!hasVpn && _state.value == SingBoxService.ServiceState.RUNNING) {
+        if (!hasVpn && _state.value == ServiceState.RUNNING) {
             Log.i(TAG, "queryAndSyncState: no system VPN but state is RUNNING, correcting")
-            updateState(SingBoxService.ServiceState.STOPPED)
+            updateState(ServiceState.STOPPED)
         }
 
         if (!connectionActive) {

@@ -295,12 +295,23 @@ class SingBoxService : VpnService() {
     /**
      * 初始化新架构 Managers (7个核心模块)
      */
-    @Suppress("LongMethod")
+    @Suppress("CognitiveComplexMethod")
     private fun initManagers() {
         // 1. 初始化核心管理器
         coreManager.init(platformInterfaceImpl)
         Log.i(TAG, "CoreManager initialized")
 
+        initConnectManager()
+        initServiceSelectorManager()
+        initCommandManager()
+        initHealthMonitorWrapper()
+        initRecoveryCoordinator()
+        initSecondaryManagers()
+
+        Log.i(TAG, "All managers initialized")
+    }
+
+    private fun initConnectManager() {
         // 2. 初始化连接管理器
         connectManager.init(
             onNetworkChanged = { network ->
@@ -316,11 +327,15 @@ class SingBoxService : VpnService() {
             }
         )
         Log.i(TAG, "ConnectManager initialized")
+    }
 
+    private fun initServiceSelectorManager() {
         // 3. 初始化节点选择管理器
         serviceSelectorManager.init(commandManager.getCommandClient())
         Log.i(TAG, "ServiceSelectorManager initialized")
+    }
 
+    private fun initCommandManager() {
         // 4. 初始化 Command 管理器
         commandManager.init(object : CommandManager.Callbacks {
             override fun requestNotificationUpdate(force: Boolean) {
@@ -343,7 +358,9 @@ class SingBoxService : VpnService() {
             }
         })
         Log.i(TAG, "CommandManager initialized")
+    }
 
+    private fun initHealthMonitorWrapper() {
         // 5. 初始化健康监控管理器包装器
         healthMonitorWrapper.init {
             object : HealthMonitor.HealthContext {
@@ -369,16 +386,14 @@ class SingBoxService : VpnService() {
             }
         }
         Log.i(TAG, "HealthMonitorWrapper initialized")
+    }
 
-        // 6. 初始化恢复协调器（串行化 recover/reset/restart，防止并发打到内核）
+    private fun initRecoveryCoordinator() {
         recoveryCoordinator.init(object : RecoveryCoordinator.Callbacks {
-            override val isRunning: Boolean
-                get() = SingBoxService.isRunning
-            override val isStopping: Boolean
-                get() = coreManager.isStopping
+            override val isRunning: Boolean get() = SingBoxService.isRunning
+            override val isStopping: Boolean get() = coreManager.isStopping
 
             override suspend fun recoverNetwork(mode: Int, reason: String): Boolean {
-                // Keep mapping consistent with Go side constants.
                 val ok = when (mode) {
                     ScreenStateManager.RECOVERY_MODE_QUICK -> BoxWrapperManager.recoverNetworkQuick()
                     ScreenStateManager.RECOVERY_MODE_FULL -> BoxWrapperManager.recoverNetworkFull()
@@ -387,64 +402,44 @@ class SingBoxService : VpnService() {
                     else -> BoxWrapperManager.recoverNetworkAuto()
                 }
 
-                // Foreground recovery historically also closes idle connections.
                 if (mode == ScreenStateManager.RECOVERY_MODE_AUTO && reason.contains("app_foreground")) {
                     runCatching {
                         val closed = BoxWrapperManager.closeIdleConnections(60)
                         if (closed > 0) {
-                            Log.i(TAG, "[Foreground] closeIdleConnections: closed $closed idle connections")
-                            runCatching {
-                                LogRepository.getInstance()
-                                    .addLog("INFO [Foreground] closeIdleConnections closed=$closed")
-                            }
+                            Log.i(TAG, "[Foreground] closed $closed idle connections")
+                            runCatching { LogRepository.getInstance().addLog("INFO [Foreground] closed=$closed") }
                         }
                     }
                 }
-
                 Log.i(TAG, "recoverNetwork mode=$mode ok=$ok reason=$reason")
                 return ok
             }
 
-            override suspend fun enterDeviceIdle(reason: String): Boolean {
-                return try {
-                    val ok = BoxWrapperManager.sleep()
-                    if (ok) {
-                        Log.i(TAG, "[Doze] enterDeviceIdle: sleep() ok")
-                        true
-                    } else {
-                        Log.w(TAG, "[Doze] enterDeviceIdle: sleep() returned false, trying pause()")
-                        BoxWrapperManager.pause()
-                        true
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "[Doze] enterDeviceIdle failed", e)
-                    false
-                }
-            }
-
             override suspend fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean) {
-                this@SingBoxService.resetConnectionsOptimal(reason, skipDebounce)
+                BoxWrapperManager.resetAllConnections(true)
             }
 
             override suspend fun resetCoreNetwork(reason: String, force: Boolean) {
-                coreNetworkResetManager.cancelPendingReset()
-                coreNetworkResetManager.resetNow(reason, force)
-            }
-
-            override suspend fun restartVpnService(reason: String) {
-                this@SingBoxService.restartVpnService(reason)
+                if (force) {
+                    BoxWrapperManager.resetAllConnections(true)
+                    delay(150)
+                }
+                BoxWrapperManager.resetNetwork()
             }
 
             override suspend fun closeIdleConnections(maxIdleSeconds: Int, reason: String): Int {
-                val closed = BoxWrapperManager.closeIdleConnections(maxIdleSeconds)
-                if (closed > 0) {
-                    Log.i(
-                        TAG,
-                        "[$reason] closeIdleConnections: closed $closed " +
-                            "idle connections (maxIdle=${maxIdleSeconds}s)"
-                    )
-                }
-                return closed
+                return BoxWrapperManager.closeIdleConnections(maxIdleSeconds)
+            }
+
+            override suspend fun enterDeviceIdle(reason: String): Boolean {
+                return BoxWrapperManager.pause()
+            }
+
+            override suspend fun restartVpnService(reason: String) {
+                Log.i(TAG, "Restarting VPN service (reason=$reason)")
+                stopVpn(stopService = false)
+                delay(500)
+                lastConfigPath?.let { startVpn(it) }
             }
 
             override fun addLog(message: String) {
@@ -452,7 +447,9 @@ class SingBoxService : VpnService() {
             }
         })
         Log.i(TAG, "RecoveryCoordinator initialized")
+    }
 
+    private fun initSecondaryManagers() {
         // 7. 初始化屏幕状态管理器
         screenStateManager.init(object : ScreenStateManager.Callbacks {
             override val isRunning: Boolean
@@ -889,18 +886,6 @@ class SingBoxService : VpnService() {
         )
     }
 
-    @Deprecated("Use resetConnectionsOptimal instead")
-    private suspend fun closeAllConnectionsImmediate(skipDebounce: Boolean = false) {
-        resetConnectionsOptimal(reason = "legacy_closeAllImmediate", skipDebounce = skipDebounce)
-    }
-
-    enum class ServiceState {
-        STOPPED,
-        STARTING,
-        RUNNING,
-        STOPPING
-    }
-
     @Volatile private var serviceState: ServiceState = ServiceState.STOPPED
 
     private fun resolveEgressNodeName(repo: ConfigRepository, tagOrSelector: String?): String? {
@@ -969,7 +954,7 @@ class SingBoxService : VpnService() {
         }
     }
 
-    private fun updateServiceState(state: ServiceState) {
+        private fun updateServiceState(state: ServiceState) {
         if (serviceState == state) return
         serviceState = state
         requestRemoteStateUpdate(force = true)
@@ -1028,684 +1013,684 @@ class SingBoxService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
 
-    private var currentSettings: AppSettings? = null
-    private val serviceSupervisorJob = SupervisorJob()
-    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceSupervisorJob)
-    private val cleanupSupervisorJob = SupervisorJob()
-    private val cleanupScope = CoroutineScope(Dispatchers.IO + cleanupSupervisorJob)
-    @Volatile private var isStopping: Boolean = false
-    @Volatile private var stopSelfRequested: Boolean = false
-    @Volatile private var cleanupJob: Job? = null
-    @Volatile private var pendingStartConfigPath: String? = null
-    @Volatile private var pendingCleanCache: Boolean = false
-    @Volatile private var pendingHotSwitchNodeId: String? = null
-    @Volatile private var startVpnJob: Job? = null
-    @Volatile private var realTimeNodeName: String? = null
-    // @Volatile private var nodePollingJob: Job? = null // Removed in favor of CommandClient
+private var currentSettings: AppSettings? = null
+private val serviceSupervisorJob = SupervisorJob()
+private val serviceScope = CoroutineScope(Dispatchers.IO + serviceSupervisorJob)
+private val cleanupSupervisorJob = SupervisorJob()
+private val cleanupScope = CoroutineScope(Dispatchers.IO + cleanupSupervisorJob)
+@Volatile private var isStopping: Boolean = false
+@Volatile private var stopSelfRequested: Boolean = false
+@Volatile private var cleanupJob: Job? = null
+@Volatile private var pendingStartConfigPath: String? = null
+@Volatile private var pendingCleanCache: Boolean = false
 
-    private val isConnectingTun = AtomicBoolean(false)
+@Volatile private var startVpnJob: Job? = null
+@Volatile private var realTimeNodeName: String? = null
+// @Volatile private var nodePollingJob: Job? = null // Removed in favor of CommandClient
 
-    // Command 相关变量已移至 CommandManager
-    // 保留这些作为兼容性别名 (委托到 commandManager)
-    private val activeConnectionNode: String? get() = commandManager.activeConnectionNode
-    private val activeConnectionLabel: String? get() = commandManager.activeConnectionLabel
-    private val recentConnectionIds: List<String> get() = commandManager.recentConnectionIds
+private val isConnectingTun = AtomicBoolean(false)
 
-    // 速度计算相关 - 委托给 TrafficMonitor
-    @Volatile private var showNotificationSpeed: Boolean = true
-    private var currentUploadSpeed: Long = 0L
-    private var currentDownloadSpeed: Long = 0L
+// Command 相关变量已移至 CommandManager
+// 保留这些作为兼容性别名 (委托到 commandManager)
+private val activeConnectionNode: String? get() = commandManager.activeConnectionNode
+private val activeConnectionLabel: String? get() = commandManager.activeConnectionLabel
+private val recentConnectionIds: List<String> get() = commandManager.recentConnectionIds
 
-    // TrafficMonitor 实例 - 统一管理流量监控和卡死检测
-    private val trafficMonitor = TrafficMonitor(serviceScope)
-    private val trafficListener = object : TrafficMonitor.Listener {
-        override fun onTrafficUpdate(snapshot: TrafficMonitor.TrafficSnapshot) {
-            currentUploadSpeed = snapshot.uploadSpeed
-            currentDownloadSpeed = snapshot.downloadSpeed
-            if (showNotificationSpeed) {
-                requestNotificationUpdate(force = false)
+// 速度计算相关 - 委托给 TrafficMonitor
+@Volatile private var showNotificationSpeed: Boolean = true
+private var currentUploadSpeed: Long = 0L
+private var currentDownloadSpeed: Long = 0L
+
+// TrafficMonitor 实例 - 统一管理流量监控和卡死检测
+private val trafficMonitor = TrafficMonitor(serviceScope)
+private val trafficListener = object : TrafficMonitor.Listener {
+    override fun onTrafficUpdate(snapshot: TrafficMonitor.TrafficSnapshot) {
+        currentUploadSpeed = snapshot.uploadSpeed
+        currentDownloadSpeed = snapshot.downloadSpeed
+        if (showNotificationSpeed) {
+            requestNotificationUpdate(force = false)
+        }
+    }
+
+    override fun onTrafficStall(consecutiveCount: Int) {
+        // 流量停滞检测 - 触发轻量级健康检查
+        stallRefreshAttempts++
+        Log.w(TAG, "Traffic stall detected (count=$consecutiveCount, refreshAttempt=$stallRefreshAttempts/$maxStallRefreshAttempts)")
+
+        if (stallRefreshAttempts >= maxStallRefreshAttempts) {
+            Log.e(TAG, "Too many stall refresh attempts ($stallRefreshAttempts), restarting VPN service")
+            LogRepository.getInstance().addLog(
+                "ERROR: VPN connection stalled for too long, automatically restarting..."
+            )
+            stallRefreshAttempts = 0
+            trafficMonitor.resetStallCounter()
+            recoveryCoordinator.request(
+                RecoveryCoordinator.Request.Restart("traffic_stall_persistent")
+            )
+        } else {
+            // 尝试刷新连接
+            serviceScope.launch {
+                try {
+                    coreManager.wakeService()
+                    delay(30)
+                    // Use full recovery: wake -> close connections -> DNS -> reset network stack.
+                    recoveryCoordinator.request(
+                        RecoveryCoordinator.Request.Recover(
+                            ScreenStateManager.RECOVERY_MODE_FULL,
+                            "traffic_stall"
+                        )
+                    )
+                    Log.i(TAG, "Triggered full recovery after stall")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to clear connections after stall", e)
+                }
+                trafficMonitor.resetStallCounter()
             }
         }
+    }
 
-        override fun onTrafficStall(consecutiveCount: Int) {
-            // 流量停滞检测 - 触发轻量级健康检查
-            stallRefreshAttempts++
-            Log.w(TAG, "Traffic stall detected (count=$consecutiveCount, refreshAttempt=$stallRefreshAttempts/$maxStallRefreshAttempts)")
+    override fun onProxyIdle(idleDurationMs: Long) {
+        val idleSeconds = idleDurationMs / 1000
 
-            if (stallRefreshAttempts >= maxStallRefreshAttempts) {
-                Log.e(TAG, "Too many stall refresh attempts ($stallRefreshAttempts), restarting VPN service")
-                LogRepository.getInstance().addLog(
-                    "ERROR: VPN connection stalled for too long, automatically restarting..."
+        // 条件化恢复：避免在“无连接/无需恢复”时触发重置导致抖动。
+        if (!BoxWrapperManager.isAvailable()) {
+            Log.d(TAG, "Proxy idle detected (${idleSeconds}s) but Box not available, skip reset")
+            return
+        }
+
+        val connCount = runCatching { BoxWrapperManager.getConnectionCount() }.getOrDefault(0)
+        val needRecovery = runCatching { BoxWrapperManager.isNetworkRecoveryNeeded() }.getOrDefault(false)
+
+        if (connCount <= 0 && !needRecovery) {
+            Log.d(
+                TAG,
+                "Proxy idle detected (${idleSeconds}s) but no active connections and recovery not needed"
+            )
+            return
+        }
+
+        Log.i(
+            TAG,
+            "Proxy idle detected (${idleSeconds}s), resetting connections (connCount=$connCount needRecovery=$needRecovery)"
+        )
+        recoveryCoordinator.request(
+            RecoveryCoordinator.Request.ResetConnections(
+                reason = "proxy_idle_${idleSeconds}s",
+                skipDebounce = false
+            )
+        )
+    }
+}
+
+// Periodic idle connection cleanup:
+// Some apps (e.g., Telegram-like) can get stuck on a stale/blackholed TCP connection after background.
+// If other apps keep producing traffic, global stall/idle detectors may never trigger.
+// Closing long-idle connections periodically forces fast reconnect without requiring user to reopen KunBox.
+@Volatile private var idleConnectionCleanupJob: Job? = null
+private val idleCleanupIntervalMs: Long = 60_000L
+private val idleCleanupMaxIdleSeconds: Int = 60
+private val idleCleanupInitialDelayMs: Long = 15_000L
+
+private fun startIdleConnectionCleanupLoop() {
+    if (idleConnectionCleanupJob?.isActive == true) return
+
+    idleConnectionCleanupJob = serviceScope.launch {
+        delay(idleCleanupInitialDelayMs)
+        while (isActive) {
+            delay(idleCleanupIntervalMs)
+            if (!isRunning || isStopping || coreManager.isStopping || !BoxWrapperManager.isAvailable()) {
+                continue
+            }
+
+            // Stable behavior: only attempt cleanup when there are active connections.
+            val connCount = runCatching { BoxWrapperManager.getConnectionCount() }.getOrDefault(0)
+            if (connCount <= 0) continue
+
+            recoveryCoordinator.request(
+                RecoveryCoordinator.Request.CloseIdleConnections(
+                    maxIdleSeconds = idleCleanupMaxIdleSeconds,
+                    reason = "periodic_idle_cleanup"
                 )
-                stallRefreshAttempts = 0
-                trafficMonitor.resetStallCounter()
-                recoveryCoordinator.request(
-                    RecoveryCoordinator.Request.Restart("traffic_stall_persistent")
-                )
-            } else {
-                // 尝试刷新连接
+            )
+        }
+    }
+}
+
+private fun stopIdleConnectionCleanupLoop() {
+    idleConnectionCleanupJob?.cancel()
+    idleConnectionCleanupJob = null
+}
+
+//  P1修复: 连续stall刷新失败后自动重启服务
+private var stallRefreshAttempts: Int = 0
+private val maxStallRefreshAttempts: Int = 3 // 连续3次stall刷新后仍无流量则重启服务
+
+// NetworkManager 实例 - 统一管理网络状态和底层网络切换
+private var networkManager: NetworkManager? = null
+
+private val coreResetDebounceMs: Long = 2500L
+
+@Volatile private var lastRuleSetCheckMs: Long = 0L
+private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
+
+private val uidToPackageCache = ConcurrentHashMap<Int, String>()
+private val maxUidToPackageCacheSize: Int = 512
+
+private fun cacheUidToPackage(uid: Int, pkg: String) {
+    if (uid <= 0 || pkg.isBlank()) return
+    uidToPackageCache[uid] = pkg
+    if (uidToPackageCache.size > maxUidToPackageCacheSize) {
+        uidToPackageCache.clear()
+    }
+}
+
+private fun requestCoreNetworkReset(reason: String, force: Boolean = false) {
+    recoveryCoordinator.request(RecoveryCoordinator.Request.ResetCoreNetwork(reason, force))
+}
+
+/**
+ * 重启 VPN 服务以彻底清理网络状态
+ * 用于处理网络栈重置无效的严重情况
+ */
+private suspend fun restartVpnService(reason: String) = withContext(Dispatchers.Main) {
+    L.vpn("Restart", "Restarting: $reason")
+
+    // 保存当前配置路径
+    val configPath = lastConfigPath ?: run {
+        L.warn("Restart", "Cannot restart: no config path")
+        return@withContext
+    }
+
+    try {
+        // 停止当前服务 (不停止 Service 本身)
+        stopVpn(stopService = false)
+
+        // 等待完全停止
+        var waitCount = 0
+        while (isStopping && waitCount < 50) {
+            delay(100)
+            waitCount++
+        }
+
+        // 短暂延迟确保资源完全释放
+        delay(500)
+
+        // 重新启动
+        startVpn(configPath)
+
+        L.result("Restart", true, "VPN restarted")
+    } catch (e: Exception) {
+        L.error("Restart", "Failed to restart VPN", e)
+        setLastError("Failed to restart VPN: ${e.message}")
+    }
+}
+
+// 屏幕/前台状态从 ScreenStateManager 读取
+private val isScreenOn: Boolean get() = screenStateManager.isScreenOn
+private val isAppInForeground: Boolean get() = screenStateManager.isAppInForeground
+
+// Auto reconnect
+private var connectivityManager: ConnectivityManager? = null
+
+private var currentInterfaceListener: InterfaceUpdateListener? = null
+private var defaultInterfaceName: String = ""
+private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+private var lastKnownNetwork: Network? = null
+private var vpnHealthJob: Job? = null
+@Volatile private var vpnLinkValidated: Boolean = false
+
+// 网络就绪标志：确保 Libbox 启动前网络回调已完成初始采样
+@Volatile private var networkCallbackReady: Boolean = false
+@Volatile private var noPhysicalNetworkWarningLogged: Boolean = false
+
+// setUnderlyingNetworks 防抖机制 - 避免频繁调用触发系统提示音
+private val lastSetUnderlyingNetworksAtMs = AtomicLong(0)
+private val setUnderlyingNetworksDebounceMs: Long = 2000L // 2秒防抖
+
+// VPN 启动窗口期保护 - 参考 NekoBox 设计
+// 在 VPN 启动后的短时间内，updateDefaultInterface 跳过 setUnderlyingNetworks 调用
+// 因为 openTun() 已经设置过底层网络，重复调用会导致 UDP 连接断开
+private val vpnStartedAtMs = AtomicLong(0)
+private val vpnStartupWindowMs: Long = 3000L // 启动后 3 秒内跳过重复设置
+
+// NekoBox-style: 连接重置防抖，避免多次重置导致 Telegram 反复加载
+@Volatile private var lastConnectionsResetAtMs: Long = 0L
+private val connectionsResetDebounceMs: Long = 2000L // 2秒内不重复重置
+
+// ACTION_PREPARE_RESTART 防抖：避免短时间内重复触发导致网络反复震荡
+private val lastPrepareRestartAtMs = AtomicLong(0L)
+private val prepareRestartDebounceMs: Long = 1500L
+
+private fun findBestPhysicalNetwork(): Network? {
+    // 优先使用 ConnectManager (新架构)
+    connectManager.getCurrentNetwork()?.let { return it }
+    // 回退到 NetworkManager
+    networkManager?.findBestPhysicalNetwork()?.let { return it }
+    // 当 networkManager 为 null 时（服务重启期间），使用 NetworkHelper 的回退逻辑
+    return networkHelper.findBestPhysicalNetworkFallback()
+}
+
+private fun updateDefaultInterface(network: Network) {
+    networkHelper.updateDefaultInterface(
+        network = network,
+        vpnStartedAtMs = vpnStartedAtMs.get(),
+        startupWindowMs = vpnStartupWindowMs,
+        defaultInterfaceName = defaultInterfaceName,
+        lastKnownNetwork = lastKnownNetwork,
+        lastSetUnderlyingAtMs = lastSetUnderlyingNetworksAtMs.get(),
+        debounceMs = setUnderlyingNetworksDebounceMs,
+        isRunning = isRunning,
+        settings = currentSettings,
+        setUnderlyingNetworks = { networks -> setUnderlyingNetworks(networks) },
+        updateInterfaceListener = { name, index, expensive, constrained ->
+            currentInterfaceListener?.updateDefaultInterface(name, index, expensive, constrained)
+        },
+        updateState = { net, iface, now ->
+            lastKnownNetwork = net
+            defaultInterfaceName = iface
+            lastSetUnderlyingNetworksAtMs.set(now)
+            noPhysicalNetworkWarningLogged = false
+        },
+        requestCoreReset = { reason, force -> requestCoreNetworkReset(reason, force) },
+        resetConnections = { reason, skip ->
+            recoveryCoordinator.request(RecoveryCoordinator.Request.ResetConnections(reason, skip))
+        }
+    )
+}
+
+override fun onCreate() {
+    super.onCreate()
+    Log.e(TAG, "SingBoxService onCreate: pid=${android.os.Process.myPid()} instance=${System.identityHashCode(this)}")
+    instance = this
+
+    // Restore manually stopped state from persistent storage
+    isManuallyStopped = VpnStateStore.isManuallyStopped()
+    Log.i(TAG, "Restored isManuallyStopped state: $isManuallyStopped")
+
+    notificationManager.createNotificationChannel()
+    // 初始化 ConnectivityManager
+    connectivityManager = getSystemService(ConnectivityManager::class.java)
+
+    // ===== 初始化新架构 Managers =====
+    initManagers()
+
+    serviceScope.launch {
+        lastErrorFlow.collect {
+            requestRemoteStateUpdate(force = false)
+        }
+    }
+
+    // 监听活动节点变化，更新通知
+    serviceScope.launch {
+        ConfigRepository.getInstance(this@SingBoxService).activeNodeId.collect { activeNodeId ->
+            if (isRunning) {
+                requestNotificationUpdate(force = false)
+                requestRemoteStateUpdate(force = false)
+            }
+        }
+    }
+
+    // 监听通知栏速度显示设置变化
+    serviceScope.launch {
+        SettingsRepository.getInstance(this@SingBoxService)
+            .settings
+            .map { it.showNotificationSpeed }
+            .distinctUntilChanged()
+            .collect { enabled ->
+                showNotificationSpeed = enabled
+                if (isRunning) {
+                    requestNotificationUpdate(force = true)
+                }
+            }
+    }
+
+    // ⭐ P0修复3: 注册Activity生命周期回调，检测应用返回前台
+    screenStateManager.registerActivityLifecycleCallbacks(application)
+}
+
+/**
+ * 监听应用前后台切换 (委托给 ScreenStateManager)
+ */
+override fun onTrimMemory(level: Int) {
+    super.onTrimMemory(level)
+
+    when (level) {
+        android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
+            screenStateManager.onAppBackground()
+        }
+    }
+}
+
+override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    Log.i(TAG, "onStartCommand action=${intent?.action}")
+    runCatching {
+        LogRepository.getInstance().addLog("INFO SingBoxService: onStartCommand action=${intent?.action}")
+    }
+    when (intent?.action) {
+        ACTION_START -> {
+            isManuallyStopped = false
+            VpnStateStore.setManuallyStopped(false)
+            VpnTileService.persistVpnPending(applicationContext, "starting")
+
+            // 性能优化: 预创建 TUN Builder (非阻塞)
+            coreManager.preallocateTunBuilder()
+
+            var configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
+            val cleanCache = intent.getBooleanExtra(EXTRA_CLEAN_CACHE, false)
+
+            // P0 Optimization: If config path is missing (Shortcut/Headless), generate it inside Service
+            if (configPath == null) {
+                Log.i(TAG, "ACTION_START received without config path, generating config...")
                 serviceScope.launch {
                     try {
-                        coreManager.wakeService()
-                        delay(30)
-                        // Use full recovery: wake -> close connections -> DNS -> reset network stack.
-                        recoveryCoordinator.request(
-                            RecoveryCoordinator.Request.Recover(
-                                ScreenStateManager.RECOVERY_MODE_FULL,
-                                "traffic_stall"
-                            )
-                        )
-                        Log.i(TAG, "Triggered full recovery after stall")
+                        val repo = ConfigRepository.getInstance(applicationContext)
+                        val result = repo.generateConfigFile()
+                        if (result != null) {
+                            Log.i(TAG, "Config generated successfully: ${result.path}")
+                            // Recursively call start command with the generated path
+                            val newIntent = Intent(applicationContext, SingBoxService::class.java).apply {
+                                action = ACTION_START
+                                putExtra(EXTRA_CONFIG_PATH, result.path)
+                                putExtra(EXTRA_CLEAN_CACHE, cleanCache)
+                            }
+                            startService(newIntent)
+                        } else {
+                            Log.e(TAG, "Failed to generate config file")
+                            setLastError("Failed to generate config file")
+                            withContext(Dispatchers.Main) { stopSelf() }
+                        }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to clear connections after stall", e)
+                        Log.e(TAG, "Error generating config in Service", e)
+                        setLastError("Error generating config: ${e.message}")
+                        withContext(Dispatchers.Main) { stopSelf() }
                     }
-                    trafficMonitor.resetStallCounter()
+                }
+                return START_STICKY
+            }
+
+            if (configPath != null) {
+                updateServiceState(ServiceState.STARTING)
+                synchronized(this) {
+                    // FIX: Ensure pendingCleanCache is set from intent even for cold start
+                    if (cleanCache) pendingCleanCache = true
+
+                    if (isStarting) {
+                        pendingStartConfigPath = configPath
+                        stopSelfRequested = false
+                        lastConfigPath = configPath
+                        // Return STICKY to allow system to restart VPN if killed due to memory pressure
+                        return START_STICKY
+                    }
+                    if (isStopping) {
+                        pendingStartConfigPath = configPath
+                        stopSelfRequested = false
+                        lastConfigPath = configPath
+                        // Return STICKY to allow system to restart VPN if killed due to memory pressure
+                        return START_STICKY
+                    }
+                    // If already running, do a clean restart to avoid half-broken tunnel state
+                    if (isRunning) {
+                        pendingStartConfigPath = configPath
+                        stopSelfRequested = false
+                        lastConfigPath = configPath
+                    }
+                }
+                if (isRunning) {
+                    // 2025-fix: 优先尝试热切换节点，避免重启 VPN 导致连接断开
+                    // 只有当需要更改核心配置（如路由规则、DNS 等）时才重启
+                    // 目前所有切换都视为可能包含核心变更，但我们可以尝试检测
+                    // 暂时保持重启逻辑作为兜底，但在此之前尝试热切换
+                    // 注意：如果只是切换节点，并不需要重启 VPN，直接 selectOutbound 即可
+                    // 但我们需要一种机制来通知 Service 是在切换节点还是完全重载
+                    stopVpn(stopService = false)
+                } else {
+                    startVpn(configPath)
                 }
             }
         }
-
-        override fun onProxyIdle(idleDurationMs: Long) {
-            val idleSeconds = idleDurationMs / 1000
-
-            // 条件化恢复：避免在“无连接/无需恢复”时触发重置导致抖动。
-            if (!BoxWrapperManager.isAvailable()) {
-                Log.d(TAG, "Proxy idle detected (${idleSeconds}s) but Box not available, skip reset")
-                return
+        ACTION_STOP -> {
+            Log.i(TAG, "Received ACTION_STOP (manual) -> stopping VPN")
+            isManuallyStopped = true
+            VpnStateStore.setManuallyStopped(true)
+            VpnTileService.persistVpnPending(applicationContext, "stopping")
+            updateServiceState(ServiceState.STOPPING)
+            notificationManager.setSuppressUpdates(true)
+            notificationManager.cancelNotification()
+            synchronized(this) {
+                pendingStartConfigPath = null
             }
-
-            val connCount = runCatching { BoxWrapperManager.getConnectionCount() }.getOrDefault(0)
-            val needRecovery = runCatching { BoxWrapperManager.isNetworkRecoveryNeeded() }.getOrDefault(false)
-
-            if (connCount <= 0 && !needRecovery) {
-                Log.d(
-                    TAG,
-                    "Proxy idle detected (${idleSeconds}s) but no active connections and recovery not needed, skip reset"
-                )
-                return
-            }
-
-            Log.i(
-                TAG,
-                "Proxy idle detected (${idleSeconds}s), resetting connections (connCount=$connCount needRecovery=$needRecovery)"
-            )
-            recoveryCoordinator.request(
-                RecoveryCoordinator.Request.ResetConnections(
-                    reason = "proxy_idle_${idleSeconds}s",
-                    skipDebounce = false
-                )
-            )
+            stopVpn(stopService = true)
         }
-    }
-
-    // Periodic idle connection cleanup:
-    // Some apps (e.g., Telegram-like) can get stuck on a stale/blackholed TCP connection after background.
-    // If other apps keep producing traffic, global stall/idle detectors may never trigger.
-    // Closing long-idle connections periodically forces fast reconnect without requiring user to reopen KunBox.
-    @Volatile private var idleConnectionCleanupJob: Job? = null
-    private val idleCleanupIntervalMs: Long = 60_000L
-    private val idleCleanupMaxIdleSeconds: Int = 60
-    private val idleCleanupInitialDelayMs: Long = 15_000L
-
-    private fun startIdleConnectionCleanupLoop() {
-        if (idleConnectionCleanupJob?.isActive == true) return
-
-        idleConnectionCleanupJob = serviceScope.launch {
-            delay(idleCleanupInitialDelayMs)
-            while (isActive) {
-                delay(idleCleanupIntervalMs)
-                if (!isRunning || isStopping || coreManager.isStopping) continue
-                if (!BoxWrapperManager.isAvailable()) continue
-
-                // Stable behavior: only attempt cleanup when there are active connections.
-                val connCount = runCatching { BoxWrapperManager.getConnectionCount() }.getOrDefault(0)
-                if (connCount <= 0) continue
-
-                recoveryCoordinator.request(
-                    RecoveryCoordinator.Request.CloseIdleConnections(
-                        maxIdleSeconds = idleCleanupMaxIdleSeconds,
-                        reason = "periodic_idle_cleanup"
-                    )
+        ACTION_SWITCH_NODE -> {
+            Log.i(TAG, "Received ACTION_SWITCH_NODE -> switching node")
+            // 从 Intent 中获取目标节点 ID，如果未提供则切换下一个
+            val targetNodeId = intent.getStringExtra("node_id")
+            val outboundTag = intent.getStringExtra("outbound_tag")
+            runCatching {
+                LogRepository.getInstance().addLog(
+                    "INFO SingBoxService: ACTION_SWITCH_NODE nodeId=${targetNodeId.orEmpty()} outboundTag=${outboundTag.orEmpty()}"
+                )
+            }
+            // Remember latest config path for fallback restart if hot switch doesn't apply.
+            val fallbackConfigPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
+            if (!fallbackConfigPath.isNullOrBlank()) {
+                synchronized(this) {
+                    pendingHotSwitchFallbackConfigPath = fallbackConfigPath
+                }
+                runCatching {
+                    LogRepository.getInstance().addLog("INFO SingBoxService: SWITCH_NODE fallback configPath=$fallbackConfigPath")
+                }
+            }
+            if (targetNodeId != null) {
+                nodeSwitchManager.performHotSwitch(
+                    nodeId = targetNodeId,
+                    outboundTag = outboundTag,
+                    serviceClass = SingBoxService::class.java,
+                    actionStart = ACTION_START,
+                    extraConfigPath = EXTRA_CONFIG_PATH
+                )
+            } else {
+                nodeSwitchManager.switchNextNode(
+                    serviceClass = SingBoxService::class.java,
+                    actionStart = ACTION_START,
+                    extraConfigPath = EXTRA_CONFIG_PATH
                 )
             }
         }
-    }
-
-    private fun stopIdleConnectionCleanupLoop() {
-        idleConnectionCleanupJob?.cancel()
-        idleConnectionCleanupJob = null
-    }
-
-    //  P1修复: 连续stall刷新失败后自动重启服务
-    private var stallRefreshAttempts: Int = 0
-    private val maxStallRefreshAttempts: Int = 3 // 连续3次stall刷新后仍无流量则重启服务
-
-    // NetworkManager 实例 - 统一管理网络状态和底层网络切换
-    private var networkManager: NetworkManager? = null
-
-    private val coreResetDebounceMs: Long = 2500L
-
-    @Volatile private var lastRuleSetCheckMs: Long = 0L
-    private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
-
-    private val uidToPackageCache = ConcurrentHashMap<Int, String>()
-    private val maxUidToPackageCacheSize: Int = 512
-
-    private fun cacheUidToPackage(uid: Int, pkg: String) {
-        if (uid <= 0 || pkg.isBlank()) return
-        uidToPackageCache[uid] = pkg
-        if (uidToPackageCache.size > maxUidToPackageCacheSize) {
-            uidToPackageCache.clear()
+        ACTION_UPDATE_SETTING -> {
+            val key = intent.getStringExtra(EXTRA_SETTING_KEY)
+            if (key == "show_notification_speed") {
+                val value = intent.getBooleanExtra(EXTRA_SETTING_VALUE_BOOL, true)
+                Log.i(TAG, "Received setting update: $key = $value")
+                showNotificationSpeed = value
+                if (isRunning) {
+                    requestNotificationUpdate(force = true)
+                }
+            }
+        }
+        ACTION_PREPARE_RESTART -> {
+            // ⭐ 2025-fix: 跨配置切换预清理机制
+            // 在 VPN 重启前先关闭所有现有连接并触发网络震荡
+            // 让应用（如 Telegram）立即感知网络中断，而不是在旧连接上等待超时
+            val reason = intent.getStringExtra(EXTRA_PREPARE_RESTART_REASON).orEmpty()
+            Log.i(TAG, "Received ACTION_PREPARE_RESTART (reason='$reason') -> preparing for VPN restart")
+            performPrepareRestart()
+        }
+        ACTION_HOT_RELOAD -> {
+            // ⭐ 2025-fix: 内核级热重载
+            // 在 VPN 运行时重载配置，不销毁 VPN 服务
+            Log.i(TAG, "Received ACTION_HOT_RELOAD -> performing hot reload")
+            val configContent = intent.getStringExtra(EXTRA_CONFIG_CONTENT)
+            if (configContent.isNullOrEmpty()) {
+                Log.e(TAG, "ACTION_HOT_RELOAD: config content is empty")
+            } else {
+                performHotReload(configContent)
+            }
+        }
+        ACTION_FULL_RESTART -> {
+            Log.i(TAG, "Received ACTION_FULL_RESTART -> performing full restart (TUN rebuild)")
+            val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
+            if (configPath.isNullOrEmpty()) {
+                Log.e(TAG, "ACTION_FULL_RESTART: config path is empty")
+            } else {
+                performFullRestart(configPath)
+            }
         }
     }
+    // Use START_STICKY to allow system auto-restart if killed due to memory pressure
+    // This prevents "VPN mysteriously stops" issue on Android 14+
+    // System will restart service with null intent, we handle it gracefully above
+    return START_STICKY
+}
 
-    private fun requestCoreNetworkReset(reason: String, force: Boolean = false) {
-        recoveryCoordinator.request(RecoveryCoordinator.Request.ResetCoreNetwork(reason, force))
+@Volatile private var pendingHotSwitchFallbackConfigPath: String? = null
+
+/**
+ * 执行预清理操作
+ * 在跨配置切换导致 VPN 重启前调用
+ * 目的是让应用（如 Telegram）立即感知网络中断，避免在旧连接上等待超时
+ *
+ * 2025-fix-v2: 简化流程
+ * 跨配置切换时 VPN 会完全重启，服务关闭会强制关闭所有连接
+ * 所以这里只需要提前通知应用网络变化即可，不需要手动关闭连接
+ */
+private fun performPrepareRestart() {
+    if (!isRunning) {
+        Log.w(TAG, "performPrepareRestart: VPN not running, skip")
+        return
     }
 
-    /**
-     * 重启 VPN 服务以彻底清理网络状态
-     * 用于处理网络栈重置无效的严重情况
-     */
-    private suspend fun restartVpnService(reason: String) = withContext(Dispatchers.Main) {
-        L.vpn("Restart", "Restarting: $reason")
+    val now = SystemClock.elapsedRealtime()
+    val last = lastPrepareRestartAtMs.get()
+    val elapsed = now - last
+    if (elapsed < prepareRestartDebounceMs) {
+        Log.d(TAG, "performPrepareRestart: skipped (debounce, elapsed=${elapsed}ms)")
+        return
+    }
+    lastPrepareRestartAtMs.set(now)
 
-        // 保存当前配置路径
-        val configPath = lastConfigPath ?: run {
-            L.warn("Restart", "Cannot restart: no config path")
-            return@withContext
-        }
-
+    serviceScope.launch {
         try {
-            // 停止当前服务 (不停止 Service 本身)
+            Log.i(TAG, "[PrepareRestart] Step 1/3: Wake up core")
+            coreManager.wakeService()
+
+            // Step 2: 设置底层网络为 null，触发系统广播 CONNECTIVITY_CHANGE
+            // 这是让 Telegram 等应用感知网络变化的关键步骤
+            Log.i(TAG, "[PrepareRestart] Step 2/3: Disconnect underlying network to trigger system broadcast")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                setUnderlyingNetworks(null)
+            }
+
+            // Step 3: 等待应用收到广播
+            // 不需要太长时间，因为VPN重启本身也需要时间
+            Log.i(TAG, "[PrepareRestart] Step 3/3: Waiting for apps to process network change...")
+            delay(100)
+
+            // 注意：不需要调用 closeAllConnectionsImmediate()
+            // 因为 VPN 重启时服务关闭会强制关闭所有连接
+
+            Log.i(TAG, "[PrepareRestart] Complete - apps should now detect network interruption")
+        } catch (e: Exception) {
+            Log.e(TAG, "performPrepareRestart error", e)
+        }
+    }
+}
+
+/**
+ * 执行内核级热重载
+ * 在 VPN 运行时重载配置，不销毁 VPN 服务
+ * 失败时 Toast 报错并关闭 VPN，让用户手动重新打开
+ */
+private fun performHotReload(configContent: String) {
+    if (!isRunning) {
+        Log.w(TAG, "performHotReload: VPN not running, skip")
+        return
+    }
+
+    serviceScope.launch {
+        try {
+            Log.i(TAG, "[HotReload] Starting kernel-level hot reload...")
+
+            // 更新 CoreManager 的设置，确保后续操作使用最新设置
+            val settings = SettingsRepository.getInstance(applicationContext).settings.first()
+            coreManager.setCurrentSettings(settings)
+
+            val result = coreManager.hotReloadConfig(configContent, preserveSelector = true)
+
+            result.onSuccess { success ->
+                if (success) {
+                    Log.i(TAG, "[HotReload] Kernel hot reload succeeded")
+                    LogRepository.getInstance().addLog("INFO [HotReload] Config reloaded successfully")
+
+                    // Re-init BoxWrapperManager with current CommandServer
+                    commandManager.getCommandServer()?.let { server ->
+                        BoxWrapperManager.init(server)
+                    }
+
+                    // Update notification
+                    requestNotificationUpdate(force = true)
+                } else {
+                    handleHotReloadFailure("Kernel hot reload not available")
+                }
+            }.onFailure { e ->
+                handleHotReloadFailure("Hot reload failed: ${e.message}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "performHotReload error", e)
+            handleHotReloadFailure("Hot reload error: ${e.message}")
+        }
+    }
+}
+
+private fun handleHotReloadFailure(errorMsg: String) {
+    Log.e(TAG, "[HotReload] $errorMsg, stopping VPN")
+    LogRepository.getInstance().addLog("ERROR [HotReload] $errorMsg")
+
+    serviceScope.launch(Dispatchers.Main) {
+        android.widget.Toast.makeText(
+            applicationContext,
+            errorMsg,
+            android.widget.Toast.LENGTH_LONG
+        ).show()
+    }
+
+    isManuallyStopped = false
+    stopVpn(stopService = true)
+}
+
+private fun performFullRestart(configPath: String) {
+    if (!isRunning) {
+        Log.w(TAG, "performFullRestart: VPN not running, starting directly")
+        startVpn(configPath)
+        return
+    }
+
+    serviceScope.launch {
+        try {
+            Log.i(TAG, "[FullRestart] Step 1/3: Stopping VPN completely...")
+
+            coreManager.closeTunInterface()
+
             stopVpn(stopService = false)
 
-            // 等待完全停止
             var waitCount = 0
             while (isStopping && waitCount < 50) {
                 delay(100)
                 waitCount++
             }
 
-            // 短暂延迟确保资源完全释放
-            delay(500)
+            Log.i(TAG, "[FullRestart] Step 2/3: VPN stopped, waiting for cleanup...")
+            delay(200)
 
-            // 重新启动
+            Log.i(TAG, "[FullRestart] Step 3/3: Restarting VPN with new config...")
+            lastConfigPath = configPath
             startVpn(configPath)
 
-            L.result("Restart", true, "VPN restarted")
+            Log.i(TAG, "[FullRestart] Complete")
         } catch (e: Exception) {
-            L.error("Restart", "Failed to restart VPN", e)
-            setLastError("Failed to restart VPN: ${e.message}")
+            Log.e(TAG, "performFullRestart error", e)
+            setLastError("Full restart failed: ${e.message}")
         }
-    }
-
-    // 屏幕/前台状态从 ScreenStateManager 读取
-    private val isScreenOn: Boolean get() = screenStateManager.isScreenOn
-    private val isAppInForeground: Boolean get() = screenStateManager.isAppInForeground
-
-    // Auto reconnect
-    private var connectivityManager: ConnectivityManager? = null
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
-    private var vpnNetworkCallback: ConnectivityManager.NetworkCallback? = null
-    private var currentInterfaceListener: InterfaceUpdateListener? = null
-    private var defaultInterfaceName: String = ""
-    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var lastKnownNetwork: Network? = null
-    private var vpnHealthJob: Job? = null
-    @Volatile private var vpnLinkValidated: Boolean = false
-
-    // 网络就绪标志：确保 Libbox 启动前网络回调已完成初始采样
-    @Volatile private var networkCallbackReady: Boolean = false
-    @Volatile private var noPhysicalNetworkWarningLogged: Boolean = false
-
-    // setUnderlyingNetworks 防抖机制 - 避免频繁调用触发系统提示音
-    private val lastSetUnderlyingNetworksAtMs = AtomicLong(0)
-    private val setUnderlyingNetworksDebounceMs: Long = 2000L // 2秒防抖
-
-    // VPN 启动窗口期保护 - 参考 NekoBox 设计
-    // 在 VPN 启动后的短时间内，updateDefaultInterface 跳过 setUnderlyingNetworks 调用
-    // 因为 openTun() 已经设置过底层网络，重复调用会导致 UDP 连接断开
-    private val vpnStartedAtMs = AtomicLong(0)
-    private val vpnStartupWindowMs: Long = 3000L // 启动后 3 秒内跳过重复设置
-
-    // NekoBox-style: 连接重置防抖，避免多次重置导致 Telegram 反复加载
-    @Volatile private var lastConnectionsResetAtMs: Long = 0L
-    private val connectionsResetDebounceMs: Long = 2000L // 2秒内不重复重置
-
-    // ACTION_PREPARE_RESTART 防抖：避免短时间内重复触发导致网络反复震荡
-    private val lastPrepareRestartAtMs = AtomicLong(0L)
-    private val prepareRestartDebounceMs: Long = 1500L
-
-    private fun findBestPhysicalNetwork(): Network? {
-        // 优先使用 ConnectManager (新架构)
-        connectManager.getCurrentNetwork()?.let { return it }
-        // 回退到 NetworkManager
-        networkManager?.findBestPhysicalNetwork()?.let { return it }
-        // 当 networkManager 为 null 时（服务重启期间），使用 NetworkHelper 的回退逻辑
-        return networkHelper.findBestPhysicalNetworkFallback()
-    }
-
-    private fun updateDefaultInterface(network: Network) {
-        networkHelper.updateDefaultInterface(
-            network = network,
-            vpnStartedAtMs = vpnStartedAtMs.get(),
-            startupWindowMs = vpnStartupWindowMs,
-            defaultInterfaceName = defaultInterfaceName,
-            lastKnownNetwork = lastKnownNetwork,
-            lastSetUnderlyingAtMs = lastSetUnderlyingNetworksAtMs.get(),
-            debounceMs = setUnderlyingNetworksDebounceMs,
-            isRunning = isRunning,
-            settings = currentSettings,
-            setUnderlyingNetworks = { networks -> setUnderlyingNetworks(networks) },
-            updateInterfaceListener = { name, index, expensive, constrained ->
-                currentInterfaceListener?.updateDefaultInterface(name, index, expensive, constrained)
-            },
-            updateState = { net, iface, now ->
-                lastKnownNetwork = net
-                defaultInterfaceName = iface
-                lastSetUnderlyingNetworksAtMs.set(now)
-                noPhysicalNetworkWarningLogged = false
-            },
-            requestCoreReset = { reason, force -> requestCoreNetworkReset(reason, force) },
-            resetConnections = { reason, skip ->
-                recoveryCoordinator.request(RecoveryCoordinator.Request.ResetConnections(reason, skip))
-            }
-        )
-    }
-
-    override fun onCreate() {
-        super.onCreate()
-        Log.e(TAG, "SingBoxService onCreate: pid=${android.os.Process.myPid()} instance=${System.identityHashCode(this)}")
-        instance = this
-
-        // Restore manually stopped state from persistent storage
-        isManuallyStopped = VpnStateStore.isManuallyStopped()
-        Log.i(TAG, "Restored isManuallyStopped state: $isManuallyStopped")
-
-        notificationManager.createNotificationChannel()
-        // 初始化 ConnectivityManager
-        connectivityManager = getSystemService(ConnectivityManager::class.java)
-
-        // ===== 初始化新架构 Managers =====
-        initManagers()
-
-        serviceScope.launch {
-            lastErrorFlow.collect {
-                requestRemoteStateUpdate(force = false)
-            }
-        }
-
-        // 监听活动节点变化，更新通知
-        serviceScope.launch {
-            ConfigRepository.getInstance(this@SingBoxService).activeNodeId.collect { activeNodeId ->
-                if (isRunning) {
-                    requestNotificationUpdate(force = false)
-                    requestRemoteStateUpdate(force = false)
-                }
-            }
-        }
-
-        // 监听通知栏速度显示设置变化
-        serviceScope.launch {
-            SettingsRepository.getInstance(this@SingBoxService)
-                .settings
-                .map { it.showNotificationSpeed }
-                .distinctUntilChanged()
-                .collect { enabled ->
-                    showNotificationSpeed = enabled
-                    if (isRunning) {
-                        requestNotificationUpdate(force = true)
-                    }
-                }
-        }
-
-        // ⭐ P0修复3: 注册Activity生命周期回调，检测应用返回前台
-        screenStateManager.registerActivityLifecycleCallbacks(application)
-    }
-
-    /**
-     * 监听应用前后台切换 (委托给 ScreenStateManager)
-     */
-    override fun onTrimMemory(level: Int) {
-        super.onTrimMemory(level)
-
-        when (level) {
-            android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
-                screenStateManager.onAppBackground()
-            }
-        }
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "onStartCommand action=${intent?.action}")
-        runCatching {
-            LogRepository.getInstance().addLog("INFO SingBoxService: onStartCommand action=${intent?.action}")
-        }
-        when (intent?.action) {
-            ACTION_START -> {
-                isManuallyStopped = false
-                VpnStateStore.setManuallyStopped(false)
-                VpnTileService.persistVpnPending(applicationContext, "starting")
-
-                // 性能优化: 预创建 TUN Builder (非阻塞)
-                coreManager.preallocateTunBuilder()
-
-                var configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
-                val cleanCache = intent.getBooleanExtra(EXTRA_CLEAN_CACHE, false)
-
-                // P0 Optimization: If config path is missing (Shortcut/Headless), generate it inside Service
-                if (configPath == null) {
-                    Log.i(TAG, "ACTION_START received without config path, generating config...")
-                    serviceScope.launch {
-                        try {
-                            val repo = ConfigRepository.getInstance(applicationContext)
-                            val result = repo.generateConfigFile()
-                            if (result != null) {
-                                Log.i(TAG, "Config generated successfully: ${result.path}")
-                                // Recursively call start command with the generated path
-                                val newIntent = Intent(applicationContext, SingBoxService::class.java).apply {
-                                    action = ACTION_START
-                                    putExtra(EXTRA_CONFIG_PATH, result.path)
-                                    putExtra(EXTRA_CLEAN_CACHE, cleanCache)
-                                }
-                                startService(newIntent)
-                            } else {
-                                Log.e(TAG, "Failed to generate config file")
-                                setLastError("Failed to generate config file")
-                                withContext(Dispatchers.Main) { stopSelf() }
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error generating config in Service", e)
-                            setLastError("Error generating config: ${e.message}")
-                            withContext(Dispatchers.Main) { stopSelf() }
-                        }
-                    }
-                    return START_STICKY
-                }
-
-                if (configPath != null) {
-                    updateServiceState(ServiceState.STARTING)
-                    synchronized(this) {
-                        // FIX: Ensure pendingCleanCache is set from intent even for cold start
-                        if (cleanCache) pendingCleanCache = true
-
-                        if (isStarting) {
-                            pendingStartConfigPath = configPath
-                            stopSelfRequested = false
-                            lastConfigPath = configPath
-                            // Return STICKY to allow system to restart VPN if killed due to memory pressure
-                            return START_STICKY
-                        }
-                        if (isStopping) {
-                            pendingStartConfigPath = configPath
-                            stopSelfRequested = false
-                            lastConfigPath = configPath
-                            // Return STICKY to allow system to restart VPN if killed due to memory pressure
-                            return START_STICKY
-                        }
-                        // If already running, do a clean restart to avoid half-broken tunnel state
-                        if (isRunning) {
-                            pendingStartConfigPath = configPath
-                            stopSelfRequested = false
-                            lastConfigPath = configPath
-                        }
-                    }
-                    if (isRunning) {
-                        // 2025-fix: 优先尝试热切换节点，避免重启 VPN 导致连接断开
-                        // 只有当需要更改核心配置（如路由规则、DNS 等）时才重启
-                        // 目前所有切换都视为可能包含核心变更，但我们可以尝试检测
-                        // 暂时保持重启逻辑作为兜底，但在此之前尝试热切换
-                        // 注意：如果只是切换节点，并不需要重启 VPN，直接 selectOutbound 即可
-                        // 但我们需要一种机制来通知 Service 是在切换节点还是完全重载
-                        stopVpn(stopService = false)
-                    } else {
-                        startVpn(configPath)
-                    }
-                }
-            }
-            ACTION_STOP -> {
-                Log.i(TAG, "Received ACTION_STOP (manual) -> stopping VPN")
-                isManuallyStopped = true
-                VpnStateStore.setManuallyStopped(true)
-                VpnTileService.persistVpnPending(applicationContext, "stopping")
-                updateServiceState(ServiceState.STOPPING)
-                notificationManager.setSuppressUpdates(true)
-                notificationManager.cancelNotification()
-                synchronized(this) {
-                    pendingStartConfigPath = null
-                }
-                stopVpn(stopService = true)
-            }
-            ACTION_SWITCH_NODE -> {
-                Log.i(TAG, "Received ACTION_SWITCH_NODE -> switching node")
-                // 从 Intent 中获取目标节点 ID，如果未提供则切换下一个
-                val targetNodeId = intent.getStringExtra("node_id")
-                val outboundTag = intent.getStringExtra("outbound_tag")
-                runCatching {
-                    LogRepository.getInstance().addLog(
-                        "INFO SingBoxService: ACTION_SWITCH_NODE nodeId=${targetNodeId.orEmpty()} outboundTag=${outboundTag.orEmpty()}"
-                    )
-                }
-                // Remember latest config path for fallback restart if hot switch doesn't apply.
-                val fallbackConfigPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
-                if (!fallbackConfigPath.isNullOrBlank()) {
-                    synchronized(this) {
-                        pendingHotSwitchFallbackConfigPath = fallbackConfigPath
-                    }
-                    runCatching {
-                        LogRepository.getInstance().addLog("INFO SingBoxService: SWITCH_NODE fallback configPath=$fallbackConfigPath")
-                    }
-                }
-                if (targetNodeId != null) {
-                    nodeSwitchManager.performHotSwitch(
-                        nodeId = targetNodeId,
-                        outboundTag = outboundTag,
-                        serviceClass = SingBoxService::class.java,
-                        actionStart = ACTION_START,
-                        extraConfigPath = EXTRA_CONFIG_PATH
-                    )
-                } else {
-                    nodeSwitchManager.switchNextNode(
-                        serviceClass = SingBoxService::class.java,
-                        actionStart = ACTION_START,
-                        extraConfigPath = EXTRA_CONFIG_PATH
-                    )
-                }
-            }
-            ACTION_UPDATE_SETTING -> {
-                val key = intent.getStringExtra(EXTRA_SETTING_KEY)
-                if (key == "show_notification_speed") {
-                    val value = intent.getBooleanExtra(EXTRA_SETTING_VALUE_BOOL, true)
-                    Log.i(TAG, "Received setting update: $key = $value")
-                    showNotificationSpeed = value
-                    if (isRunning) {
-                        requestNotificationUpdate(force = true)
-                    }
-                }
-            }
-            ACTION_PREPARE_RESTART -> {
-                // ⭐ 2025-fix: 跨配置切换预清理机制
-                // 在 VPN 重启前先关闭所有现有连接并触发网络震荡
-                // 让应用（如 Telegram）立即感知网络中断，而不是在旧连接上等待超时
-                val reason = intent.getStringExtra(EXTRA_PREPARE_RESTART_REASON).orEmpty()
-                Log.i(TAG, "Received ACTION_PREPARE_RESTART (reason='$reason') -> preparing for VPN restart")
-                performPrepareRestart()
-            }
-            ACTION_HOT_RELOAD -> {
-                // ⭐ 2025-fix: 内核级热重载
-                // 在 VPN 运行时重载配置，不销毁 VPN 服务
-                Log.i(TAG, "Received ACTION_HOT_RELOAD -> performing hot reload")
-                val configContent = intent.getStringExtra(EXTRA_CONFIG_CONTENT)
-                if (configContent.isNullOrEmpty()) {
-                    Log.e(TAG, "ACTION_HOT_RELOAD: config content is empty")
-                } else {
-                    performHotReload(configContent)
-                }
-            }
-            ACTION_FULL_RESTART -> {
-                Log.i(TAG, "Received ACTION_FULL_RESTART -> performing full restart (TUN rebuild)")
-                val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
-                if (configPath.isNullOrEmpty()) {
-                    Log.e(TAG, "ACTION_FULL_RESTART: config path is empty")
-                } else {
-                    performFullRestart(configPath)
-                }
-            }
-        }
-        // Use START_STICKY to allow system auto-restart if killed due to memory pressure
-        // This prevents "VPN mysteriously stops" issue on Android 14+
-        // System will restart service with null intent, we handle it gracefully above
-        return START_STICKY
-    }
-
-    @Volatile private var pendingHotSwitchFallbackConfigPath: String? = null
-
-    /**
-     * 执行预清理操作
-     * 在跨配置切换导致 VPN 重启前调用
-     * 目的是让应用（如 Telegram）立即感知网络中断，避免在旧连接上等待超时
-     *
-     * 2025-fix-v2: 简化流程
-     * 跨配置切换时 VPN 会完全重启，服务关闭会强制关闭所有连接
-     * 所以这里只需要提前通知应用网络变化即可，不需要手动关闭连接
-     */
-    private fun performPrepareRestart() {
-        if (!isRunning) {
-            Log.w(TAG, "performPrepareRestart: VPN not running, skip")
-            return
-        }
-
-        val now = SystemClock.elapsedRealtime()
-        val last = lastPrepareRestartAtMs.get()
-        val elapsed = now - last
-        if (elapsed < prepareRestartDebounceMs) {
-            Log.d(TAG, "performPrepareRestart: skipped (debounce, elapsed=${elapsed}ms)")
-            return
-        }
-        lastPrepareRestartAtMs.set(now)
-
-        serviceScope.launch {
-            try {
-                Log.i(TAG, "[PrepareRestart] Step 1/3: Wake up core")
-                coreManager.wakeService()
-
-                // Step 2: 设置底层网络为 null，触发系统广播 CONNECTIVITY_CHANGE
-                // 这是让 Telegram 等应用感知网络变化的关键步骤
-                Log.i(TAG, "[PrepareRestart] Step 2/3: Disconnect underlying network to trigger system broadcast")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                    setUnderlyingNetworks(null)
-                }
-
-                // Step 3: 等待应用收到广播
-                // 不需要太长时间，因为VPN重启本身也需要时间
-                Log.i(TAG, "[PrepareRestart] Step 3/3: Waiting for apps to process network change...")
-                delay(100)
-
-                // 注意：不需要调用 closeAllConnectionsImmediate()
-                // 因为 VPN 重启时服务关闭会强制关闭所有连接
-
-                Log.i(TAG, "[PrepareRestart] Complete - apps should now detect network interruption")
-            } catch (e: Exception) {
-                Log.e(TAG, "performPrepareRestart error", e)
-            }
-        }
-    }
-
-    /**
-     * 执行内核级热重载
-     * 在 VPN 运行时重载配置，不销毁 VPN 服务
-     * 失败时 Toast 报错并关闭 VPN，让用户手动重新打开
-     */
-    private fun performHotReload(configContent: String) {
-        if (!isRunning) {
-            Log.w(TAG, "performHotReload: VPN not running, skip")
-            return
-        }
-
-        serviceScope.launch {
-            try {
-                Log.i(TAG, "[HotReload] Starting kernel-level hot reload...")
-
-                // 更新 CoreManager 的设置，确保后续操作使用最新设置
-                val settings = SettingsRepository.getInstance(applicationContext).settings.first()
-                coreManager.setCurrentSettings(settings)
-
-                val result = coreManager.hotReloadConfig(configContent, preserveSelector = true)
-
-                result.onSuccess { success ->
-                    if (success) {
-                        Log.i(TAG, "[HotReload] Kernel hot reload succeeded")
-                        LogRepository.getInstance().addLog("INFO [HotReload] Config reloaded successfully")
-
-                        // Re-init BoxWrapperManager with current CommandServer
-                        commandManager.getCommandServer()?.let { server ->
-                            BoxWrapperManager.init(server)
-                        }
-
-                        // Update notification
-                        requestNotificationUpdate(force = true)
-                    } else {
-                        handleHotReloadFailure("Kernel hot reload not available")
-                    }
-                }.onFailure { e ->
-                    handleHotReloadFailure("Hot reload failed: ${e.message}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "performHotReload error", e)
-                handleHotReloadFailure("Hot reload error: ${e.message}")
-            }
-        }
-    }
-
-    private fun handleHotReloadFailure(errorMsg: String) {
-        Log.e(TAG, "[HotReload] $errorMsg, stopping VPN")
-        LogRepository.getInstance().addLog("ERROR [HotReload] $errorMsg")
-
-        serviceScope.launch(Dispatchers.Main) {
-            android.widget.Toast.makeText(
-                applicationContext,
-                errorMsg,
-                android.widget.Toast.LENGTH_LONG
-            ).show()
-        }
-
-        isManuallyStopped = false
-        stopVpn(stopService = true)
-    }
-
-    private fun performFullRestart(configPath: String) {
-        if (!isRunning) {
-            Log.w(TAG, "performFullRestart: VPN not running, starting directly")
-            startVpn(configPath)
-            return
-        }
-
-        serviceScope.launch {
-            try {
-                Log.i(TAG, "[FullRestart] Step 1/3: Stopping VPN completely...")
-
-                coreManager.closeTunInterface()
-
-                stopVpn(stopService = false)
-
-                var waitCount = 0
-                while (isStopping && waitCount < 50) {
-                    delay(100)
-                    waitCount++
-                }
-
-                Log.i(TAG, "[FullRestart] Step 2/3: VPN stopped, waiting for cleanup...")
-                delay(200)
-
-                Log.i(TAG, "[FullRestart] Step 3/3: Restarting VPN with new config...")
-                lastConfigPath = configPath
-                startVpn(configPath)
-
-                Log.i(TAG, "[FullRestart] Complete")
-            } catch (e: Exception) {
-                Log.e(TAG, "performFullRestart error", e)
-                setLastError("Full restart failed: ${e.message}")
-            }
         }
     }
 
@@ -1940,128 +1925,128 @@ class SingBoxService : VpnService() {
     }
 
     override fun onDestroy() {
-        Log.i(TAG, "onDestroy called -> stopVpn(stopService=false) pid=${android.os.Process.myPid()}")
-        TrafficRepository.getInstance(this).saveStats()
+    Log.i(TAG, "onDestroy called -> stopVpn(stopService=false) pid=${android.os.Process.myPid()}")
+    TrafficRepository.getInstance(this).saveStats()
 
-        stopIdleConnectionCleanupLoop()
+    stopIdleConnectionCleanupLoop()
 
-        // 清理省电管理器引用
-        SingBoxIpcHub.setPowerManager(null)
-        SingBoxIpcHub.setForegroundRecoveryHandler(null)
-        screenStateManager.setPowerManager(null)
-        backgroundPowerManager.cleanup()
+    // 清理省电管理器引用
+    SingBoxIpcHub.setPowerManager(null)
+    SingBoxIpcHub.setForegroundRecoveryHandler(null)
+    screenStateManager.setPowerManager(null)
+    backgroundPowerManager.cleanup()
 
-        recoveryCoordinator.cleanup()
+    recoveryCoordinator.cleanup()
 
-        screenStateManager.unregisterActivityLifecycleCallbacks(application)
+    screenStateManager.unregisterActivityLifecycleCallbacks(application)
 
-        // Ensure critical state is saved synchronously before we potentially halt
-        if (!isManuallyStopped) {
-            // If we are being destroyed but not manually stopped (e.g. app update or system kill),
-            // ensure we don't accidentally mark it as manually stopped, but we DO mark VPN as inactive.
-            VpnTileService.persistVpnState(applicationContext, false)
-            VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
-            Log.i(TAG, "onDestroy: Persisted vpn_active=false, mode=NONE")
-        }
-
-        val shouldStop = runCatching {
-            synchronized(this@SingBoxService) {
-                isRunning || isStopping || coreManager.isServiceRunning() || vpnInterface != null
-            }
-        }.getOrDefault(false)
-
-        if (shouldStop) {
-            // Note: stopVpn launches a cleanup job on cleanupScope.
-            // If we halt() immediately, that job will die.
-            // For app updates, the system kills us anyway, so cleanup might be best-effort.
-            stopVpn(stopService = false)
-        } else {
-            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
-            VpnTileService.persistVpnState(applicationContext, false)
-            updateServiceState(ServiceState.STOPPED)
-            updateTileState()
-        }
-
-        serviceSupervisorJob.cancel()
-        // cleanupSupervisorJob.cancel() // Allow cleanup to finish naturally
-
-        if (instance == this) {
-            instance = null
-        }
-        super.onDestroy()
-
-        // Kill process to fully reset Go runtime state and prevent zombie states.
-        // This ensures clean restart if system decides to recreate the service.
-        Log.i(TAG, "SingBoxService destroyed. Halting process ${android.os.Process.myPid()}.")
-
-        // 同步取消通知，防止 halt(0) 后通知残留
-        runCatching {
-            val nm = getSystemService(android.app.NotificationManager::class.java)
-            nm.cancel(com.kunk.singbox.service.notification.VpnNotificationManager.NOTIFICATION_ID)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        }
-
-        // Give a tiny breath for logs to flush
-        try { Thread.sleep(50) } catch (e: Exception) { Log.w(TAG, "Sleep interrupted during force kill", e) }
-
-        Runtime.getRuntime().halt(0)
+    // Ensure critical state is saved synchronously before we potentially halt
+    if (!isManuallyStopped) {
+        // If we are being destroyed but not manually stopped (e.g. app update or system kill),
+        // ensure we don't accidentally mark it as manually stopped, but we DO mark VPN as inactive.
+        VpnTileService.persistVpnState(applicationContext, false)
+        VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
+        Log.i(TAG, "onDestroy: Persisted vpn_active=false, mode=NONE")
     }
 
-    override fun onRevoke() {
-        Log.i(TAG, "onRevoke called -> stopVpn(stopService=true)")
-        isManuallyStopped = true
-        // Another VPN took over. Persist OFF state immediately so QS tile won't stay active.
+    val shouldStop = runCatching {
+        synchronized(this@SingBoxService) {
+            isRunning || isStopping || coreManager.isServiceRunning() || vpnInterface != null
+        }
+    }.getOrDefault(false)
+
+    if (shouldStop) {
+        // Note: stopVpn launches a cleanup job on cleanupScope.
+        // If we halt() immediately, that job will die.
+        // For app updates, the system kills us anyway, so cleanup might be best-effort.
+        stopVpn(stopService = false)
+    } else {
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         VpnTileService.persistVpnState(applicationContext, false)
-        VpnTileService.persistVpnPending(applicationContext, "")
-        setLastError("VPN revoked by system (another VPN may have started)")
         updateServiceState(ServiceState.STOPPED)
         updateTileState()
-
-        // 记录日志，告知用户原因
-        com.kunk.singbox.repository.LogRepository.getInstance()
-            .addLog("WARN: VPN permission revoked by system (possibly another VPN app started)")
-
-        // 发送通知提醒用户
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-            val notification = Notification.Builder(this, VpnNotificationManager.CHANNEL_ID)
-                .setContentTitle("VPN Disconnected")
-                .setContentText("VPN permission revoked, possibly by another VPN app.")
-                .setSmallIcon(android.R.drawable.ic_dialog_alert)
-                .setAutoCancel(true)
-                .build()
-            manager.notify(VpnNotificationManager.NOTIFICATION_ID + 1, notification)
-        }
-
-        // 停止服务
-        stopVpn(stopService = true)
-        super.onRevoke()
     }
 
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        super.onTaskRemoved(rootIntent)
-        // If the user swiped away the app, we might want to keep the VPN running
-        // as a foreground service, but some users expect it to stop.
-        // Usually, a foreground service continues running.
-        // However, if we want to ensure no "zombie" states, we can at least log or check health.
+    serviceSupervisorJob.cancel()
+    // cleanupSupervisorJob.cancel() // Allow cleanup to finish naturally
+
+    if (instance == this) {
+        instance = null
+    }
+    super.onDestroy()
+
+    // Kill process to fully reset Go runtime state and prevent zombie states.
+    // This ensures clean restart if system decides to recreate the service.
+    Log.i(TAG, "SingBoxService destroyed. Halting process ${android.os.Process.myPid()}.")
+
+    // 同步取消通知，防止 halt(0) 后通知残留
+    runCatching {
+        val nm = getSystemService(android.app.NotificationManager::class.java)
+        nm.cancel(com.kunk.singbox.service.notification.VpnNotificationManager.NOTIFICATION_ID)
+        stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
-    /**
-     * 确保网络回调就绪，最多等待指定超时时间
-     * 如果超时仍未就绪，尝试主动采样当前活跃网络
-     */
-    private suspend fun ensureNetworkCallbackReadyWithTimeout(timeoutMs: Long = 2000L) {
-        networkHelper.ensureNetworkCallbackReady(
-            isCallbackReady = { networkCallbackReady },
-            lastKnownNetwork = { lastKnownNetwork },
-            findBestPhysicalNetwork = { findBestPhysicalNetwork() },
-            updateNetworkState = { network, ready ->
-                lastKnownNetwork = network
-                networkCallbackReady = ready
-            },
-            timeoutMs = timeoutMs
-        )
+    // Give a tiny breath for logs to flush
+    try { Thread.sleep(50) } catch (e: Exception) { Log.w(TAG, "Sleep interrupted during force kill", e) }
+
+    Runtime.getRuntime().halt(0)
+}
+
+override fun onRevoke() {
+    Log.i(TAG, "onRevoke called -> stopVpn(stopService=true)")
+    isManuallyStopped = true
+    // Another VPN took over. Persist OFF state immediately so QS tile won't stay active.
+    VpnTileService.persistVpnState(applicationContext, false)
+    VpnTileService.persistVpnPending(applicationContext, "")
+    setLastError("VPN revoked by system (another VPN may have started)")
+    updateServiceState(ServiceState.STOPPED)
+    updateTileState()
+
+    // 记录日志，告知用户原因
+    com.kunk.singbox.repository.LogRepository.getInstance()
+        .addLog("WARN: VPN permission revoked by system (possibly another VPN app started)")
+
+    // 发送通知提醒用户
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val manager = getSystemService(NotificationManager::class.java)
+        val notification = Notification.Builder(this, VpnNotificationManager.CHANNEL_ID)
+            .setContentTitle("VPN Disconnected")
+            .setContentText("VPN permission revoked, possibly by another VPN app.")
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setAutoCancel(true)
+            .build()
+        manager.notify(VpnNotificationManager.NOTIFICATION_ID + 1, notification)
     }
+
+    // 停止服务
+    stopVpn(stopService = true)
+    super.onRevoke()
+}
+
+override fun onTaskRemoved(rootIntent: Intent?) {
+    super.onTaskRemoved(rootIntent)
+    // If the user swiped away the app, we might want to keep the VPN running
+    // as a foreground service, but some users expect it to stop.
+    // Usually, a foreground service continues running.
+    // However, if we want to ensure no "zombie" states, we can at least log or check health.
+}
+
+/**
+ * 确保网络回调就绪，最多等待指定超时时间
+ * 如果超时仍未就绪，尝试主动采样当前活跃网络
+ */
+private suspend fun ensureNetworkCallbackReadyWithTimeout(timeoutMs: Long = 2000L) {
+    networkHelper.ensureNetworkCallbackReady(
+        isCallbackReady = { networkCallbackReady },
+        lastKnownNetwork = { lastKnownNetwork },
+        findBestPhysicalNetwork = { findBestPhysicalNetwork() },
+        updateNetworkState = { network, ready ->
+            lastKnownNetwork = network
+            networkCallbackReady = ready
+        },
+        timeoutMs = timeoutMs
+    )
+}
 
     /**
      * 后台异步更新规则集 - 性能优化
@@ -2105,4 +2090,11 @@ class SingBoxService : VpnService() {
             timeoutMs = timeoutMs
         )
     }
+}
+
+enum class ServiceState {
+    STOPPED,
+    STARTING,
+    RUNNING,
+    STOPPING
 }

@@ -14,7 +14,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import okhttp3.Request
-import com.kunk.singbox.utils.ProxyAwareOkHttpClient
+import com.kunk.singbox.ipc.VpnStateStore
+import com.kunk.singbox.utils.NetworkClient
 import android.util.Log
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
@@ -144,7 +145,6 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun fetchFromSagerNet(currentSettings: AppSettings): List<HubRuleSet> {
-        // 使用 ghp.ci 镜像代理 GitHub API 请求可能不合适，API 还是直接连，但下载链接用镜像
         val rawUrl = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
         val url = "https://api.github.com/repos/SagerNet/sing-geosite/git/trees/rule-set?recursive=1"
         return try {
@@ -153,46 +153,94 @@ class RuleSetViewModel(application: Application) : AndroidViewModel(application)
                 .header("User-Agent", "KunK-KunBox-App")
                 .build()
 
-            // Important: this app package is excluded from TUN routing in VPN mode.
-            // When core is active, we must use local proxy for GitHub API access.
-            val shortTimeoutClient = ProxyAwareOkHttpClient.get(
-                settings = currentSettings,
-                connectTimeoutSeconds = 10,
-                readTimeoutSeconds = 10,
-                writeTimeoutSeconds = 10
-            )
-
-            shortTimeoutClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val errorBody = response.body?.string() ?: ""
-                    Log.e(TAG, "[SagerNet] 请求失败! 状态码=${response.code}, 响应=$errorBody")
-                    return emptyList()
-                }
-
-                val json = response.body?.string() ?: "{}"
-                val treeResponse: GithubTreeResponse = gson.fromJson(json, GithubTreeResponse::class.java)
-                    ?: return emptyList()
-
-                val srsFiles = treeResponse.tree
-                    .filter { it.type == "blob" && it.path.endsWith(".srs") }
-
-                srsFiles.map { file ->
-                    val fileName = file.path.substringAfterLast("/")
-                    val nameWithoutExt = fileName.substringBeforeLast(".srs")
-                    val sourcePath = file.path.replace(".srs", ".json")
-                    HubRuleSet(
-                        name = nameWithoutExt,
-                        ruleCount = 0,
-                        tags = listOf("Official", "geosite"),
-                        description = "SagerNet Official Rule Set",
-                        sourceUrl = "https://ghp.ci/$rawUrl/$sourcePath",
-                        binaryUrl = "https://ghp.ci/$rawUrl/${file.path}"
-                    )
-                }
-            }
+            val response = executeRequestWithFallback(request, currentSettings)
+            parseSagerNetResponse(response, rawUrl)
         } catch (e: Exception) {
             Log.e(TAG, "[SagerNet] 发生异常: ${e.javaClass.simpleName} - ${e.message}", e)
             emptyList()
         }
+    }
+
+    private fun parseSagerNetResponse(response: okhttp3.Response?, rawUrl: String): List<HubRuleSet> {
+        if (response == null) {
+            Log.e(TAG, "[SagerNet] 请求失败: no response")
+            return emptyList()
+        }
+
+        return response.use { resp ->
+            if (!resp.isSuccessful) {
+                val errorBody = resp.body?.string() ?: ""
+                Log.e(TAG, "[SagerNet] 请求失败! 状态码=${resp.code}, 响应=$errorBody")
+                return@use emptyList()
+            }
+
+            val json = resp.body?.string() ?: "{}"
+            val treeResponse: GithubTreeResponse = gson.fromJson(json, GithubTreeResponse::class.java)
+                ?: return@use emptyList()
+
+            val srsFiles = treeResponse.tree
+                .filter { it.type == "blob" && it.path.endsWith(".srs") }
+
+            srsFiles.map { file ->
+                val fileName = file.path.substringAfterLast("/")
+                val nameWithoutExt = fileName.substringBeforeLast(".srs")
+                val sourcePath = file.path.replace(".srs", ".json")
+                HubRuleSet(
+                    name = nameWithoutExt,
+                    ruleCount = 0,
+                    tags = listOf("Official", "geosite"),
+                    description = "SagerNet Official Rule Set",
+                    sourceUrl = "https://ghp.ci/$rawUrl/$sourcePath",
+                    binaryUrl = "https://ghp.ci/$rawUrl/${file.path}"
+                )
+            }
+        }
+    }
+
+    private fun executeRequestWithFallback(
+        request: okhttp3.Request,
+        settings: AppSettings
+    ): okhttp3.Response? {
+        val proxyClient = getProxyClient(settings)
+        if (proxyClient != null) {
+            try {
+                val response = proxyClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Proxy request succeeded")
+                    return response
+                }
+                response.close()
+                Log.w(TAG, "Proxy request failed with ${response.code}, falling back to direct")
+            } catch (e: Exception) {
+                Log.w(TAG, "Proxy request failed: ${e.message}, falling back to direct")
+            }
+        }
+
+        return try {
+            getDirectClient().newCall(request).execute()
+        } catch (e: Exception) {
+            Log.e(TAG, "Direct request also failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun getDirectClient(): okhttp3.OkHttpClient {
+        return NetworkClient.createClientWithTimeout(
+            connectTimeoutSeconds = 10,
+            readTimeoutSeconds = 10,
+            writeTimeoutSeconds = 10
+        )
+    }
+
+    private fun getProxyClient(settings: AppSettings): okhttp3.OkHttpClient? {
+        if (!VpnStateStore.getActive() || settings.proxyPort <= 0) {
+            return null
+        }
+        return NetworkClient.createClientWithProxy(
+            proxyPort = settings.proxyPort,
+            connectTimeoutSeconds = 10,
+            readTimeoutSeconds = 10,
+            writeTimeoutSeconds = 10
+        )
     }
 }

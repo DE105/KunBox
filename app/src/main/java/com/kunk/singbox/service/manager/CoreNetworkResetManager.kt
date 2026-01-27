@@ -103,9 +103,18 @@ class CoreNetworkResetManager(
     @Suppress("CognitiveComplexMethod")
     fun requestReset(reason: String, force: Boolean = false) {
         val now = SystemClock.elapsedRealtime()
-        val last = lastResetAtMs.get()
 
-        // 检查是否需要完全重启
+        if (handleServiceRestartIfNeeded(now)) return
+
+        val last = lastResetAtMs.get()
+        if (force) {
+            handleForceReset(now, last, reason)
+        } else {
+            handleNormalReset(now, last, reason)
+        }
+    }
+
+    private fun handleServiceRestartIfNeeded(now: Long): Boolean {
         val lastSuccess = lastSuccessfulResetAtMs.get()
         val hasEverSucceeded = lastSuccess > 0L
         val timeSinceLastSuccess = if (hasEverSucceeded) now - lastSuccess else 0L
@@ -115,11 +124,11 @@ class CoreNetworkResetManager(
             val lastRestart = lastRestartAtMs.get()
             if (now - lastRestart < RESTART_COOLDOWN_MS) {
                 Log.w(TAG, "Too many reset failures ($failures) but restart is in cooldown, skipping")
-                return
+                return true
             }
             if (callbacks?.isServiceRunning() != true) {
                 Log.w(TAG, "Too many reset failures ($failures) but service not running, skip restart")
-                return
+                return true
             }
 
             lastRestartAtMs.set(now)
@@ -127,22 +136,24 @@ class CoreNetworkResetManager(
             serviceScope.launch {
                 callbacks?.restartVpnService("Excessive network reset failures")
             }
-            return
+            return true
         }
+        return false
+    }
 
-        val minInterval = if (force) 100L else debounceMs
+    private fun handleForceReset(now: Long, last: Long, reason: String) {
+        val minInterval = 100L
+        if (now - last < minInterval) return
 
-        if (force) {
-            if (now - last < minInterval) return
-            lastResetAtMs.set(now)
-            resetJob?.cancel()
-            resetJob = null
-            serviceScope.launch {
-                resetNow(reason, force = true, skipIntervalCheck = true)
-            }
-            return
+        lastResetAtMs.set(now)
+        resetJob?.cancel()
+        resetJob = null
+        serviceScope.launch {
+            resetNow(reason, force = true, skipIntervalCheck = true)
         }
+    }
 
+    private fun handleNormalReset(now: Long, last: Long, reason: String) {
         val delayMs = (debounceMs - (now - last)).coerceAtLeast(0L)
         if (delayMs <= 0L) {
             lastResetAtMs.set(now)

@@ -12,6 +12,7 @@ import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.core.SelectorManager as CoreSelectorManager
 import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.service.SingBoxService
+import com.kunk.singbox.service.ServiceState
 import com.kunk.singbox.service.VpnKeepaliveWorker
 import com.kunk.singbox.service.VpnTileService
 import com.kunk.singbox.service.notification.VpnNotificationManager
@@ -42,7 +43,7 @@ class ShutdownManager(
      */
     interface Callbacks {
         // 状态管理
-        fun updateServiceState(state: SingBoxService.ServiceState)
+        fun updateServiceState(state: ServiceState)
         fun updateTileState()
         fun stopForegroundService()
         fun stopSelf()
@@ -229,7 +230,7 @@ class ShutdownManager(
                     VpnTileService.persistVpnState(context, false)
                     VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
                     VpnTileService.persistVpnPending(context, "")
-                    callbacks.updateServiceState(SingBoxService.ServiceState.STOPPED)
+                    callbacks.updateServiceState(ServiceState.STOPPED)
                     callbacks.updateTileState()
                 } else {
                     Log.i(TAG, "Config reload: boxService closed, keeping TUN and foreground")

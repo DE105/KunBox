@@ -12,12 +12,14 @@ import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.kunk.singbox.R
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 
 /**
  * 应用版本更新检查器
@@ -67,8 +69,7 @@ object AppUpdateChecker {
             val currentVersion = getCurrentVersion(context)
             Log.d(TAG, "Current version: $currentVersion")
 
-            val client = getClient(context)
-            val release = fetchLatestRelease(client)
+            val release = fetchLatestReleaseWithFallback(context)
             if (release == null) {
                 Log.w(TAG, "Failed to fetch latest release")
                 return@withContext UpdateCheckResult.Error("Failed to fetch release info")
@@ -120,47 +121,73 @@ object AppUpdateChecker {
 
     /**
      * 从 GitHub API 获取最新 Release
-     * 如果 VPN 正在运行，使用代理访问 GitHub API
+     * 2026-01-27: 代理优先+直连回退，解决被墙和代理崩溃问题
      */
-    private fun fetchLatestRelease(client: OkHttpClient): GitHubRelease? {
+    private suspend fun fetchLatestReleaseWithFallback(context: Context): GitHubRelease? {
         val request = Request.Builder()
             .url(GITHUB_API_URL)
             .header("Accept", "application/vnd.github.v3+json")
             .header("User-Agent", "KunBox-Android")
             .build()
 
+        val settings = SettingsRepository.getInstance(context).settings.first()
+        val proxyResult = tryProxyRequest(request, settings)
+        if (proxyResult != null) return proxyResult
+
+        return tryDirectRequest(request)
+    }
+
+    private fun tryProxyRequest(request: Request, settings: com.kunk.singbox.model.AppSettings): GitHubRelease? {
+        val proxyClient = getProxyClient(settings) ?: return null
         return try {
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                response.body?.string()?.let { json ->
-                    gson.fromJson(json, GitHubRelease::class.java)
-                }
-            } else {
-                Log.w(TAG, "GitHub API returned ${response.code}")
-                null
-            }
+            val response = proxyClient.newCall(request).execute()
+            val result = parseReleaseResponse(response, "Proxy")
+            if (result == null) response.close()
+            result
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch release", e)
+            Log.w(TAG, "Proxy request failed: ${e.message}, falling back to direct")
             null
         }
     }
 
-    /**
-     * 获取用于更新检查的 OkHttpClient
-     * VPN 运行时使用代理，否则直连
-     */
-    private suspend fun getClient(context: Context): OkHttpClient {
-        val settings = SettingsRepository.getInstance(context).settings.first()
-        val client = ProxyAwareOkHttpClient.get(
-            settings = settings,
+    private fun tryDirectRequest(request: Request): GitHubRelease? {
+        return try {
+            val response = getDirectClient().newCall(request).execute()
+            parseReleaseResponse(response, "Direct")
+        } catch (e: Exception) {
+            Log.e(TAG, "Direct request also failed", e)
+            null
+        }
+    }
+
+    private fun parseReleaseResponse(response: Response, source: String): GitHubRelease? {
+        if (!response.isSuccessful) {
+            Log.w(TAG, "$source request failed with ${response.code}")
+            return null
+        }
+        val json = response.body?.string() ?: return null
+        Log.d(TAG, "$source request succeeded for update check")
+        return gson.fromJson(json, GitHubRelease::class.java)
+    }
+
+    private fun getDirectClient(): OkHttpClient {
+        return NetworkClient.createClientWithTimeout(
             connectTimeoutSeconds = 15,
             readTimeoutSeconds = 20,
             writeTimeoutSeconds = 20
         )
-        if (com.kunk.singbox.ipc.VpnStateStore.getActive()) {
-            Log.d(TAG, "Core active, using local proxy 127.0.0.1:${settings.proxyPort} for update check")
+    }
+
+    private fun getProxyClient(settings: com.kunk.singbox.model.AppSettings): OkHttpClient? {
+        if (!VpnStateStore.getActive() || settings.proxyPort <= 0) {
+            return null
         }
-        return client
+        return NetworkClient.createClientWithProxy(
+            proxyPort = settings.proxyPort,
+            connectTimeoutSeconds = 15,
+            readTimeoutSeconds = 20,
+            writeTimeoutSeconds = 20
+        )
     }
 
     /**
