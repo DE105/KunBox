@@ -21,7 +21,8 @@ class NetworkManager(
 ) {
     companion object {
         private const val TAG = "NetworkManager"
-        private const val DEBOUNCE_MS = 2000L
+        // 2025-fix: Remove debounce to ensure immediate network updates like NekoBox
+        // private const val DEBOUNCE_MS = 2000L
     }
 
     interface Listener {
@@ -172,15 +173,21 @@ class NetworkManager(
         val interfaceName = linkProperties?.interfaceName ?: ""
         val upstreamChanged = interfaceName.isNotEmpty() && interfaceName != defaultInterfaceName
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 && (network != lastKnownNetwork || upstreamChanged)) {
-            val lastSet = lastSetUnderlyingNetworksAtMs.get()
-            val timeSinceLastSet = now - lastSet
-            val shouldSetNetwork = timeSinceLastSet >= DEBOUNCE_MS || network != lastKnownNetwork
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            // 2025-fix: Aggressive update without debounce
+            // val lastSet = lastSetUnderlyingNetworksAtMs.get()
+            // val timeSinceLastSet = now - lastSet
+            // val shouldSetNetwork = timeSinceLastSet >= DEBOUNCE_MS || network != lastKnownNetwork
+
+            // Always update to ensure system and kernel are in sync
+            val shouldSetNetwork = true
 
             if (shouldSetNetwork) {
                 setUnderlyingNetworks(arrayOf(network))
                 noPhysicalNetworkWarningLogged = false
-                Log.i(TAG, "Switched underlying network to $network (upstream=$interfaceName)")
+                if (network != lastKnownNetwork || upstreamChanged) {
+                    Log.i(TAG, "Switched underlying network to $network (upstream=$interfaceName)")
+                }
                 listener?.onNetworkChanged(network, interfaceName)
             }
         }
@@ -206,15 +213,22 @@ class NetworkManager(
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 Log.d(TAG, "Network available: $network")
+                // 2025-fix: Immediately notify listener on availability
+                val caps = cm.getNetworkCapabilities(network)
+                val isVpn = caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                if (!isVpn) {
+                    listener?.onNetworkChanged(network, "")
+                }
             }
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
                 val isVpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
                 if (isVpn) return
 
-                if (cm.activeNetwork == network) {
+                // 2025-fix: Always notify on capabilities change (e.g. WiFi validated)
+                // if (cm.activeNetwork == network) {
                     listener?.onNetworkChanged(network, "")
-                }
+                // }
             }
 
             override fun onLost(network: Network) {

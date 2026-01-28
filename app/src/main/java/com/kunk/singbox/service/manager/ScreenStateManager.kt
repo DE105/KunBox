@@ -27,8 +27,10 @@ class ScreenStateManager(
     companion object {
         private const val TAG = "ScreenStateManager"
         private const val SCREEN_ON_CHECK_DEBOUNCE_MS = 3000L
-        private const val SCREEN_ON_RECOVERY_DEBOUNCE_MS = 10_000L
-        private const val DOZE_EXIT_RECOVERY_DEBOUNCE_MS = 10_000L
+        // 2025-fix-v17: 从 10 秒缩短到 2 秒
+        // 参考 v2rayNG，屏幕点亮时应该尽快刷新网络状态
+        private const val SCREEN_ON_RECOVERY_DEBOUNCE_MS = 2_000L
+        private const val DOZE_EXIT_RECOVERY_DEBOUNCE_MS = 5_000L
 
         // Recovery modes (must match Go side constants)
         const val RECOVERY_MODE_AUTO = 0
@@ -116,28 +118,24 @@ class ScreenStateManager(
                     // 通知省电管理器屏幕点亮
                     powerManager?.onScreenOn()
 
-                    // ===== 早期恢复：屏幕亮起时立即开始网络恢复（带节流 + 条件化） =====
-                    // 不等待用户解锁，提前开始恢复网络连接，但避免短时间内重复触发导致抖动。
+                    // ===== 早期恢复：屏幕亮起时立即开始网络恢复（带节流） =====
+                    // 解决 TG 等应用后台恢复后一直加载中的问题
+                    // 2025-fix-v15: 移除 isNetworkRecoveryNeeded() 条件检查，因为它无法检测应用层 TCP 假死
+                    // 改用 NetworkBump 替代 RECOVERY_MODE_QUICK，更激进地处理陈旧连接
                     if (callbacks?.isRunning == true) {
                         val now = SystemClock.elapsedRealtime()
                         val elapsed = now - lastScreenOnRecoveryAtMs
                         if (elapsed < SCREEN_ON_RECOVERY_DEBOUNCE_MS) {
                             Log.d(TAG, "[ScreenOn] Early recovery skipped (debounce, elapsed=${elapsed}ms)")
                         } else {
-                            val needRecovery = runCatching { BoxWrapperManager.isNetworkRecoveryNeeded() }
-                                .getOrDefault(false)
-                            if (!needRecovery) {
-                                Log.d(TAG, "[ScreenOn] Recovery not needed, skip")
-                            } else {
-                                lastScreenOnRecoveryAtMs = now
-                                serviceScope.launch {
-                                    Log.i(TAG, "[ScreenOn] Early recovery triggered")
-                                    try {
-                                        // 使用快速恢复模式，不阻塞用户解锁
-                                        callbacks?.performNetworkRecovery(RECOVERY_MODE_QUICK, "screen_on")
-                                    } catch (e: Exception) {
-                                        Log.w(TAG, "[ScreenOn] Early recovery failed", e)
-                                    }
+                            lastScreenOnRecoveryAtMs = now
+                            serviceScope.launch {
+                                Log.i(TAG, "[ScreenOn] NetworkBump triggered (fix TG loading issue)")
+                                try {
+                                    // 使用 NetworkBump 替代快速恢复，确保应用层连接被重置
+                                    callbacks?.performNetworkBump("screen_on")
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "[ScreenOn] NetworkBump failed", e)
                                 }
                             }
                         }

@@ -45,14 +45,17 @@ class BackgroundPowerManager(
 
         // ==================== 后台恢复阈值 (解决 TG 加载问题) ====================
 
-        /** 后台超过此时间后回前台，触发 NetworkBump (30秒) */
-        const val BACKGROUND_BUMP_THRESHOLD_MS = 30_000L
+        /** 后台超过此时间后回前台，触发 NetworkBump (改为 0 秒，始终触发) */
+        // 2025-fix-v17: 参考 v2rayNG，每次前台恢复都刷新底层网络
+        // 原来 30 秒阈值导致短时间后台恢复时不触发，造成 TG 等应用加载慢
+        const val BACKGROUND_BUMP_THRESHOLD_MS = 0L
 
         /** 后台超过此时间后回前台，触发完整恢复 (5分钟) */
         const val BACKGROUND_FULL_RECOVERY_THRESHOLD_MS = 5 * 60 * 1000L
 
-        /** 前台恢复防抖时间 (5秒内不重复触发) */
-        const val FOREGROUND_RECOVERY_DEBOUNCE_MS = 5_000L
+        /** 前台恢复防抖时间 (改为 2 秒，更快响应) */
+        // 2025-fix-v17: 从 5 秒缩短到 2 秒，加快恢复速度
+        const val FOREGROUND_RECOVERY_DEBOUNCE_MS = 2_000L
     }
 
     /**

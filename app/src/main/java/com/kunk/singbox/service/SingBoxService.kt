@@ -313,13 +313,15 @@ class SingBoxService : VpnService() {
     }
 
     private fun initConnectManager() {
+        // 2025-fix-v16: 参考 v2rayNG，传入 setUnderlyingNetworksFn
+        // 让 ConnectManager 在 NetworkCallback 中立即调用 setUnderlyingNetworks
+        // 这样 Android 系统能及时通知上层应用网络状态变化
         connectManager.init(
             onNetworkChanged = { network ->
+                // 这里不再需要手动调用 setUnderlyingNetworks
+                // 因为 ConnectManager 内部已经在 callback 中立即调用了
                 if (network != null) {
-                    connectManager.setUnderlyingNetworks(
-                        networks = arrayOf(network),
-                        setUnderlyingFn = { nets -> setUnderlyingNetworks(nets) }
-                    )
+                    Log.d(TAG, "Network changed via ConnectManager: $network")
                 }
             },
             onNetworkLost = {
@@ -330,9 +332,13 @@ class SingBoxService : VpnService() {
                 recoveryCoordinator.request(
                     RecoveryCoordinator.Request.NetworkBump("network_change:$reason")
                 )
+            },
+            setUnderlyingNetworksFn = { nets ->
+                // 直接调用 VpnService 的 setUnderlyingNetworks
+                setUnderlyingNetworks(nets)
             }
         )
-        Log.i(TAG, "ConnectManager initialized")
+        Log.i(TAG, "ConnectManager initialized (v2rayNG-style)")
     }
 
     private fun initServiceSelectorManager() {
@@ -457,40 +463,23 @@ class SingBoxService : VpnService() {
                 return try {
                     Log.i(TAG, "[NetworkBump] Starting: $reason")
 
-                    // Step 1: 清除底层网络，触发应用检测到网络变化
-                    setUnderlyingNetworks(emptyArray())
-                    Log.d(TAG, "[NetworkBump] cleared underlying networks")
+                    // 2025-fix-v17: 简化 NetworkBump，参考 v2rayNG 的简洁做法
+                    // v2rayNG 只是简单地调用 setUnderlyingNetworks，不做复杂的连接清理
+                    // 过多的延迟反而会导致用户感知到卡顿
 
-                    // Step 2: 等待更长时间，让应用检测到网络变化 (从100ms增加到200ms)
-                    delay(200)
+                    // Step 1: 清除底层网络
+                    setUnderlyingNetworks(null)
+
+                    // Step 2: 短暂延迟 (50ms 足够让系统检测到变化)
+                    delay(50)
 
                     // Step 3: 恢复底层网络
                     setUnderlyingNetworks(arrayOf(currentNetwork))
-                    Log.d(TAG, "[NetworkBump] restored underlying network: $currentNetwork")
 
-                    // Step 4: 重置 sing-box 内部连接池
-                    BoxWrapperManager.resetAllConnections(true)
+                    // Step 4: 重置 sing-box 内部连接池 (异步，不等待)
+                    runCatching { BoxWrapperManager.resetAllConnections(true) }
 
-                    // Step 5: 关闭所有跟踪连接（确保应用收到 RST）
-                    val closedCount = runCatching {
-                        BoxWrapperManager.closeAllTrackedConnections()
-                    }.getOrDefault(0)
-                    Log.d(TAG, "[NetworkBump] closed $closedCount tracked connections")
-
-                    // Step 6: 验证 - 如果仍有陈旧连接，再次 bump
-                    delay(100)
-                    val stillNeedsRecovery = runCatching {
-                        BoxWrapperManager.isNetworkRecoveryNeeded()
-                    }.getOrDefault(false)
-
-                    if (stillNeedsRecovery) {
-                        Log.w(TAG, "[NetworkBump] Still has stale connections, performing second bump")
-                        setUnderlyingNetworks(emptyArray())
-                        delay(150)
-                        setUnderlyingNetworks(arrayOf(currentNetwork))
-                    }
-
-                    Log.i(TAG, "[NetworkBump] completed: $reason (closed=$closedCount)")
+                    Log.i(TAG, "[NetworkBump] completed: $reason")
                     true
                 } catch (e: Exception) {
                     Log.e(TAG, "[NetworkBump] failed", e)
@@ -596,8 +585,9 @@ class SingBoxService : VpnService() {
         initBackgroundPowerManager()
         Log.i(TAG, "BackgroundPowerManager initialized")
 
-        Log.i(TAG, "All 12 Managers initialized successfully")
-    }
+            Log.i(TAG, "KunBox VPN started successfully")
+            notificationManager.setSuppressUpdates(false)
+        }
 
     private fun initBackgroundPowerManager() {
         val initialThresholdMs = backgroundPowerSavingThresholdMs
@@ -699,8 +689,6 @@ class SingBoxService : VpnService() {
         override fun onStarted(configContent: String) {
             Log.i(TAG, "KunBox VPN started successfully")
             notificationManager.setSuppressUpdates(false)
-
-            startIdleConnectionCleanupLoop()
         }
 
         override fun onFailed(error: String) {
@@ -1202,46 +1190,7 @@ class SingBoxService : VpnService() {
         }
     }
 
-// Periodic idle connection cleanup:
-// Some apps (e.g., Telegram-like) can get stuck on a stale/blackholed TCP connection after background.
-// If other apps keep producing traffic, global stall/idle detectors may never trigger.
-// Closing long-idle connections periodically forces fast reconnect without requiring user to reopen KunBox.
-    @Volatile private var idleConnectionCleanupJob: Job? = null
-    private val idleCleanupIntervalMs: Long = 60_000L
-    private val idleCleanupMaxIdleSeconds: Int = 60
-    private val idleCleanupInitialDelayMs: Long = 15_000L
 
-    private fun startIdleConnectionCleanupLoop() {
-        if (idleConnectionCleanupJob?.isActive == true) return
-
-        idleConnectionCleanupJob = serviceScope.launch {
-            delay(idleCleanupInitialDelayMs)
-            while (isActive) {
-                delay(idleCleanupIntervalMs)
-                if (!isRunning || isStopping || coreManager.isStopping || !BoxWrapperManager.isAvailable()) {
-                    continue
-                }
-
-                // Stable behavior: only attempt cleanup when there are active connections.
-                val connCount = runCatching { BoxWrapperManager.getConnectionCount() }.getOrDefault(0)
-                if (connCount <= 0) continue
-
-                recoveryCoordinator.request(
-                    RecoveryCoordinator.Request.CloseIdleConnections(
-                        maxIdleSeconds = idleCleanupMaxIdleSeconds,
-                        reason = "periodic_idle_cleanup"
-                    )
-                )
-            }
-        }
-    }
-
-    private fun stopIdleConnectionCleanupLoop() {
-        idleConnectionCleanupJob?.cancel()
-        idleConnectionCleanupJob = null
-    }
-
-//  P1修复: 连续stall刷新失败后自动重启服务
     private var stallRefreshAttempts: Int = 0
     private val maxStallRefreshAttempts: Int = 3 // 连续3次stall刷新后仍无流量则重启服务
 
@@ -1934,8 +1883,6 @@ class SingBoxService : VpnService() {
             isStopping = true
         }
 
-        stopIdleConnectionCleanupLoop()
-
         // 更新状态
         updateServiceState(ServiceState.STOPPING)
         notificationManager.setSuppressUpdates(true)
@@ -2020,8 +1967,6 @@ class SingBoxService : VpnService() {
     override fun onDestroy() {
         Log.i(TAG, "onDestroy called -> stopVpn(stopService=false) pid=${android.os.Process.myPid()}")
         TrafficRepository.getInstance(this).saveStats()
-
-        stopIdleConnectionCleanupLoop()
 
         // 清理省电管理器引用
         SingBoxIpcHub.setPowerManager(null)

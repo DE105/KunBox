@@ -359,16 +359,22 @@ class NetworkHelper(
             val interfaceName = linkProperties?.interfaceName ?: ""
             val upstreamChanged = interfaceName.isNotEmpty() && interfaceName != defaultInterfaceName
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1 &&
-                (network != lastKnownNetwork || upstreamChanged)) {
-                val timeSinceLastSet = now - lastSetUnderlyingAtMs
-                val shouldSetNetwork = timeSinceLastSet >= debounceMs || network != lastKnownNetwork
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                // 2025-fix: Aggressive update without debounce
+                // val timeSinceLastSet = now - lastSetUnderlyingAtMs
+                // val shouldSetNetwork = timeSinceLastSet >= debounceMs || network != lastKnownNetwork
+
+                // Always update to ensure system and kernel are in sync
+                val shouldSetNetwork = true
 
                 if (shouldSetNetwork) {
                     setUnderlyingNetworks(arrayOf(network))
                     updateState(network, interfaceName, now)
-                    Log.i(TAG, "Switched underlying network to $network")
-                    requestCoreReset("underlyingNetworkChanged", true)
+
+                    if (network != lastKnownNetwork || upstreamChanged) {
+                        Log.i(TAG, "Switched underlying network to $network")
+                        requestCoreReset("underlyingNetworkChanged", true)
+                    }
                 }
             }
 

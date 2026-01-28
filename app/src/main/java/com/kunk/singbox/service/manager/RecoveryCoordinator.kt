@@ -27,8 +27,10 @@ class RecoveryCoordinator(
         // 2025-fix-v10: 从 30 秒缩短到 10 秒
         // 原来 30 秒太长，导致从 Doze 恢复后如果第一次 deep recovery 失败，需要等很久才能重试
         private const val DEEP_COOLDOWN_MS = 10000L
-        // NetworkBump 冷却时间：10 秒内不重复执行
-        private const val NETWORK_BUMP_COOLDOWN_MS = 10000L
+        // 2025-fix-v17: NetworkBump 冷却时间从 10 秒缩短到 2 秒
+        // 因为 NetworkBump 是轻量级操作，不需要太长冷却期
+        // 这样可以更快响应多次前台恢复（如快速切换应用）
+        private const val NETWORK_BUMP_COOLDOWN_MS = 2000L
 
         private const val MAX_REASON_LEN = 240
 
