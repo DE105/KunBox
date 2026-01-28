@@ -21,8 +21,6 @@ class RuleSetRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "RuleSetRepository"
-        private const val AD_BLOCK_TAG = "geosite-category-ads-all"
-        private const val AD_BLOCK_URL_SUFFIX = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs"
 
         @Volatile
         private var instance: RuleSetRepository? = null
@@ -77,14 +75,7 @@ class RuleSetRepository(private val context: Context) {
     suspend fun hasLocalCache(): Boolean = withContext(Dispatchers.IO) {
         val settings = settingsRepository.settings.first()
 
-        // 检查广告拦截规则集
-        if (settings.blockAds) {
-            if (!getRuleSetFile(AD_BLOCK_TAG).exists()) {
-                return@withContext false
-            }
-        }
-
-        // 检查自定义远程规则集
+        // 检查所有启用的远程规则集
         settings.ruleSets.filter { it.enabled && it.type == RuleSetType.REMOTE }.forEach { ruleSet ->
             if (!getRuleSetFile(ruleSet.tag).exists()) {
                 return@withContext false
@@ -108,33 +99,7 @@ class RuleSetRepository(private val context: Context) {
         val settings = settingsRepository.settings.first()
         var allReady = true
 
-        // 1. 处理广告拦截规则集
-        if (settings.blockAds) {
-            val adBlockFile = getRuleSetFile(AD_BLOCK_TAG)
-
-            // 尝试从 assets 安装 baseline
-            if (!adBlockFile.exists()) {
-                onProgress("正在安装基础规则集...")
-                installBaselineRuleSet(AD_BLOCK_TAG, adBlockFile)
-            }
-
-            if (allowNetwork && (!adBlockFile.exists() || (forceUpdate && isExpired(adBlockFile)))) {
-                onProgress("正在更新广告规则集...")
-                val success = downloadAdBlockRuleSet(settings)
-                if (!success && !adBlockFile.exists()) {
-                    // 如果下载失败但本地有缓存，不视为整体失败
-                    if (!adBlockFile.exists()) {
-                        allReady = false
-                    }
-                    Log.e(TAG, "Failed to download ad block rule set. Cache available: ${adBlockFile.exists()}")
-                }
-            } else if (!adBlockFile.exists()) {
-                allReady = false
-                Log.w(TAG, "Ad block rule set missing, and network download is disabled")
-            }
-        }
-
-        // 2. 处理自定义远程规则集
+        // 处理所有启用的远程规则集
         settings.ruleSets.filter { it.enabled && it.type == RuleSetType.REMOTE }.forEach { ruleSet ->
             val file = getRuleSetFile(ruleSet.tag)
 
@@ -227,12 +192,6 @@ class RuleSetRepository(private val context: Context) {
         val lastModified = file.lastModified()
         val now = System.currentTimeMillis()
         return (now - lastModified) > 24 * 60 * 60 * 1000
-    }
-
-    private suspend fun downloadAdBlockRuleSet(settings: AppSettings): Boolean {
-        val mirrorUrl = settings.ghProxyMirror.url
-        val url = normalizeRuleSetUrl(AD_BLOCK_URL_SUFFIX, mirrorUrl)
-        return downloadFileWithFallback(url, getRuleSetFile(AD_BLOCK_TAG), settings)
     }
 
     private suspend fun downloadCustomRuleSet(

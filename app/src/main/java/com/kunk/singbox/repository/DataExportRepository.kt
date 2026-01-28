@@ -365,7 +365,6 @@ class DataExportRepository(private val context: Context) {
         // 路由设置
         settingsRepository.setRoutingMode(settings.routingMode, notifyRestartRequired = false)
         settingsRepository.setDefaultRule(settings.defaultRule)
-        settingsRepository.setBlockAds(settings.blockAds)
         settingsRepository.setBypassLan(settings.bypassLan)
         settingsRepository.setBlockQuic(settings.blockQuic)
         settingsRepository.setDebugLoggingEnabled(settings.debugLoggingEnabled)

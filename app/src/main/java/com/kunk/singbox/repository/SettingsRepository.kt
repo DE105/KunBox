@@ -237,11 +237,6 @@ class SettingsRepository(private val context: Context) {
         notifyRestartRequired()
     }
 
-    suspend fun setBlockAds(value: Boolean) {
-        settingsStore.updateSettingsAndWait { it.copy(blockAds = value) }
-        notifyRestartRequired()
-    }
-
     suspend fun setBlockQuic(value: Boolean) {
         settingsStore.updateSettingsAndWait { it.copy(blockQuic = value) }
         notifyRestartRequired()

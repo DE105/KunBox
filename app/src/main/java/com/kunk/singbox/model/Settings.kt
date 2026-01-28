@@ -53,7 +53,7 @@ data class AppSettings(
     // 1. 隐私性极强，不记录日志。
     // 2. 走代理隐藏用户真实 IP。
     @SerializedName("remoteDns") val remoteDns: String = "https://1.1.1.1/dns-query",
-    @SerializedName("fakeDnsEnabled") val fakeDnsEnabled: Boolean = true,
+    @SerializedName("fakeDnsEnabled") val fakeDnsEnabled: Boolean = false,
     @SerializedName("fakeIpRange") val fakeIpRange: String = "198.18.0.0/15",
     @SerializedName("fakeIpExcludeDomains") val fakeIpExcludeDomains: String = "", // 用户自定义 Fake IP 排除域名，逗号分隔
     @SerializedName("dnsStrategy") val dnsStrategy: DnsStrategy = DnsStrategy.PREFER_IPV4,
@@ -65,7 +65,6 @@ data class AppSettings(
     // 路由设置
     @SerializedName("routingMode") val routingMode: RoutingMode = RoutingMode.RULE,
     @SerializedName("defaultRule") val defaultRule: DefaultRule = DefaultRule.PROXY,
-    @SerializedName("blockAds") val blockAds: Boolean = true,
     @SerializedName("bypassLan") val bypassLan: Boolean = true,
     // Throughput default: allow QUIC/HTTP3; users can enable blocking if their network/ISP has QUIC issues.
     @SerializedName("blockQuic") val blockQuic: Boolean = false,

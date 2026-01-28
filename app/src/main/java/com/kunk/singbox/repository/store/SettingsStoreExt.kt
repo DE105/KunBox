@@ -151,10 +151,6 @@ fun SettingsStore.setDefaultRule(value: DefaultRule) {
     updateSettings { it.copy(defaultRule = value) }
 }
 
-fun SettingsStore.setBlockAds(value: Boolean) {
-    updateSettings { it.copy(blockAds = value) }
-}
-
 fun SettingsStore.setBypassLan(value: Boolean) {
     updateSettings { it.copy(bypassLan = value) }
 }

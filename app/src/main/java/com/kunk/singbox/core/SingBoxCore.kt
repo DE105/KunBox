@@ -252,6 +252,14 @@ class SingBoxCore private constructor(private val context: Context) {
         timeoutMs: Int,
         dependencyOutbounds: List<Outbound> = emptyList()
     ): Long {
+        // 2025-fix: 防御性检查 - VPN 运行时使用 native 测速，避免创建临时服务
+        // 临时服务的 closeService() 会污染全局 Libbox.isRunning() 状态
+        if (VpnStateStore.getActive() && BoxWrapperManager.isAvailable()) {
+            Log.i(TAG, "VPN is running, redirecting to native URL test for ${outbound.tag}")
+            val result = BoxWrapperManager.urlTestOutbound(outbound.tag, targetUrl, timeoutMs)
+            return if (result >= 0) result.toLong() else -1L
+        }
+
         val port = allocateLocalPort()
         val inbound = com.kunk.singbox.model.Inbound(
             type = "mixed",
@@ -489,6 +497,22 @@ class SingBoxCore private constructor(private val context: Context) {
         onResult: (tag: String, latency: Long) -> Unit
     ) {
         if (batchOutbounds.isEmpty()) return
+
+        // 2025-fix: 防御性检查 - VPN 运行时禁止创建临时服务，使用 native 批量测速
+        // 临时服务的 closeService() 会污染全局 Libbox.isRunning() 状态
+        if (VpnStateStore.getActive() && BoxWrapperManager.isAvailable()) {
+            Log.i(TAG, "VPN is running, using native batch URL test instead of temporary service")
+            val results = BoxWrapperManager.urlTestBatch(
+                outboundTags = batchOutbounds.map { it.tag },
+                url = targetUrl,
+                timeoutMs = timeoutMs,
+                concurrency = concurrency.coerceIn(1, 20)
+            )
+            batchOutbounds.forEach { outbound ->
+                onResult(outbound.tag, results[outbound.tag]?.toLong() ?: -1L)
+            }
+            return
+        }
 
         val ports: List<Int>
         try {
@@ -768,7 +792,9 @@ class SingBoxCore private constructor(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         val settings = SettingsRepository.getInstance(context).settings.first()
 
-        val isNativeUrlTestSupported = false
+        // 2025-fix: 当 VPN 运行时，使用 native API 测速，避免创建临时 CommandServer
+        // 临时服务的 closeService() 会污染全局 Libbox.isRunning() 状态，导致健康检查误判
+        val isNativeUrlTestSupported = BoxWrapperManager.isAvailable()
 
         if (libboxAvailable && VpnStateStore.getActive() && isNativeUrlTestSupported) {
             try {

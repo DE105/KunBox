@@ -209,12 +209,6 @@ fun RoutingSettingsScreen(
 
             StandardCard {
                 SettingSwitchItem(
-                    title = stringResource(R.string.routing_settings_block_ads),
-                    subtitle = stringResource(R.string.routing_settings_block_ads_subtitle),
-                    checked = settings.blockAds,
-                    onCheckedChange = { settingsViewModel.setBlockAds(it) }
-                )
-                SettingSwitchItem(
                     title = stringResource(R.string.routing_settings_block_quic),
                     subtitle = stringResource(R.string.routing_settings_block_quic_subtitle),
                     checked = settings.blockQuic,

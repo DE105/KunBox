@@ -2420,36 +2420,6 @@ class ConfigRepository(private val context: Context) {
             }
         }.filterNotNull().toMutableList()
 
-        if (settings.blockAds) {
-            val adBlockTag = "geosite-category-ads-all"
-            val adBlockPath = ruleSetRepo.getRuleSetPath(adBlockTag)
-            val adBlockFile = File(adBlockPath)
-
-            if (!adBlockFile.exists() || adBlockFile.length() == 0L) {
-                try {
-                    context.assets.open("rulesets/$adBlockTag.srs").use { input ->
-                        adBlockFile.parentFile?.mkdirs()
-                        adBlockFile.outputStream().use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to copy built-in ad block rule set", e)
-                }
-            }
-
-            if (adBlockFile.exists() && adBlockFile.length() > 0 && rules.none { it.tag == adBlockTag }) {
-                rules.add(
-                    RuleSetConfig(
-                        tag = adBlockTag,
-                        type = "local",
-                        format = "binary",
-                        path = adBlockPath
-                    )
-                )
-            }
-        }
-
         return rules
     }
 
@@ -3499,15 +3469,6 @@ class ConfigRepository(private val context: Context) {
         }
     }
 
-    private fun buildAdBlockRules(settings: AppSettings, validRuleSets: List<RuleSetConfig>): List<RouteRule> {
-        val adBlockEnabled = settings.blockAds && validRuleSets.any { it.tag == "geosite-category-ads-all" }
-        return if (adBlockEnabled) {
-            listOf(RouteRule(ruleSet = listOf("geosite-category-ads-all"), outbound = "block"))
-        } else {
-            emptyList()
-        }
-    }
-
     private fun buildDefaultRules(settings: AppSettings, selectorTag: String): List<RouteRule> {
         return when (settings.defaultRule) {
             DefaultRule.DIRECT -> listOf(RouteRule(outbound = "direct"))
@@ -3536,20 +3497,18 @@ class ConfigRepository(private val context: Context) {
 
         val quicRule = buildQuicBlockRule(settings)
         val bypassLanRules = buildBypassLanRules(settings)
-        val adBlockRules = buildAdBlockRules(settings, validRuleSets)
         val customDomainRules = buildCustomDomainRules(settings, selectorTag, outbounds, nodeTagResolver)
         val defaultRuleCatchAll = buildDefaultRules(settings, selectorTag)
 
-        val adBlockEnabled = settings.blockAds && validRuleSets.any { it.tag == "geosite-category-ads-all" }
-        val needSniff = hasCustomDomainRouting || hasRuleSetRouting || adBlockEnabled
+        val needSniff = hasCustomDomainRouting || hasRuleSetRouting
         val sniffRule = if (needSniff) listOf(RouteRule(action = "sniff")) else emptyList()
         val hijackDnsRule = listOf(RouteRule(protocolRaw = listOf("dns"), action = "hijack-dns"))
 
         val allRules = when (settings.routingMode) {
-            RoutingMode.GLOBAL_PROXY -> sniffRule + hijackDnsRule + adBlockRules
-            RoutingMode.GLOBAL_DIRECT -> sniffRule + hijackDnsRule + adBlockRules + listOf(RouteRule(outbound = "direct"))
+            RoutingMode.GLOBAL_PROXY -> sniffRule + hijackDnsRule
+            RoutingMode.GLOBAL_DIRECT -> sniffRule + hijackDnsRule + listOf(RouteRule(outbound = "direct"))
             RoutingMode.RULE -> {
-                sniffRule + hijackDnsRule + adBlockRules + quicRule + bypassLanRules + customDomainRules + appRoutingRules + customRuleSetRules + defaultRuleCatchAll
+                sniffRule + hijackDnsRule + quicRule + bypassLanRules + customDomainRules + appRoutingRules + customRuleSetRules + defaultRuleCatchAll
             }
         }
 

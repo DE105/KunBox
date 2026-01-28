@@ -311,10 +311,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { repository.setDefaultRule(value) }
     }
 
-    fun setBlockAds(value: Boolean) {
-        viewModelScope.launch { repository.setBlockAds(value) }
-    }
-
     fun setBlockQuic(value: Boolean) {
         viewModelScope.launch { repository.setBlockQuic(value) }
     }
