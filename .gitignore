@@ -41,6 +41,9 @@ temp_fix.txt
 planning-with-files/
 .worktrees/
 
+# 方案文档目录（本地规划文档，无需提交）
+plans/
+
 # 备份文件
 *.backup
 *.backup_*
