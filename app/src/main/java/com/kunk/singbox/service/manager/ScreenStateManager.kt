@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
-import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay

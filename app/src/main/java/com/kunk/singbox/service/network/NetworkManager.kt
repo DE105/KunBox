@@ -227,7 +227,7 @@ class NetworkManager(
 
                 // 2025-fix: Always notify on capabilities change (e.g. WiFi validated)
                 // if (cm.activeNetwork == network) {
-                    listener?.onNetworkChanged(network, "")
+                listener?.onNetworkChanged(network, "")
                 // }
             }
 
