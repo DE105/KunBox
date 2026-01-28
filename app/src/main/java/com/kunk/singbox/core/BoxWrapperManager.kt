@@ -191,8 +191,13 @@ object BoxWrapperManager {
      * @return true 如果成功
      */
     fun wake(): Boolean {
+        val server = commandServer
+        if (server == null) {
+            Log.w(TAG, "wake() failed: commandServer is null, falling back to resume()")
+            return resume()
+        }
         return try {
-            commandServer?.wake()
+            server.wake()
             _isPaused.value = false
             Log.i(TAG, "wake() success")
             true
@@ -275,8 +280,13 @@ object BoxWrapperManager {
      * 重置网络
      */
     fun resetNetwork(): Boolean {
+        val server = commandServer
+        if (server == null) {
+            Log.w(TAG, "resetNetwork() failed: commandServer is null")
+            return false
+        }
         return try {
-            commandServer?.resetNetwork()
+            server.resetNetwork()
             Log.i(TAG, "resetNetwork() success")
             true
         } catch (e: Exception) {

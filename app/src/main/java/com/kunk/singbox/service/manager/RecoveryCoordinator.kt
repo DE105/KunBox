@@ -37,6 +37,10 @@ class RecoveryCoordinator(
         // 2025-fix-v10: 这些 reason 关键词可以绕过 deep recovery 冷却期
         // 当系统退出 Doze 模式或用户主动返回前台时，恢复网络是最高优先级
         private val COOLDOWN_EXEMPT_KEYWORDS = listOf("doze_exit", "app_foreground", "screen_on")
+
+        // 2025-fix-v19: 连通性验证配置
+        private const val CONNECTIVITY_PROBE_URL = "https://www.gstatic.com/generate_204"
+        private const val CONNECTIVITY_PROBE_TIMEOUT_MS = 5000
     }
 
     interface Callbacks {
@@ -57,6 +61,13 @@ class RecoveryCoordinator(
          * 这是解决"后台恢复后应用一直加载中"问题的根治方案
          */
         suspend fun performNetworkBump(reason: String): Boolean
+
+        /**
+         * 验证数据面连通性
+         * 使用真实的 URL 测试验证 VPN 隧道是否真正可用
+         * @return 延迟毫秒数，-1 表示失败
+         */
+        suspend fun verifyDataPlaneConnectivity(url: String, timeoutMs: Int): Int
 
         fun addLog(message: String)
     }
@@ -116,7 +127,7 @@ class RecoveryCoordinator(
         }
     }
 
-    @Suppress("CognitiveComplexMethod")
+    @Suppress("CognitiveComplexMethod", "ReturnCount")
     private fun merge(a: Request, b: Request, nowMs: Long): Request {
         // Within a short window, merge aggressively.
         val withinWindow = (nowMs - a.requestedAtMs) <= COALESCE_WINDOW_MS ||
@@ -133,8 +144,17 @@ class RecoveryCoordinator(
             return chosen.withReason(mergeReason(chosen.reason, other.reason))
         }
 
-        // If both are reset-style requests, keep BOTH (common during network switching).
         val mergedReason = mergeReason(a.reason, b.reason)
+
+        // 2025-fix-v18: NetworkBump + Recover 必须都保留，合并为 Composite
+        // 这是解决"息屏久了亮屏后 VPN 连着但没网络"问题的关键修复
+        // 原因：NetworkBump 触发 setUnderlyingNetworks 刷新，让应用层感知网络变化并重建连接
+        //       Recover 恢复 sing-box 内核状态（唤醒/清理连接/重置网络栈）
+        // 两者缺一不可，但之前因为优先级不同会被合并丢失 NetworkBump
+        val bumpRecoverComposite = mergeBumpAndRecover(a, b, mergedReason)
+        if (bumpRecoverComposite != null) return bumpRecoverComposite
+
+        // If both are reset-style requests, keep BOTH (common during network switching).
         val resetComposite = mergeResetRequests(a, b, mergedReason)
         if (resetComposite != null) return resetComposite
 
@@ -142,6 +162,43 @@ class RecoveryCoordinator(
         val other = if (chosen === b) a else b
 
         return chosen.withReason(mergeReason(chosen.reason, other.reason))
+    }
+
+    /**
+     * 合并 NetworkBump 和 Recover 请求为 Composite
+     * 确保两者都执行，顺序：先 NetworkBump 后 Recover
+     */
+    private fun mergeBumpAndRecover(a: Request, b: Request, mergedReason: String): Request? {
+        val bump = when {
+            a is Request.NetworkBump -> a
+            b is Request.NetworkBump -> b
+            a is Request.Composite && a.items.any { it is Request.NetworkBump } ->
+                a.items.filterIsInstance<Request.NetworkBump>().firstOrNull()
+            b is Request.Composite && b.items.any { it is Request.NetworkBump } ->
+                b.items.filterIsInstance<Request.NetworkBump>().firstOrNull()
+            else -> null
+        }
+
+        val recover = when {
+            a is Request.Recover -> a
+            b is Request.Recover -> b
+            a is Request.Composite && a.items.any { it is Request.Recover } ->
+                a.items.filterIsInstance<Request.Recover>().maxByOrNull { it.priority }
+            b is Request.Composite && b.items.any { it is Request.Recover } ->
+                b.items.filterIsInstance<Request.Recover>().maxByOrNull { it.priority }
+            else -> null
+        }
+
+        if (bump == null || recover == null) return null
+
+        Log.i(TAG, "[Merge] NetworkBump + Recover -> Composite (both preserved)")
+
+        // 顺序很重要：先 bump（刷新底层网络），后 recover（恢复内核状态）
+        return Request.Composite(
+            items = listOf(bump, recover),
+            reason = mergedReason,
+            requestedAtMs = minOf(bump.requestedAtMs, recover.requestedAtMs)
+        )
     }
 
     private fun mergeResetRequests(a: Request, b: Request, mergedReason: String): Request? {
@@ -274,6 +331,7 @@ class RecoveryCoordinator(
         return true
     }
 
+    @Suppress("UnusedParameter")
     private fun checkNetworkBumpCooldown(req: Request.NetworkBump, cb: Callbacks, now: Long): Boolean {
         val isExempt = COOLDOWN_EXEMPT_KEYWORDS.any { keyword ->
             req.reason.contains(keyword, ignoreCase = true)
@@ -290,6 +348,7 @@ class RecoveryCoordinator(
         return true
     }
 
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     private suspend fun performRequest(req: Request, cb: Callbacks) {
         val start = SystemClock.elapsedRealtime()
         try {
@@ -300,6 +359,9 @@ class RecoveryCoordinator(
                         "INFO [Recovery] recover(mode=${req.mode}) ok=$ok " +
                             "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
                     )
+                    if (ok && shouldVerifyAfterRecovery(req.reason)) {
+                        scheduleConnectivityVerification(req.reason, req.mode)
+                    }
                 }
 
                 is Request.EnterDeviceIdle -> {
@@ -352,12 +414,77 @@ class RecoveryCoordinator(
                         "INFO [Recovery] networkBump ok=$ok " +
                             "cost=${SystemClock.elapsedRealtime() - start}ms reason=${req.reason}"
                     )
+                    if (ok && shouldVerifyAfterRecovery(req.reason)) {
+                        scheduleConnectivityVerification(req.reason, -1)
+                    }
+                }
+
+                is Request.VerifyConnectivity -> {
+                    performConnectivityVerification(req, cb, start)
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Request failed: ${req.javaClass.simpleName}", e)
             cb.addLog("WARN [Recovery] ${req.javaClass.simpleName} failed: ${e.message}")
         }
+    }
+
+    private fun shouldVerifyAfterRecovery(reason: String): Boolean {
+        return COOLDOWN_EXEMPT_KEYWORDS.any { reason.contains(it, ignoreCase = true) }
+    }
+
+    private fun scheduleConnectivityVerification(reason: String, currentMode: Int) {
+        scope.launch {
+            kotlinx.coroutines.delay(500)
+            request(Request.VerifyConnectivity(
+                reason = "verify_after_$reason",
+                escalateOnFailure = true,
+                currentRecoveryMode = currentMode
+            ))
+        }
+    }
+
+    private suspend fun performConnectivityVerification(
+        req: Request.VerifyConnectivity,
+        cb: Callbacks,
+        start: Long
+    ) {
+        val latency = cb.verifyDataPlaneConnectivity(
+            CONNECTIVITY_PROBE_URL,
+            CONNECTIVITY_PROBE_TIMEOUT_MS
+        )
+        val success = latency >= 0
+        val cost = SystemClock.elapsedRealtime() - start
+
+        if (success) {
+            Log.i(TAG, "[Verify] Connectivity OK, latency=${latency}ms")
+            cb.addLog("INFO [Verify] ok latency=${latency}ms cost=${cost}ms")
+        } else {
+            Log.w(TAG, "[Verify] Connectivity FAILED, reason=${req.reason}")
+            cb.addLog("WARN [Verify] failed cost=${cost}ms reason=${req.reason}")
+
+            if (req.escalateOnFailure) {
+                escalateRecovery(req.currentRecoveryMode, req.reason, cb)
+            }
+        }
+    }
+
+    private suspend fun escalateRecovery(currentMode: Int, reason: String, cb: Callbacks) {
+        val nextMode = when (currentMode) {
+            -1, 0, 1 -> 2
+            2 -> 3
+            3 -> {
+                Log.w(TAG, "[Escalate] Deep recovery failed, requesting restart")
+                cb.addLog("WARN [Escalate] deep failed, requesting restart")
+                request(Request.Restart("escalate_from_$reason"))
+                return
+            }
+            else -> return
+        }
+
+        Log.i(TAG, "[Escalate] mode $currentMode -> $nextMode for $reason")
+        cb.addLog("INFO [Escalate] mode $currentMode -> $nextMode")
+        request(Request.Recover(nextMode, "escalate_from_$reason"))
     }
 
     sealed interface Request {
@@ -441,6 +568,16 @@ class RecoveryCoordinator(
             override val requestedAtMs: Long = SystemClock.elapsedRealtime()
         ) : Request {
             override val priority: Int = 85
+            override fun withReason(reason: String): Request = copy(reason = reason)
+        }
+
+        data class VerifyConnectivity(
+            override val reason: String,
+            val escalateOnFailure: Boolean = true,
+            val currentRecoveryMode: Int = -1,
+            override val requestedAtMs: Long = SystemClock.elapsedRealtime()
+        ) : Request {
+            override val priority: Int = 30
             override fun withReason(reason: String): Request = copy(reason = reason)
         }
     }

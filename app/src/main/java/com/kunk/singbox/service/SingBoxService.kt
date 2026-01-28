@@ -400,6 +400,7 @@ class SingBoxService : VpnService() {
         Log.i(TAG, "HealthMonitorWrapper initialized")
     }
 
+    @Suppress("CognitiveComplexMethod")
     private fun initRecoveryCoordinator() {
         recoveryCoordinator.init(object : RecoveryCoordinator.Callbacks {
             override val isRunning: Boolean get() = SingBoxService.isRunning
@@ -455,36 +456,59 @@ class SingBoxService : VpnService() {
             }
 
             override suspend fun performNetworkBump(reason: String): Boolean {
-                val currentNetwork = connectManager.getCurrentNetwork()
-                if (currentNetwork == null) {
-                    Log.w(TAG, "[NetworkBump] skipped: no current network")
-                    return false
+                var network = connectManager.getCurrentNetwork()
+
+                // 2025-fix-v18: 网络未就绪时等待并重试，而非直接跳过
+                // 设备从 Doze 唤醒后，WiFi/蜂窝通常需要 0.5~3 秒才能完全恢复
+                if (network == null) {
+                    val isWakeScenario = reason.contains("doze_exit", true) ||
+                        reason.contains("screen_on", true) ||
+                        reason.contains("app_foreground", true)
+
+                    if (isWakeScenario) {
+                        Log.i(TAG, "[NetworkBump] Network not ready, waiting...")
+                        network = connectManager.waitForNetwork(3000L).getOrNull()
+                        if (network == null) {
+                            Log.w(TAG, "[NetworkBump] Network still unavailable after 3s wait")
+                            return false
+                        }
+                        Log.i(TAG, "[NetworkBump] Network became available after wait")
+                    } else {
+                        Log.w(TAG, "[NetworkBump] skipped: no current network")
+                        return false
+                    }
                 }
+
                 return try {
                     Log.i(TAG, "[NetworkBump] Starting: $reason")
 
-                    // 2025-fix-v17: 简化 NetworkBump，参考 v2rayNG 的简洁做法
-                    // v2rayNG 只是简单地调用 setUnderlyingNetworks，不做复杂的连接清理
-                    // 过多的延迟反而会导致用户感知到卡顿
-
-                    // Step 1: 清除底层网络
                     setUnderlyingNetworks(null)
-
-                    // Step 2: 短暂延迟 (50ms 足够让系统检测到变化)
                     delay(50)
-
-                    // Step 3: 恢复底层网络
-                    setUnderlyingNetworks(arrayOf(currentNetwork))
-
-                    // Step 4: 重置 sing-box 内部连接池 (异步，不等待)
+                    setUnderlyingNetworks(arrayOf(network))
                     runCatching { BoxWrapperManager.resetAllConnections(true) }
 
                     Log.i(TAG, "[NetworkBump] completed: $reason")
                     true
                 } catch (e: Exception) {
                     Log.e(TAG, "[NetworkBump] failed", e)
-                    runCatching { setUnderlyingNetworks(arrayOf(currentNetwork)) }
+                    runCatching { setUnderlyingNetworks(arrayOf(network)) }
                     false
+                }
+            }
+
+            override suspend fun verifyDataPlaneConnectivity(url: String, timeoutMs: Int): Int {
+                return withContext(Dispatchers.IO) {
+                    try {
+                        val selected = BoxWrapperManager.getSelectedOutbound()
+                        if (selected.isNullOrBlank()) {
+                            Log.w(TAG, "[Verify] No selected outbound, using direct test")
+                            return@withContext -1
+                        }
+                        BoxWrapperManager.urlTestOutbound(selected, url, timeoutMs)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "[Verify] Connectivity test failed", e)
+                        -1
+                    }
                 }
             }
 
@@ -585,9 +609,9 @@ class SingBoxService : VpnService() {
         initBackgroundPowerManager()
         Log.i(TAG, "BackgroundPowerManager initialized")
 
-            Log.i(TAG, "KunBox VPN started successfully")
-            notificationManager.setSuppressUpdates(false)
-        }
+        Log.i(TAG, "KunBox VPN started successfully")
+        notificationManager.setSuppressUpdates(false)
+    }
 
     private fun initBackgroundPowerManager() {
         val initialThresholdMs = backgroundPowerSavingThresholdMs
@@ -1189,7 +1213,6 @@ class SingBoxService : VpnService() {
             )
         }
     }
-
 
     private var stallRefreshAttempts: Int = 0
     private val maxStallRefreshAttempts: Int = 3 // 连续3次stall刷新后仍无流量则重启服务
