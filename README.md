@@ -7,13 +7,14 @@
 [![Sing-box](https://img.shields.io/badge/Core-Sing--box-success.svg?style=flat)](https://github.com/SagerNet/sing-box)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](LICENSE)
 [![Telegram](https://img.shields.io/badge/Telegram-Chat-blue?style=flat&logo=telegram)](https://t.me/+EKxpszVkOBc1MGJl)
+[![Downloads](https://img.shields.io/github/downloads/roseforljh/KunBox/total.svg?style=flat&logo=github)](https://github.com/roseforljh/KunBox/releases)
 
 > **OLED Hyper-Minimalist**
 >
 > 专为追求极致性能与视觉纯粹主义者打造的下一代 Android 代理客户端。
 > <br/>摒弃繁杂，回归网络本质。
 
-[功能特性](#-核心特性) • [协议支持](#-协议矩阵) • [项目架构](#-项目结构) • [快速开始](#-构建指南) • [交流群](https://t.me/+978J0WfmJLk4ZmQ1)
+[下载安装](#-下载安装) • [功能特性](#-核心特性) • [协议支持](#-协议矩阵) • [项目架构](#-项目结构) • [快速开始](#-构建指南) • [交流群](https://t.me/+978J0WfmJLk4ZmQ1)
 
 </div>
 
@@ -35,26 +36,66 @@
   <img src="https://beone.kuz7.com/p/nP4l6zRX1T4eWQMHKN4b0VOVYeau7B5r3vW44NmE7xk" width="30%" />
 </div>
 
+---
+
+## 📥 下载安装
+
+### 从 GitHub Releases 下载
+
+前往 [Releases 页面](https://github.com/roseforljh/KunBox/releases) 下载最新版本的 APK 文件。
+
+> **提示**: 默认发布 `arm64-v8a` 架构的 APK。如需其他架构，请参考 [构建指南](#-构建指南) 自行编译。
+
+### 系统要求
+
+| 项目 | 最低要求 |
+|:---|:---|
+| Android 版本 | Android 7.0 (API 24) |
+| 架构 | arm64-v8a |
+| 存储空间 | 约 15MB |
+
+### 安装方式
+
+1. **直接安装**: 下载 APK 后点击安装（需要允许安装未知来源应用）
+2. **ADB 安装**: `adb install KunBox-x.x.x.apk`
+
+---
+
 ## ✨ 核心特性
 
 ### 🎨 OLED 纯黑美学 (Hyper-Minimalist UI)
 区别于传统的 Material Design，我们采用了深度定制的 **True Black** 界面。不仅在 OLED 屏幕上实现像素级省电，更带来深邃、沉浸的视觉体验。无干扰的 UI 设计让关键信息（延迟、流量、节点）一目了然。
+
+- **耿鬼动态效果**: 首页独特的耿鬼形象随 VPN 状态切换
+- **流畅动画**: 基于 Jetpack Compose 的丝滑过渡动画
+- **自适应图标**: 支持 Android 13+ 主题自适应图标
 
 ### 🚀 极致性能核心 (High-Performance Core)
 基于 Golang 编写的 **Sing-box (libbox)** 下一代通用代理核心。
 - **内存占用**: 相比传统核心降低 30%+
 - **启动速度**: 毫秒级冷启动
 - **连接稳定性**: 优秀的连接复用与保活机制
+- **热重载支持**: 配置变更无需重启 VPN 服务
 
 ### 🛡️ 智能分流与规则集中心 (Smart Routing & RuleSet Hub)
 内置强大的路由引擎，支持复杂的规则集匹配。
 - **规则集中心**: 在线下载与管理海量规则集（GeoSite/GeoIP/AdGuard 等），支持 Source 与 Binary 格式。
 - **精准应用分流**: 采用 `UID` + `Package Name` 双重匹配机制，有效解决部分系统环境下应用分流失效的问题。
 - **灵活策略**: 支持 GeoSite、GeoIP、域名后缀、关键字、进程名等多种匹配维度。
+- **自动更新**: 规则集支持定时自动更新
 
 ### ⚡ 便捷交互 (Quick Actions)
 - **Quick Settings Tile**: 支持系统下拉栏快捷开关，无需进入应用即可一键启停 VPN。
+- **桌面快捷方式**: 支持节点选择和 VPN 切换快捷方式
 - **真·延迟测试**: 基于 URL-Test 的真实连接测试，准确反映 YouTube/Google 等目标网站的真实加载速度。
+- **实时流量监控**: 通知栏实时显示上传/下载速度
+
+### 🔄 后台保活与省电优化
+- **智能保活**: 多层次的息屏保活机制
+- **后台省电**: 可配置的后台自动休眠，平衡续航与可用性
+- **快速恢复**: 从后台恢复时优化重连速度
+
+---
 
 ## 🌐 协议矩阵
 
@@ -78,7 +119,9 @@
 - **Sing-box JSON**: 原生支持，特性最全。
 - **Clash YAML**: 完美兼容 Clash / Clash Meta (Mihomo) 配置，自动转换策略组。
 - **Standard Base64**: 兼容 V2RayN / Shadowrocket 订阅格式。
-- **导入方式**: 支持 剪贴板导入、URL 订阅导入。
+- **导入方式**: 支持 剪贴板导入、URL 订阅导入、二维码扫描、本地文件导入。
+
+---
 
 ## 🏗️ 项目结构
 
@@ -86,43 +129,45 @@
 
 ```
 KunBox-Android/
-├── app/
-│   ├── src/main/java/com/kunk/singbox/
-│   │   ├── model/           # 数据模型 (Config, Profile, RuleSet)
-│   │   │   ├── SingBoxConfig.kt   # Sing-box 核心配置映射
-│   │   │   └── Outbound.kt        # 节点出站定义
-│   │   │
-│   │   ├── repository/      # 数据仓库层 (Repository Pattern)
-│   │   │   ├── ProfileRepository.kt # 配置文件管理
-│   │   │   └── LogRepository.kt     # 日志持久化
-│   │   │
-│   │   ├── service/         # Android 服务组件
-│   │   │   ├── SingBoxService.kt    # VpnService 核心实现
-│   │   │   └── VpnTileService.kt    # 快捷开关服务 (QS Tile)
-│   │   │
-│   │   ├── ui/              # 界面层 (Jetpack Compose)
-│   │   │   ├── components/  # 可复用 UI 组件 (Cards, Inputs)
-│   │   │   ├── screens/     # 页面级 Composable
-│   │   │   │   ├── ProfilesScreen.kt   # 节点列表页
-│   │   │   │   ├── RuleSetHubScreen.kt # 规则集中心
-│   │   │   │   └── LogsScreen.kt       # 日志监控页
-│   │   │   └── theme/       # OLED 主题定义
-│   │   │
-│   │   ├── utils/           # 工具类集合
-│   │   │   └── parser/      # 核心解析器引擎
-│   │   │       ├── ClashYamlParser.kt  # YAML 解析实现
-│   │   │       └── NodeLinkParser.kt   # 链接协议解析
-│   │   │
-│   │   └── viewmodel/       # 视图模型 (State Management)
-│   │
-│   ├── libs/                # 外部依赖 (libbox.aar)
-│   └── res/                 # 资源文件 (Vector Drawables)
+├── app/src/main/java/com/kunk/singbox/
+│   ├── core/              # libbox JNI 封装 (BoxWrapperManager, SingBoxCore)
+│   ├── database/          # Room 数据库 (dao/, entity/)
+│   ├── ipc/               # VPN 跨进程通信 (SingBoxIpcHub, VpnStateStore)
+│   ├── model/             # 数据模型 (SingBoxConfig, RoutingModels, Settings)
+│   ├── repository/        # 数据仓库层
+│   │   ├── config/        # 配置构建器 (InboundBuilder, OutboundFixer)
+│   │   ├── store/         # 设置存储
+│   │   └── subscription/  # 订阅获取器
+│   ├── service/           # Android 服务
+│   │   ├── manager/       # VPN 生命周期管理 (CoreManager, ConnectManager)
+│   │   ├── network/       # 网络监控
+│   │   └── tun/           # TUN 设备管理
+│   ├── ui/                # Jetpack Compose UI
+│   │   ├── components/    # 可复用组件
+│   │   ├── screens/       # 页面级 Composables
+│   │   └── navigation/    # 导航配置
+│   ├── utils/parser/      # 协议解析器 (NodeLinkParser, ClashYamlParser)
+│   └── viewmodel/         # ViewModel 层
 │
-├── buildScript/             # 构建脚本 (Golang -> Android AAR)
-│   └── build_libbox.ps1     # 核心编译脚本
+├── Kkunbox/               # Sing-box 核心源码与构建脚本
+│   └── buildScript/       # libbox 编译脚本
 │
-└── gradle/                  # Gradle 构建配置
+└── config/detekt/         # 代码质量检查配置
 ```
+
+### 架构亮点
+
+#### 多进程架构
+- VPN 服务运行在独立进程 (`:vpn_service`)
+- UI 通过 `SingBoxIpcHub` 进行跨进程通信
+- 使用 `VpnStateStore` (MMKV) 实现跨进程状态同步
+
+#### VPN 数据流
+```
+SingBoxService -> CoreManager -> BoxWrapperManager -> libbox.aar
+```
+
+---
 
 ## 🛠️ 技术栈详情
 
@@ -131,62 +176,230 @@ KunBox-Android/
 | **Language** | Kotlin 1.9 | 100% 纯 Kotlin 代码，利用 Coroutines 和 Flow 处理异步流 |
 | **UI Framework** | Jetpack Compose | 声明式 UI，Material 3 设计规范 |
 | **Architecture** | MVVM | 配合 ViewModel 和 Repository 实现关注点分离 |
-| **Core Engine** | Sing-box (Go) | 通过 JNI (Java Native Interface) 与 Go 核心库通信 |
-| **Network** | OkHttp 4 | 用于订阅更新、延迟测试等辅助网络请求 |
+| **Core Engine** | Sing-box (Go) | 通过 JNI 与 Go 核心库通信 |
+| **Database** | Room | 本地数据持久化 |
+| **KV Storage** | MMKV | 高性能跨进程键值存储 |
+| **Network** | OkHttp 4 | 用于订阅更新、延迟测试等网络请求 |
 | **Serialization** | Gson & SnakeYAML | 高性能 JSON 和 YAML 解析 |
-| **Build System** | Gradle & CMake | 混合构建系统 |
+| **Build System** | Gradle 8.x | 混合构建系统支持 |
+| **Code Quality** | Detekt | 静态代码分析与格式化 |
 
-## 📦 构建指南
+---
 
-如果你是开发者并希望从源码构建：
+## 🚀 快速开始
 
-1.  **环境准备**:
-    *   JDK 17+
-    *   Android Studio Hedgehog 或更高版本
-    *   Go 1.21+ (用于编译核心)
+### 环境要求
 
-2.  **获取源码**:
-    ```bash
-    git clone https://github.com/your-repo/singbox-android.git
-    cd singbox-android
-    ```
+- **JDK**: 17 或更高版本
+- **Android Studio**: Hedgehog (2023.1.1) 或更高版本
+- **Go**: 1.24+ (仅编译 libbox 核心时需要)
+- **NDK**: r29 或更高版本
 
-3.  **编译核心 (可选)**:
-    如果你需要修改底层核心，运行构建脚本：
-    ```powershell
-    # Windows
-    ./buildScript/build_libbox.ps1
-    ```
-    这将生成最新的 `libbox.aar` 到 `app/libs/`。
+### 克隆项目
 
-4.  **构建 APK**:
-    *   在 Android Studio 中打开项目。
-    *   等待 Gradle Sync 完成。
-    *   点击 `Run 'app'`。
+```bash
+git clone https://github.com/roseforljh/KunBox.git
+cd KunBox
+```
 
-## 💖 赞助者
+### 构建 Debug APK
+
+```powershell
+# Windows
+.\gradlew assembleDebug
+
+# macOS/Linux
+./gradlew assembleDebug
+```
+
+### 构建 Release APK
+
+Release 构建需要配置签名。创建 `signing.properties` 文件：
+
+```properties
+STORE_FILE=release.keystore
+KEYSTORE_PASSWORD=your_keystore_password
+KEY_ALIAS=your_key_alias
+KEY_PASSWORD=your_key_password
+```
+
+然后执行：
+
+```powershell
+.\gradlew assembleRelease
+```
+
+### 编译 libbox 核心 (可选)
+
+如需修改底层核心代码，需要编译 libbox：
+
+```powershell
+# 从本地源码编译 (需要 Go 1.24+)
+.\Kkunbox\buildScript\tasks\build_libbox.ps1 -UseLocalSource
+
+# 从远程仓库编译
+.\Kkunbox\buildScript\tasks\build_libbox.ps1
+```
+
+编译完成后，`libbox.aar` 将自动放置到 `app/libs/` 目录。
+
+### 运行测试
+
+```powershell
+# 运行所有单元测试
+.\gradlew testDebugUnitTest
+
+# 运行特定测试类
+.\gradlew testDebugUnitTest --tests "com.kunk.singbox.utils.parser.NodeLinkParserTest"
+
+# 运行特定测试方法
+.\gradlew testDebugUnitTest --tests "com.kunk.singbox.utils.parser.NodeLinkParserTest.testVmessLink"
+
+# 运行 Detekt 代码检查
+.\gradlew detekt
+```
+
+### 清理构建
+
+```powershell
+.\gradlew clean
+```
+
+---
+
+## 📝 URL Scheme 支持
+
+KunBox 支持通过 URL Scheme 快速导入配置：
+
+```
+kunbox://import?url=<subscription_url>
+```
+
+示例：
+```
+kunbox://import?url=https%3A%2F%2Fexample.com%2Fsubscription
+```
+
+---
+
+## 🧪 测试
+
+项目包含完整的单元测试覆盖：
+
+| 测试类 | 说明 |
+|:---|:---|
+| `NodeLinkParserTest` | 协议链接解析测试 |
+| `ClashConfigParserTest` | Clash 配置解析测试 |
+| `ConfigRepositoryTest` | 配置生成测试 |
+| `ModelSerializationTest` | 模型序列化测试 |
+| `VpnStateStoreTest` | IPC 状态存储测试 |
+
+运行测试前请确保：
+1. 已配置 Android SDK
+2. 已安装 NDK
+3. 测试数据库目录可写
+
+---
+
+## 🤝 贡献指南
+
+我们欢迎所有形式的贡献！
+
+### 提交 Issue
+
+- 使用清晰的标题描述问题
+- 提供设备型号、Android 版本、应用版本
+- 附上复现步骤和相关日志
+
+### 提交 PR
+
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add amazing feature'`)
+4. 推送分支 (`git push origin feature/amazing-feature`)
+5. 创建 Pull Request
+
+### 代码规范
+
+- 使用 4 空格缩进（不使用 Tab）
+- 最大行长度 120 字符
+- 类名使用 PascalCase，函数和变量使用 camelCase
+- 提交前运行 `./gradlew detekt` 确保代码检查通过
+- 禁止空 catch 块，使用 `Log.e()` 替代 `printStackTrace()`
+
+---
+
+## 📋 常见问题
+
+### Q: 为什么安装后无法连接？
+A: 请检查：
+1. 是否授予 VPN 权限
+2. 节点配置是否正确
+3. 尝试切换不同的 DNS 设置
+
+### Q: 如何导入订阅？
+A: 支持多种方式：
+1. 点击右上角 "+" 选择 "从剪贴板导入"
+2. 长按订阅链接选择 "用 KunBox 打开"
+3. 使用 URL Scheme: `kunbox://import?url=<url>`
+
+### Q: 耗电量大怎么办？
+A: 建议：
+1. 开启"后台省电"功能
+2. 减少不必要的规则集
+3. 关闭不使用的功能（如详细日志）
+
+### Q: 支持哪些 Android 版本？
+A: 最低支持 Android 7.0 (API 24)，推荐 Android 10+ 以获得最佳体验。
+
+---
+
+## 💖 赞助支持
 
 感谢以下用户的慷慨支持：
 
 | 赞助者 | 金额 |
-|:------|:-----|
+|:---|:---|
 | [@WestWood](https://github.com/yuedaochangmendian) | ¥15 |
+
+> 您的支持是我们持续开发的动力！如有意愿赞助，请通过 [Telegram](https://t.me/+978J0WfmJLk4ZmQ1) 联系我们。
+
+---
 
 ## ❤️ 致谢与引用
 
 本项目站在巨人的肩膀上，特别感谢以下开源项目：
 
-*   **[SagerNet/sing-box](https://github.com/SagerNet/sing-box)**: The universal proxy platform.
-*   **[MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)**: NekoBox for Android.
-*   **[v2ray/v2ray-core](https://github.com/v2ray/v2ray-core)**: Project V2Ray - 感谢 V2Ray 团队为代理生态做出的开创性贡献。
+* **[SagerNet/sing-box](https://github.com/SagerNet/sing-box)**: 下一代通用代理平台核心
+* **[MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)**: 优秀的 Android 代理客户端参考
+* **[v2ray/v2ray-core](https://github.com/v2ray/v2ray-core)**: V2Ray 团队为代理生态做出的开创性贡献
+* **[Jetpack Compose](https://developer.android.com/jetpack/compose)**: 现代化的 Android UI 工具包
+
+---
 
 ## 📝 许可证
 
+```
 Copyright © 2024-2025 KunK.
-本项目基于 [MIT 许可证](LICENSE) 开源。
+
+Licensed under the MIT License.
+You may obtain a copy of the License at
+
+    https://opensource.org/licenses/MIT
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
 
 ---
-<div align="center">
-<sub>本项目仅供学习和研究网络技术使用，请遵守当地法律法规。</sub>
-</div>
 
+<div align="center">
+
+**[⬆ 回到顶部](#kunbox-for-android)**
+
+<sub>本项目仅供学习和研究网络技术使用，请遵守当地法律法规。</sub>
+
+</div>
