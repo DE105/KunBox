@@ -74,6 +74,14 @@ data class AppSettings(
     @SerializedName("networkChangeResetConnections") val networkChangeResetConnections: Boolean = true,
     @SerializedName("wakeResetConnections") val wakeResetConnections: Boolean = true,
 
+    // TCP Keepalive 设置 (完美方案 - 防止连接假死)
+    // 启用 TCP Keepalive，定期发送心跳包保持连接活跃
+    @SerializedName("tcpKeepAliveEnabled") val tcpKeepAliveEnabled: Boolean = true,
+    // TCP Keepalive 间隔时间 (秒)，默认 15 秒
+    @SerializedName("tcpKeepAliveInterval") val tcpKeepAliveInterval: Int = 15,
+    // 连接超时时间 (秒)，默认 10 秒
+    @SerializedName("connectTimeout") val connectTimeout: Int = 10,
+
     // 延迟测试设置
     @SerializedName("latencyTestMethod") val latencyTestMethod: LatencyTestMethod = LatencyTestMethod.REAL_RTT,
     @SerializedName("latencyTestUrl") val latencyTestUrl: String = "https://www.google.com/generate_204",

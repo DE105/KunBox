@@ -2351,7 +2351,7 @@ class ConfigRepository(private val context: Context) {
      */
     private fun fixOutboundForRuntime(outbound: Outbound): Outbound = OutboundFixer.fix(outbound)
 
-    private fun buildOutboundForRuntime(outbound: Outbound): Outbound = OutboundFixer.buildForRuntime(outbound)
+    private fun buildOutboundForRuntime(outbound: Outbound): Outbound = OutboundFixer.buildForRuntime(context, outbound)
 
     /**
      * 构建自定义规则集配置

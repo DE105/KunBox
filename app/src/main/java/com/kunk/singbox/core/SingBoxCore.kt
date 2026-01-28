@@ -524,7 +524,7 @@ class SingBoxCore private constructor(private val context: Context) {
         }
 
         val portToTagMap = ports.zip(batchOutbounds.map { it.tag }).toMap()
-        val fixedOutbounds = batchOutbounds.map { OutboundFixer.buildForRuntime(it) }
+        val fixedOutbounds = batchOutbounds.map { OutboundFixer.buildForRuntime(context, it) }
         val config = buildBatchTestConfig(fixedOutbounds, ports)
         val configJson = gson.toJson(config)
 
@@ -1067,6 +1067,57 @@ class SingBoxCore private constructor(private val context: Context) {
         override fun next(): String = list[index++]
         override fun len(): Int = list.size
     }
+
+    /**
+     * 检查是否有活跃的连接
+     * 用于连接健康监控
+     */
+    fun hasActiveConnections(): Boolean {
+        if (!libboxAvailable) return false
+
+        return try {
+            // 检查 sing-box 核心是否正在运行
+            BoxWrapperManager.isAvailable() && VpnStateStore.getActive()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to check active connections", e)
+            false
+        }
+    }
+
+    /**
+     * 获取活跃连接列表
+     * 用于连接健康监控
+     * 注意：当前 libbox 不支持此 API，始终返回空列表
+     */
+    fun getActiveConnections(): List<ActiveConnection> {
+        // libbox 不支持 getActiveConnections API
+        // 保留方法签名以兼容现有代码，但始终返回空列表
+        return emptyList()
+    }
+
+    /**
+     * 关闭指定应用的连接
+     * 用于精准恢复机制
+     * 注意：当前 libbox 不支持此 API，始终返回 false
+     */
+    fun closeConnections(packageName: String, uid: Int): Boolean {
+        // libbox 不支持 closeConnectionsByPackage API
+        // 保留方法签名以兼容现有代码，但始终返回 false
+        // 实际连接重置通过 CommandClient.closeConnections() 实现
+        return false
+    }
+
+    /**
+     * 活跃连接数据类
+     */
+    data class ActiveConnection(
+        val packageName: String?,
+        val uid: Int,
+        val network: String,
+        val remoteAddr: String,
+        val remotePort: Int,
+        val state: String
+    )
 
     fun cleanup() {
     }

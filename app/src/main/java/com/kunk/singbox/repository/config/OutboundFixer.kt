@@ -1,12 +1,52 @@
 package com.kunk.singbox.repository.config
 
 import com.kunk.singbox.model.Outbound
+import com.kunk.singbox.repository.SettingsRepository
 
 /**
  * Outbound 运行时修复器
  * 处理各种协议的配置修复和规范化
  */
 object OutboundFixer {
+
+    // TCP Keepalive 配置缓存
+    private var cachedTcpKeepAliveEnabled: Boolean? = null
+    private var cachedTcpKeepAliveInterval: String? = null
+    private var cachedConnectTimeout: String? = null
+
+    /**
+     * 获取 TCP Keepalive 配置
+     * 从 SettingsRepository 读取并缓存
+     */
+    private fun getTcpKeepAliveConfig(context: android.content.Context): Triple<Boolean, String?, String?> {
+        // 如果已缓存，直接返回
+        if (cachedTcpKeepAliveEnabled != null) {
+            return Triple(cachedTcpKeepAliveEnabled!!, cachedTcpKeepAliveInterval, cachedConnectTimeout)
+        }
+
+        // 从 SettingsRepository 读取
+        val settings = SettingsRepository.getInstance(context).settings.value
+        val enabled = settings.tcpKeepAliveEnabled
+        val interval = if (enabled) "${settings.tcpKeepAliveInterval}s" else null
+        val timeout = if (enabled) "${settings.connectTimeout}s" else null
+
+        // 缓存配置
+        cachedTcpKeepAliveEnabled = enabled
+        cachedTcpKeepAliveInterval = interval
+        cachedConnectTimeout = timeout
+
+        return Triple(enabled, interval, timeout)
+    }
+
+    /**
+     * 清除 TCP Keepalive 配置缓存
+     * 当设置变更时调用
+     */
+    fun clearTcpKeepAliveCache() {
+        cachedTcpKeepAliveEnabled = null
+        cachedTcpKeepAliveInterval = null
+        cachedConnectTimeout = null
+    }
 
     // 正则表达式常量
     private val REGEX_INTERVAL_DIGITS = Regex("^\\d+$")
@@ -180,9 +220,14 @@ object OutboundFixer {
 
     /**
      * 构建运行时 Outbound，只保留必要字段
+     * @param context Android Context，用于读取 TCP Keepalive 配置
      */
-    fun buildForRuntime(outbound: Outbound): Outbound {
+    fun buildForRuntime(context: android.content.Context, outbound: Outbound): Outbound {
         val fixed = fix(outbound)
+
+        // 获取 TCP Keepalive 配置
+        val (tcpKeepAliveEnabled, tcpKeepAliveInterval, connectTimeout) = getTcpKeepAliveConfig(context)
+
         return when (fixed.type) {
             "selector", "urltest", "url-test" -> Outbound(
                 type = "selector",
@@ -205,7 +250,11 @@ object OutboundFixer {
                 packetEncoding = fixed.packetEncoding,
                 tls = fixed.tls,
                 transport = fixed.transport,
-                multiplex = fixed.multiplex
+                multiplex = fixed.multiplex,
+                // TCP Keepalive 参数 (完美方案 - 防止连接假死)
+                tcpKeepAlive = tcpKeepAliveInterval,
+                tcpKeepAliveInterval = tcpKeepAliveInterval,
+                connectTimeout = connectTimeout
             )
 
             "vless" -> Outbound(
@@ -218,7 +267,11 @@ object OutboundFixer {
                 packetEncoding = fixed.packetEncoding,
                 tls = fixed.tls,
                 transport = fixed.transport,
-                multiplex = fixed.multiplex
+                multiplex = fixed.multiplex,
+                // TCP Keepalive 参数 (完美方案 - 防止连接假死)
+                tcpKeepAlive = tcpKeepAliveInterval,
+                tcpKeepAliveInterval = tcpKeepAliveInterval,
+                connectTimeout = connectTimeout
             )
 
             "trojan" -> Outbound(
@@ -229,7 +282,11 @@ object OutboundFixer {
                 password = fixed.password,
                 tls = fixed.tls,
                 transport = fixed.transport,
-                multiplex = fixed.multiplex
+                multiplex = fixed.multiplex,
+                // TCP Keepalive 参数 (完美方案 - 防止连接假死)
+                tcpKeepAlive = tcpKeepAliveInterval,
+                tcpKeepAliveInterval = tcpKeepAliveInterval,
+                connectTimeout = connectTimeout
             )
 
             "shadowsocks" -> Outbound(
@@ -244,7 +301,11 @@ object OutboundFixer {
                 udpOverTcp = fixed.udpOverTcp,
                 multiplex = fixed.multiplex,
                 detour = fixed.detour,
-                network = fixed.network
+                network = fixed.network,
+                // TCP Keepalive 参数 (完美方案 - 防止连接假死)
+                tcpKeepAlive = tcpKeepAliveInterval,
+                tcpKeepAliveInterval = tcpKeepAliveInterval,
+                connectTimeout = connectTimeout
             )
 
             "hysteria", "hysteria2" -> Outbound(
@@ -263,7 +324,11 @@ object OutboundFixer {
                 hopInterval = fixed.hopInterval,
                 serverPorts = fixed.serverPorts,
                 tls = fixed.tls,
-                multiplex = fixed.multiplex
+                multiplex = fixed.multiplex,
+                // TCP Keepalive 参数 (完美方案 - 防止连接假死)
+                tcpKeepAlive = tcpKeepAliveInterval,
+                tcpKeepAliveInterval = tcpKeepAliveInterval,
+                connectTimeout = connectTimeout
             )
 
             "tuic" -> Outbound(
@@ -280,7 +345,11 @@ object OutboundFixer {
                 disableSni = fixed.disableSni,
                 mtu = fixed.mtu,
                 tls = fixed.tls,
-                multiplex = fixed.multiplex
+                multiplex = fixed.multiplex,
+                // TCP Keepalive 参数 (完美方案 - 防止连接假死)
+                tcpKeepAlive = tcpKeepAliveInterval,
+                tcpKeepAliveInterval = tcpKeepAliveInterval,
+                connectTimeout = connectTimeout
             )
 
             "anytls" -> Outbound(
@@ -293,7 +362,11 @@ object OutboundFixer {
                 idleSessionTimeout = fixed.idleSessionTimeout,
                 minIdleSession = fixed.minIdleSession,
                 tls = fixed.tls,
-                multiplex = fixed.multiplex
+                multiplex = fixed.multiplex,
+                // TCP Keepalive 参数 (完美方案 - 防止连接假死)
+                tcpKeepAlive = tcpKeepAliveInterval,
+                tcpKeepAliveInterval = tcpKeepAliveInterval,
+                connectTimeout = connectTimeout
             )
 
             "wireguard" -> Outbound(
@@ -304,7 +377,11 @@ object OutboundFixer {
                 peerPublicKey = fixed.peerPublicKey,
                 preSharedKey = fixed.preSharedKey,
                 reserved = fixed.reserved,
-                peers = fixed.peers
+                peers = fixed.peers,
+                // TCP Keepalive 参数 (完美方案 - 防止连接假死)
+                tcpKeepAlive = tcpKeepAliveInterval,
+                tcpKeepAliveInterval = tcpKeepAliveInterval,
+                connectTimeout = connectTimeout
             )
 
             "ssh" -> Outbound(
@@ -318,7 +395,11 @@ object OutboundFixer {
                 privateKeyPassphrase = fixed.privateKeyPassphrase,
                 hostKey = fixed.hostKey,
                 hostKeyAlgorithms = fixed.hostKeyAlgorithms,
-                clientVersion = fixed.clientVersion
+                clientVersion = fixed.clientVersion,
+                // TCP Keepalive 参数 (完美方案 - 防止连接假死)
+                tcpKeepAlive = tcpKeepAliveInterval,
+                tcpKeepAliveInterval = tcpKeepAliveInterval,
+                connectTimeout = connectTimeout
             )
 
             "shadowtls" -> Outbound(
@@ -328,7 +409,11 @@ object OutboundFixer {
                 serverPort = fixed.serverPort,
                 version = fixed.version,
                 password = fixed.password,
-                tls = fixed.tls
+                tls = fixed.tls,
+                // TCP Keepalive 参数 (完美方案 - 防止连接假死)
+                tcpKeepAlive = tcpKeepAliveInterval,
+                tcpKeepAliveInterval = tcpKeepAliveInterval,
+                connectTimeout = connectTimeout
             )
 
             else -> fixed

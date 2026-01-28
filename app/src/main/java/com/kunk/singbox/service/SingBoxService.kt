@@ -246,6 +246,7 @@ class SingBoxService : VpnService() {
         const val ACTION_PREPARE_RESTART = ServiceStateHolder.ACTION_PREPARE_RESTART
         const val ACTION_HOT_RELOAD = ServiceStateHolder.ACTION_HOT_RELOAD
         const val ACTION_FULL_RESTART = ServiceStateHolder.ACTION_FULL_RESTART
+        const val ACTION_NETWORK_BUMP = "com.kunk.singbox.action.NETWORK_BUMP"
         const val EXTRA_CONFIG_PATH = ServiceStateHolder.EXTRA_CONFIG_PATH
         const val EXTRA_CONFIG_CONTENT = ServiceStateHolder.EXTRA_CONFIG_CONTENT
         const val EXTRA_CLEAN_CACHE = ServiceStateHolder.EXTRA_CLEAN_CACHE
@@ -614,7 +615,7 @@ class SingBoxService : VpnService() {
     }
 
     private fun initBackgroundPowerManager() {
-        val initialThresholdMs = backgroundPowerSavingThresholdMs
+        val initialThresholdMs = backgroundPowerSavingThresholdMs 
 
         backgroundPowerManager.init(
             callbacks = object : BackgroundPowerManager.Callbacks {
@@ -697,6 +698,33 @@ class SingBoxService : VpnService() {
         }
         // 设置 ScreenStateManager 的 PowerManager 引用，用于接收屏幕状态通知
         screenStateManager.setPowerManager(backgroundPowerManager)
+
+        // ⭐ 完美方案：�连接健康监控、精准恢复和智能决策引擎
+        initPerfectTcpFixManagers()
+    }
+
+    /**
+     * 初始化完美 TCP 修复方案的管理器
+     * 包括：连接健康监控、精准恢复、智能决策引擎
+     */
+    private fun initPerfectTcpFixManagers() {
+        try {
+            // 初始化连接健康监控器
+            com.kunk.singbox.service.manager.ConnectionHealthMonitor.getInstance(applicationContext).initialize()
+            Log.i(TAG, "ConnectionHealthMonitor initialized")
+
+            // 初始化精准恢复管理器
+            com.kunk.singbox.service.manager.PrecisionRecoveryManager.getInstance(applicationContext).initialize()
+            Log.i(TAG, "PrecisionRecoveryManager initialized")
+
+            // 初始化智能决策引擎
+            com.kunk.singbox.service.manager.SmartRecoveryEngine.getInstance(applicationContext).initialize()
+            Log.i(TAG, "SmartRecoveryEngine initialized")
+
+            Log.i(TAG, "Perfect TCP Fix managers initialized successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize Perfect TCP Fix managers", e)
+        }
     }
 
     /**
@@ -1598,6 +1626,16 @@ class SingBoxService : VpnService() {
                         runCatching {
                             LogRepository.getInstance().addLog("INFO: User triggered connection reset via notification")
                         }
+                    }
+                }
+            }
+            ACTION_NETWORK_BUMP -> {
+                Log.i(TAG, "Received ACTION_NETWORK_BUMP -> triggering network bump")
+                if (isRunning) {
+                    serviceScope.launch {
+                        recoveryCoordinator.request(
+                            RecoveryCoordinator.Request.NetworkBump("precision_recovery")
+                        )
                     }
                 }
             }
