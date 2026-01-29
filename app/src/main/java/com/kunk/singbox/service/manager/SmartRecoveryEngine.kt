@@ -237,12 +237,9 @@ class SmartRecoveryEngine private constructor(
      */
     private fun detectStaleApps(appStates: Map<String, ConnectionHealthMonitor.ConnectionState>): List<String> {
         val staleApps = mutableListOf<String>()
-        val currentTime = System.currentTimeMillis()
 
         appStates.values.forEach { state ->
-            // 检查应用是否长时间无响应
-            val inactiveTime = currentTime - state.lastActiveTime
-            if (inactiveTime > 30000 && state.isActive) { // 30秒无响应
+            if (!state.isActive && state.connectionCount > 0) {
                 staleApps.add(state.packageName)
             }
         }
