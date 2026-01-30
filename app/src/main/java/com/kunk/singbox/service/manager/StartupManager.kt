@@ -90,6 +90,12 @@ class StartupManager(
         suspend fun ensureNetworkCallbackReady(timeoutMs: Long)
         fun setLastKnownNetwork(network: Network?)
         fun setNetworkCallbackReady(ready: Boolean)
+        /**
+         * 在 libbox 启动前恢复底层网络
+         * 修复 PREPARE_RESTART -> setUnderlyingNetworks(null) 后
+         * libbox 在无底层网络状态下启动导致网络请求失败进入退避的问题
+         */
+        fun restoreUnderlyingNetwork(network: Network)
 
         // 清理
         suspend fun waitForCleanupJob()
@@ -201,6 +207,9 @@ class StartupManager(
             stepStart = SystemClock.elapsedRealtime()
             callbacks.createAndStartCommandServer().getOrThrow()
             log("[STEP] createAndStartCommandServer: ${SystemClock.elapsedRealtime() - stepStart}ms")
+
+            // 5.5 在 libbox 启动前恢复底层网络（修复 PREPARE_RESTART 时序问题）
+            callbacks.restoreUnderlyingNetwork(initResult.network)
 
             // 6. 启动 Libbox
             stepStart = SystemClock.elapsedRealtime()

@@ -86,7 +86,7 @@ data class AppSettings(
     @SerializedName("latencyTestMethod") val latencyTestMethod: LatencyTestMethod = LatencyTestMethod.REAL_RTT,
     @SerializedName("latencyTestUrl") val latencyTestUrl: String = "https://www.google.com/generate_204",
     @SerializedName("latencyTestTimeout") val latencyTestTimeout: Int = 5000, // 默认 5000ms (参考 v2rayNG/sing-box 的超时设置)
-    @SerializedName("latencyTestConcurrency") val latencyTestConcurrency: Int = 10, // 批量测试并发数/每批大小
+    @SerializedName("latencyTestConcurrency") val latencyTestConcurrency: Int = 5, // 批量测试并发数，降低默认值保护主连接
 
     // 镜像设置
     @SerializedName("ghProxyMirror") val ghProxyMirror: GhProxyMirror = GhProxyMirror.SAGERNET_ORIGIN,

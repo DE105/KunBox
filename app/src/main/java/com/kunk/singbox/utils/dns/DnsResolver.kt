@@ -4,12 +4,12 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -50,9 +50,9 @@ class DnsResolver(
 
         private fun createDefaultClient(): OkHttpClient {
             return OkHttpClient.Builder()
-                .connectTimeout(5, TimeUnit.SECONDS)
-                .readTimeout(5, TimeUnit.SECONDS)
-                .writeTimeout(5, TimeUnit.SECONDS)
+                .connectTimeout(3, TimeUnit.SECONDS)
+                .readTimeout(3, TimeUnit.SECONDS)
+                .writeTimeout(3, TimeUnit.SECONDS)
                 .build()
         }
 
@@ -139,9 +139,70 @@ class DnsResolver(
     }
 
     /**
-     * 竞速解析：同时启动 DoH 和系统 DNS，谁先成功用谁
-     * 避免 DoH 超时时的长时间等待
+     * 使用 DoH 异步解析（可取消）
      */
+    @Suppress("CognitiveComplexMethod")
+    private suspend fun resolveViaDoHAsync(
+        domain: String,
+        dohServer: String
+    ): DnsResolveResult = suspendCancellableCoroutine { cont ->
+        val query = buildDnsQuery(domain)
+
+        val request = Request.Builder()
+            .url(dohServer)
+            .header("Accept", "application/dns-message")
+            .header("Content-Type", "application/dns-message")
+            .post(query.toRequestBody("application/dns-message".toMediaType()))
+            .build()
+
+        val call = client.newCall(request)
+
+        cont.invokeOnCancellation {
+            call.cancel()
+        }
+
+        call.enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                if (cont.isActive) {
+                    Log.w(TAG, "DoH resolve failed for $domain: ${e.message}")
+                    cont.resume(DnsResolveResult(null, "doh", e.message))
+                }
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                if (!cont.isActive) {
+                    response.close()
+                    return
+                }
+
+                response.use { resp ->
+                    if (!resp.isSuccessful) {
+                        cont.resume(DnsResolveResult(null, "doh", "HTTP ${resp.code}"))
+                        return
+                    }
+
+                    val body = resp.body?.bytes()
+                    if (body == null) {
+                        cont.resume(DnsResolveResult(null, "doh", "Empty response"))
+                        return
+                    }
+
+                    val ip = parseDnsResponse(body)
+                    if (ip != null) {
+                        Log.d(TAG, "DoH resolved $domain -> $ip")
+                        cont.resume(DnsResolveResult(ip, "doh"))
+                    } else {
+                        cont.resume(DnsResolveResult(null, "doh", "No A record found"))
+                    }
+                }
+            }
+        })
+    }
+
+    /**
+     * 竞速解析：同时启动 DoH 和系统 DNS，谁先成功用谁
+     */
+    @Suppress("CognitiveComplexMethod")
     suspend fun resolve(
         domain: String,
         dohServer: String? = DOH_CLOUDFLARE
@@ -150,38 +211,38 @@ class DnsResolver(
             return@withContext DnsResolveResult(domain, "direct")
         }
 
-        // 用 Channel 实现真正的竞速
-        val resultChannel = Channel<DnsResolveResult>(2)
-        var pendingCount = if (dohServer != null) 2 else 1
+        // 同时启动两个解析任务
+        val dohDeferred = if (dohServer != null) {
+            async { resolveViaDoHAsync(domain, dohServer) }
+        } else null
 
-        coroutineScope {
-            // 启动 DoH 解析
-            if (dohServer != null) {
-                launch {
-                    val result = resolveViaDoH(domain, dohServer)
-                    resultChannel.send(result)
-                }
-            }
+        val systemDeferred = async { resolveViaSystem(domain) }
 
-            // 启动系统 DNS 解析
-            launch {
-                val result = resolveViaSystem(domain)
-                resultChannel.send(result)
-            }
-
-            // 等待结果：收到成功结果立即返回，否则等所有完成
-            var lastResult: DnsResolveResult? = null
-            repeat(pendingCount) {
-                val result = resultChannel.receive()
-                if (result.isSuccess) {
-                    resultChannel.close()
-                    return@coroutineScope result
-                }
-                lastResult = result
-            }
-            resultChannel.close()
-            lastResult ?: DnsResolveResult(null, "racing", "All resolvers failed")
+        // select: 谁先完成且成功就用谁
+        val winner = select {
+            dohDeferred?.onAwait { if (it.isSuccess) it else null }
+            systemDeferred.onAwait { if (it.isSuccess) it else null }
         }
+
+        if (winner != null) {
+            dohDeferred?.cancel()
+            systemDeferred.cancel()
+            return@withContext winner
+        }
+
+        // 第一个失败了，等另一个
+        val fallback = select {
+            if (dohDeferred != null && dohDeferred.isActive) {
+                dohDeferred.onAwait { it }
+            }
+            if (systemDeferred.isActive) {
+                systemDeferred.onAwait { it }
+            }
+        }
+
+        dohDeferred?.cancel()
+        systemDeferred.cancel()
+        fallback
     }
 
     /**

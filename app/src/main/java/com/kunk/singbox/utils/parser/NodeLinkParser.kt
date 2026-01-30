@@ -120,7 +120,12 @@ class NodeLinkParser(private val gson: Gson) {
                 // Try decode Base64, fallback to raw if it contains colon (common non-standard format)
                 var userInfo = tryDecodeBase64(userInfoBase64)
                 if (userInfo == null && userInfoBase64.contains(":")) {
-                    userInfo = userInfoBase64
+                    // Non-Base64 format: method:password may be URL-encoded
+                    userInfo = try {
+                        java.net.URLDecoder.decode(userInfoBase64, "UTF-8")
+                    } catch (e: Exception) {
+                        userInfoBase64
+                    }
                 }
                 if (userInfo == null) return null
 

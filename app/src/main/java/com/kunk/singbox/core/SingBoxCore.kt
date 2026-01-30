@@ -133,10 +133,6 @@ class SingBoxCore private constructor(private val context: Context) {
      */
     fun isLibboxAvailable(): Boolean = libboxAvailable
 
-    private fun maybeWarmupNative(url: String) {
-        // No-op for official libbox without urlTest
-    }
-
     /**
      * 使用 Libbox 原生方法进行延迟测试
      * 优先尝试调用 NekoBox 内核的 urlTest 方法，失败则回退到本地 HTTP 代理测速
@@ -795,30 +791,24 @@ class SingBoxCore private constructor(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         val settings = SettingsRepository.getInstance(context).settings.first()
 
-        // 2025-fix: 当 VPN 运行时，使用 native API 测速，避免创建临时 CommandServer
-        // 临时服务的 closeService() 会污染全局 Libbox.isRunning() 状态，导致健康检查误判
+        // 2025-fix: 当 VPN 运行时，使用安全测试器保护主网络连接
+        // SafeLatencyTester 提供:
+        // 1. 主连接保护 - 测试期间持续监控，发现异常立即熔断
+        // 2. 自适应并发 - 根据网络状况动态调整并发数
+        // 3. 批次让路 - 给主流量喘息空间
         val isNativeUrlTestSupported = BoxWrapperManager.isAvailable()
 
         if (libboxAvailable && VpnStateStore.getActive() && isNativeUrlTestSupported) {
-            try {
-                val warmupOutbound = outbounds.firstOrNull()
-                if (warmupOutbound != null) {
-                    val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
-                    maybeWarmupNative(url)
-                }
-            } catch (e: Exception) { Log.w(TAG, "Warmup native test failed", e) }
-            val semaphore = Semaphore(permits = 10)
-            coroutineScope {
-                val jobs = outbounds.map { outbound ->
-                    async {
-                        semaphore.withPermit {
-                            val latency = testOutboundLatencyWithLibbox(outbound, settings)
-                            onResult(outbound.tag, latency)
-                        }
-                    }
-                }
-                jobs.awaitAll()
-            }
+            val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
+            val timeoutMs = settings.latencyTestTimeout
+
+            // 使用安全测试器
+            SafeLatencyTester.getInstance().testOutboundsLatencySafe(
+                outbounds = outbounds,
+                targetUrl = url,
+                timeoutMs = timeoutMs,
+                onResult = onResult
+            )
             return@withContext
         }
 
@@ -906,6 +896,42 @@ class SingBoxCore private constructor(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Config validation failed", e)
             Result.failure(e)
+        }
+    }
+
+    /**
+     * 验证单个 Outbound 是否有效
+     * 构造一个最小配置来验证 outbound
+     */
+    fun validateOutbound(outbound: Outbound): Boolean {
+        if (!libboxAvailable) {
+            return true
+        }
+
+        // 跳过特殊类型的 outbound
+        if (outbound.type in listOf("direct", "block", "dns", "selector", "urltest", "url-test")) {
+            return true
+        }
+
+        val minimalConfig = SingBoxConfig(
+            log = null,
+            dns = null,
+            inbounds = null,
+            outbounds = listOf(
+                outbound,
+                Outbound(type = "direct", tag = "direct")
+            ),
+            route = null,
+            experimental = null
+        )
+
+        return try {
+            val configJson = gson.toJson(minimalConfig)
+            Libbox.checkConfig(configJson)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Outbound validation failed for '${outbound.tag}': ${e.message}")
+            false
         }
     }
 

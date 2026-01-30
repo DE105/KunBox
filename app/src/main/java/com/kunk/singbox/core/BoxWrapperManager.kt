@@ -552,4 +552,100 @@ object BoxWrapperManager {
             0
         }
     }
+
+    // ==================== QUIC/UDP Recovery (v2.8.0) ====================
+
+    fun getCurrentOutboundType(): String {
+        return try {
+            Libbox.getCurrentOutboundType() ?: ""
+        } catch (e: Exception) {
+            Log.w(TAG, "getCurrentOutboundType failed: ${e.message}")
+            ""
+        }
+    }
+
+    fun isCurrentOutboundQUICBased(): Boolean {
+        return try {
+            Libbox.isCurrentOutboundQUICBased()
+        } catch (e: Exception) {
+            Log.w(TAG, "isCurrentOutboundQUICBased failed: ${e.message}")
+            false
+        }
+    }
+
+    fun resetQUICOutbounds(): Int {
+        return try {
+            val count = Libbox.resetQUICOutbounds()
+            if (count > 0) {
+                Log.i(TAG, "resetQUICOutbounds: reset $count QUIC outbounds")
+            }
+            count
+        } catch (e: Exception) {
+            Log.w(TAG, "resetQUICOutbounds failed: ${e.message}")
+            0
+        }
+    }
+
+    fun recoverNetworkForQUIC(): Boolean {
+        return try {
+            Libbox.recoverNetworkForQUIC()
+        } catch (e: Exception) {
+            Log.w(TAG, "recoverNetworkForQUIC kernel call failed, fallback to deep", e)
+            recoverNetworkDeep()
+        }
+    }
+
+    // ==================== Main Traffic Protection (v2.9.0) ====================
+
+    /**
+     * 通知内核主流量正在活跃
+     * 调用此方法后，延迟测试会自动让路
+     *
+     * 应在以下场景调用:
+     * - 检测到用户正在使用网络密集型应用时
+     * - 流量统计显示有持续数据传输时
+     */
+    fun notifyMainTrafficActive() {
+        try {
+            Libbox.notifyMainTrafficActive()
+        } catch (e: Exception) {
+            Log.w(TAG, "notifyMainTrafficActive failed: ${e.message}")
+        }
+    }
+
+    /**
+     * 检查主流量是否活跃
+     */
+    fun isMainTrafficActive(): Boolean {
+        return try {
+            Libbox.isMainTrafficActive()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * 获取测试统计信息
+     * @return Pair<测试次数, 失败次数>
+     */
+    fun getTestStatistics(): Pair<Int, Int> {
+        return try {
+            val count = Libbox.getTestStatistics()
+            val failures = Libbox.getTestFailures()
+            Pair(count.toInt(), failures.toInt())
+        } catch (e: Exception) {
+            Pair(0, 0)
+        }
+    }
+
+    /**
+     * 重置测试统计
+     */
+    fun resetTestStatistics() {
+        try {
+            Libbox.resetTestStatistics()
+        } catch (e: Exception) {
+            Log.w(TAG, "resetTestStatistics failed: ${e.message}")
+        }
+    }
 }

@@ -2,6 +2,7 @@ package com.kunk.singbox.service.manager
 
 import android.os.SystemClock
 import android.util.Log
+import com.kunk.singbox.core.BoxWrapperManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -86,6 +87,9 @@ class BackgroundPowerManager(
 
         /** 触发完整网络恢复 */
         fun triggerFullRecovery(reason: String)
+
+        /** 触发 QUIC 专用恢复 (Hysteria2/TUIC) */
+        fun triggerQUICRecovery(reason: String)
     }
 
     private var callbacks: Callbacks? = null
@@ -232,24 +236,39 @@ class BackgroundPowerManager(
             return
         }
 
+        val isQUIC = BoxWrapperManager.isCurrentOutboundQUICBased()
+
         when {
             backgroundDurationMs > BACKGROUND_FULL_RECOVERY_THRESHOLD_MS -> {
                 Log.i(
                     TAG,
                     "[$source] Long background (${backgroundDurationMs / 1000}s > 5min), " +
-                        "triggering full recovery"
+                        "triggering full recovery (isQUIC=$isQUIC)"
                 )
                 lastForegroundRecoveryAtMs = now
-                callbacks?.triggerFullRecovery("${source}_${backgroundDurationMs / 1000}s")
+                if (isQUIC) {
+                    callbacks?.triggerQUICRecovery("${source}_${backgroundDurationMs / 1000}s")
+                } else {
+                    callbacks?.triggerFullRecovery("${source}_${backgroundDurationMs / 1000}s")
+                }
             }
             backgroundDurationMs > BACKGROUND_BUMP_THRESHOLD_MS -> {
-                Log.i(
-                    TAG,
-                    "[$source] Medium background (${backgroundDurationMs / 1000}s > 30s), " +
-                        "triggering network bump"
-                )
                 lastForegroundRecoveryAtMs = now
-                callbacks?.triggerNetworkBump("${source}_${backgroundDurationMs / 1000}s")
+                if (isQUIC) {
+                    Log.i(
+                        TAG,
+                        "[$source] Medium background (${backgroundDurationMs / 1000}s), " +
+                            "triggering QUIC recovery"
+                    )
+                    callbacks?.triggerQUICRecovery("${source}_${backgroundDurationMs / 1000}s")
+                } else {
+                    Log.i(
+                        TAG,
+                        "[$source] Medium background (${backgroundDurationMs / 1000}s > 0s), " +
+                            "triggering network bump"
+                    )
+                    callbacks?.triggerNetworkBump("${source}_${backgroundDurationMs / 1000}s")
+                }
             }
             else -> {
                 Log.d(TAG, "[$source] Short background (${backgroundDurationMs / 1000}s), no recovery needed")

@@ -353,6 +353,23 @@ class CoreManager(
     suspend fun stop(): Result<Unit> = stopFully()
 
     /**
+     * 设置底层网络（统一方法）
+     * 修复：复用 TUN 时也必须刷新 underlying networks
+     * 解决 ACTION_PREPARE_RESTART -> setUnderlyingNetworks(null) 后无法自动恢复的问题
+     */
+    private fun applyUnderlyingNetworkIfPossible(underlyingNetwork: Network?, reason: String) {
+        if (underlyingNetwork == null) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1) return
+
+        runCatching {
+            vpnService.setUnderlyingNetworks(arrayOf(underlyingNetwork))
+            Log.i(TAG, "Underlying network set ($reason): $underlyingNetwork")
+        }.onFailure { e ->
+            Log.w(TAG, "Failed to set underlying network ($reason)", e)
+        }
+    }
+
+    /**
      * 打开 TUN 接口
      */
     fun openTun(
@@ -370,6 +387,10 @@ class CoreManager(
                 vpnInterface?.let { existing ->
                     val existingFd = existing.fd
                     if (existingFd >= 0) {
+                        // FIX: 即使复用 TUN，也必须刷新 underlying networks
+                        // 修复跨配置切换时 underlying networks 停留在 null 导致网络丢失的问题
+                        applyUnderlyingNetworkIfPossible(underlyingNetwork, reason = "reuse_tun")
+
                         Log.i(TAG, "Reusing existing TUN interface (fd=$existingFd)")
                         return@runCatching existingFd
                     }
@@ -395,12 +416,7 @@ class CoreManager(
             val fd = pfd.fd
 
             // 4. 设置底层网络
-            if (underlyingNetwork != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-                runCatching {
-                    vpnService.setUnderlyingNetworks(arrayOf(underlyingNetwork))
-                    Log.i(TAG, "Underlying network set: $underlyingNetwork")
-                }
-            }
+            applyUnderlyingNetworkIfPossible(underlyingNetwork, reason = "new_tun")
 
             PerfTracer.end(PerfTracer.Phases.TUN_CREATE)
             Log.i(TAG, "TUN interface opened, fd=$fd")

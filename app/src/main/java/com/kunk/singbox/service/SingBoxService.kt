@@ -766,6 +766,13 @@ class SingBoxService : VpnService() {
                         )
                     )
                 }
+
+                override fun triggerQUICRecovery(reason: String) {
+                    Log.i(TAG, "[BackgroundRecovery] Triggering QUIC Recovery: $reason")
+                    serviceScope.launch(Dispatchers.IO) {
+                        BoxWrapperManager.recoverNetworkForQUIC()
+                    }
+                }
             },
             thresholdMs = initialThresholdMs
         )
@@ -940,6 +947,13 @@ class SingBoxService : VpnService() {
 
         override fun setLastKnownNetwork(network: Network?) { lastKnownNetwork = network }
         override fun setNetworkCallbackReady(ready: Boolean) { networkCallbackReady = ready }
+
+        override fun restoreUnderlyingNetwork(network: Network) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                setUnderlyingNetworks(arrayOf(network))
+                Log.i(TAG, "Underlying network restored before libbox start: $network")
+            }
+        }
 
         // 清理
         override suspend fun waitForCleanupJob() {

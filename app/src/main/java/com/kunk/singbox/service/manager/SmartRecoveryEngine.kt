@@ -42,8 +42,9 @@ class SmartRecoveryEngine private constructor(
         private const val MAX_RECOVERY_PER_MINUTE = 6
 
         // 流量模式检测阈值
-        private const val TRAFFIC_STALL_THRESHOLD_MS = 30_000L // 30秒无下载流量视为可能僵死
-        private const val TRAFFIC_CHECK_INTERVAL_MS = 10_000L // 每10秒检测一次流量
+        private const val TRAFFIC_STALL_THRESHOLD_MS = 10_000L // 10秒无下载流量视为可能僵死 (QUIC: 5秒)
+        private const val QUIC_TRAFFIC_STALL_THRESHOLD_MS = 5_000L // QUIC协议更敏感
+        private const val TRAFFIC_CHECK_INTERVAL_MS = 5_000L // 每5秒检测一次流量
 
         @Volatile
         private var instance: SmartRecoveryEngine? = null
@@ -450,6 +451,7 @@ class SmartRecoveryEngine private constructor(
      * 1. 完全单向流量：只有上传没有下载
      * 2. 严重不平衡：上传远大于下载（可能是请求发出去但响应很少）
      */
+    @Suppress("CognitiveComplexMethod")
     private fun checkTrafficPattern() {
         val currentUpload = BoxWrapperManager.getUploadTotal()
         val currentDownload = BoxWrapperManager.getDownloadTotal()
@@ -482,14 +484,15 @@ class SmartRecoveryEngine private constructor(
                 )
             } else {
                 val stallDuration = now - stallStart
-                if (stallDuration > TRAFFIC_STALL_THRESHOLD_MS) {
-                    // 异常流量超过阈值，可能是连接僵死
+                val isQUIC = BoxWrapperManager.isCurrentOutboundQUICBased()
+                val threshold = if (isQUIC) QUIC_TRAFFIC_STALL_THRESHOLD_MS else TRAFFIC_STALL_THRESHOLD_MS
+                if (stallDuration > threshold) {
                     Log.w(
                         TAG,
-                        "[Traffic] Stall detected: imbalanced traffic for ${stallDuration}ms, " +
-                            "triggering recovery"
+                        "[Traffic] Stall detected: imbalanced traffic for ${stallDuration}ms " +
+                            "(isQUIC=$isQUIC, threshold=${threshold}ms), triggering recovery"
                     )
-                    triggerTrafficStallRecovery()
+                    triggerTrafficStallRecovery(isQUIC)
                     uploadOnlyStartTime.set(0) // 重置
                 }
             }
@@ -499,19 +502,22 @@ class SmartRecoveryEngine private constructor(
     /**
      * 触发流量停滞恢复
      */
-    private fun triggerTrafficStallRecovery() {
+    private fun triggerTrafficStallRecovery(isQUIC: Boolean = false) {
         if (!shouldTriggerRecovery()) {
             Log.d(TAG, "[Traffic] Recovery skipped (rate limit)")
             return
         }
 
-        Log.i(TAG, "[Traffic] Triggering idle connection cleanup due to traffic stall")
+        Log.i(TAG, "[Traffic] Triggering recovery due to traffic stall (isQUIC=$isQUIC)")
         recoveryTimestamps.add(System.currentTimeMillis())
         _recoveryTriggeredCount.value++
 
-        // 关闭空闲连接，强制应用重建
-        val closed = BoxWrapperManager.closeIdleConnections(30) // 关闭空闲超过30秒的连接
-        Log.i(TAG, "[Traffic] Closed $closed idle connections")
+        if (isQUIC) {
+            BoxWrapperManager.recoverNetworkForQUIC()
+        } else {
+            val closed = BoxWrapperManager.closeIdleConnections(30)
+            Log.i(TAG, "[Traffic] Closed $closed idle connections")
+        }
     }
 
     /**

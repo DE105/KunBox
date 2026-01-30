@@ -3207,13 +3207,19 @@ class ConfigRepository(private val context: Context) {
             Log.w(TAG, "No outbounds found in base config, adding defaults")
         }
 
-        val fixedOutbounds = rawOutbounds?.map { outbound ->
+        val fixedOutbounds = rawOutbounds?.mapNotNull { outbound ->
             var processed = buildOutboundForRuntime(outbound)
             // 如果启用了 DNS 预解析，应用解析结果
             if (dnsPreResolve && profileId != null) {
                 processed = applyDnsResolveToOutbound(profileId, processed)
             }
-            processed
+            // 验证 outbound 是否有效，过滤掉无效的节点
+            if (singBoxCore.validateOutbound(processed)) {
+                processed
+            } else {
+                Log.w(TAG, "Skipping invalid outbound: ${outbound.tag} (type=${outbound.type})")
+                null
+            }
         }?.toMutableList() ?: mutableListOf()
 
         if (fixedOutbounds.none { it.tag == "direct" }) {
@@ -3372,6 +3378,12 @@ class ConfigRepository(private val context: Context) {
                     finalTag = "${finalTag}_${java.util.UUID.randomUUID().toString().take(4)}"
                 }
                 fixedSourceOutbound = fixedSourceOutbound.copy(tag = finalTag)
+            }
+
+            // 验证 outbound 是否有效
+            if (!singBoxCore.validateOutbound(fixedSourceOutbound)) {
+                Log.w(TAG, "Skipping invalid cross-profile outbound: ${node.name} (type=${sourceOutbound.type})")
+                return@forEach
             }
 
             // 添加到 outbounds

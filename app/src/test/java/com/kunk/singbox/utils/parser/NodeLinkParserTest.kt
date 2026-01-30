@@ -78,6 +78,19 @@ class NodeLinkParserTest {
         assertEquals("日本节点", outbound?.tag)
     }
 
+    @Test
+    fun testParseShadowsocksUrlEncodedPassword() {
+        // 非 Base64 格式，密码中包含特殊字符 : 被 URL 编码为 %3A
+        val link = "ss://aes-256-gcm:pass%3Aword@1.2.3.4:8388#UrlEncodedPwd"
+        val outbound = parser.parse(link)
+
+        assertNotNull(outbound)
+        assertEquals("shadowsocks", outbound?.type)
+        assertEquals("UrlEncodedPwd", outbound?.tag)
+        assertEquals("aes-256-gcm", outbound?.method)
+        assertEquals("pass:word", outbound?.password)
+    }
+
     // ==================== VMess ====================
 
     @Test
