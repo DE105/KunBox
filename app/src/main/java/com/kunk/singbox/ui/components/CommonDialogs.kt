@@ -369,6 +369,9 @@ fun AppMultiSelectDialog(
             )
     }
 
+    val scope = rememberCoroutineScope()
+    val isLoading = loadingState is InstalledAppsRepository.LoadingState.Loading
+
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -377,18 +380,39 @@ fun AppMultiSelectDialog(
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
                 .padding(16.dp)
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = { scope.launch { repository.reloadApps() } },
+                    enabled = !isLoading,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    val tintColor = if (isLoading) {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = stringResource(R.string.common_refresh),
+                        tint = tintColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 如果正在加载，显示加载进度
-
-            if (loadingState is InstalledAppsRepository.LoadingState.Loading) {
+            if (isLoading) {
                 val loading = loadingState as InstalledAppsRepository.LoadingState.Loading
                 Column(
                     modifier = Modifier.fillMaxWidth(),
