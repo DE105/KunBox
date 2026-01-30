@@ -893,6 +893,7 @@ class SingBoxService : VpnService() {
         override fun registerScreenStateReceiver() { screenStateManager.registerScreenStateReceiver() }
         override fun startForeignVpnMonitor() { foreignVpnMonitor.start() }
         override fun stopForeignVpnMonitor() { foreignVpnMonitor.stop() }
+        override fun detectExistingVpns(): Boolean = foreignVpnMonitor.hasExistingVpn()
 
         // 组件初始化
         override fun initSelectorManager(configContent: String) {

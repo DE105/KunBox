@@ -67,6 +67,11 @@ class StartupManager(
         fun startForeignVpnMonitor()
         fun stopForeignVpnMonitor()
 
+        /**
+         * 检测外部 VPN 并记录，返回是否存在外部 VPN
+         */
+        fun detectExistingVpns(): Boolean
+
         // 组件初始化
         fun initSelectorManager(configContent: String)
         fun createAndStartCommandServer(): Result<Unit>
@@ -151,6 +156,17 @@ class StartupManager(
             coreManager.acquireLocks()
             callbacks.registerScreenStateReceiver()
             log("[STEP] acquireLocks+registerReceiver: ${SystemClock.elapsedRealtime() - stepStart}ms")
+
+            // 1.5 检测外部 VPN（在 prepare 之前）
+            stepStart = SystemClock.elapsedRealtime()
+            val hasExistingVpn = callbacks.detectExistingVpns()
+            log("[STEP] detectExistingVpns: ${SystemClock.elapsedRealtime() - stepStart}ms, found=$hasExistingVpn")
+
+            // 如果检测到外部 VPN，等待一小段时间让 prepare() 能正确处理 VPN 切换
+            if (hasExistingVpn) {
+                log("[STEP] External VPN detected, waiting for system to prepare takeover...")
+                delay(100)
+            }
 
             // 2. 检查 VPN 权限
             stepStart = SystemClock.elapsedRealtime()
