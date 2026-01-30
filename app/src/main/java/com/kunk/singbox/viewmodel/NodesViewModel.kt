@@ -12,6 +12,7 @@ import com.kunk.singbox.model.NodeUi
 import com.kunk.singbox.model.ProfileUi
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
+import com.kunk.singbox.viewmodel.shared.NodeDisplaySettings
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -29,6 +30,9 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     private val configRepository = ConfigRepository.getInstance(application)
     private val settingsRepository = SettingsRepository.getInstance(application)
 
+    // 使用共享的设置状态，避免多个 ViewModel 各自收集相同的 Flow
+    private val displaySettings = NodeDisplaySettings.getInstance(application)
+
     private var testingJob: Job? = null
 
     private val _isTesting = MutableStateFlow(false)
@@ -38,29 +42,17 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     private val _testingNodeIds = MutableStateFlow<Set<String>>(emptySet())
     val testingNodeIds: StateFlow<Set<String>> = _testingNodeIds.asStateFlow()
 
-    private val _sortType = MutableStateFlow(NodeSortType.DEFAULT)
-    val sortType: StateFlow<NodeSortType> = _sortType.asStateFlow()
+    // 直接暴露共享状态，不再使用本地 MutableStateFlow
+    val sortType: StateFlow<NodeSortType> = displaySettings.sortType
+    val nodeFilter: StateFlow<NodeFilter> = displaySettings.nodeFilter
 
+    // customNodeOrder 需要本地可写，用于批量测速时冻结顺序
     private val _customNodeOrder = MutableStateFlow<List<String>>(emptyList())
 
-    // 节点过滤状态
-    private val _nodeFilter = MutableStateFlow(NodeFilter())
-    val nodeFilter: StateFlow<NodeFilter> = _nodeFilter.asStateFlow()
-
     init {
-        // 加载保存的过滤配置
+        // 从共享状态同步 customOrder 到本地
         viewModelScope.launch {
-            settingsRepository.getNodeFilterFlow().collect {
-                _nodeFilter.value = it
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.getNodeSortType().collect { type ->
-                _sortType.value = type
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.getCustomNodeOrder().collect { order ->
+            displaySettings.customOrder.collect { order ->
                 _customNodeOrder.value = order
             }
         }
@@ -68,8 +60,8 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
 
     val nodes: StateFlow<List<NodeUi>> = combine(
         configRepository.nodes,
-        _sortType,
-        _nodeFilter,
+        displaySettings.sortType,
+        displaySettings.nodeFilter,
         _customNodeOrder
     ) { nodes: List<NodeUi>, sortType: NodeSortType, filter: NodeFilter, customOrder: List<String> ->
         // 先过滤
@@ -158,8 +150,8 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
 
     val filteredAllNodes: StateFlow<List<NodeUi>> = combine(
         configRepository.allNodes,
-        _sortType,
-        _nodeFilter
+        displaySettings.sortType,
+        displaySettings.nodeFilter
     ) { nodes, sortType, filter ->
         val filtered = when (filter.filterMode) {
             FilterMode.NONE -> nodes
@@ -374,25 +366,21 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setSortType(type: NodeSortType) {
-        _sortType.value = type
+        // 写入持久化存储，SharedFlow 会自动更新 displaySettings.sortType
         viewModelScope.launch {
             settingsRepository.setNodeSortType(type)
         }
     }
 
-    // 设置节点过滤条件
     fun setNodeFilter(filter: NodeFilter) {
-        _nodeFilter.value = filter
         viewModelScope.launch {
             settingsRepository.setNodeFilter(filter)
         }
         emitToast(getApplication<Application>().getString(R.string.nodes_filter_applied))
     }
 
-    // 清除节点过滤条件
     fun clearNodeFilter() {
         val emptyFilter = NodeFilter()
-        _nodeFilter.value = emptyFilter
         viewModelScope.launch {
             settingsRepository.setNodeFilter(emptyFilter)
         }

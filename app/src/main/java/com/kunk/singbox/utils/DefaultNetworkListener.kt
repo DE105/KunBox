@@ -191,4 +191,15 @@ object DefaultNetworkListener {
             Log.w(TAG, "Failed to unregister network listener", e)
         }
     }
+
+    /**
+     * 清理资源 - 用于测试或特殊场景
+     * 正常使用中无需调用，Application 进程结束时资源自动回收
+     */
+    fun cleanup() {
+        networkActor.close()
+        underlyingNetwork = null
+        connectivityManagerRef = null
+        Log.i(TAG, "DefaultNetworkListener cleaned up")
+    }
 }

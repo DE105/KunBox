@@ -33,16 +33,19 @@ class ConnectionHealthMonitor private constructor(
         private const val TAG = "ConnectionHealthMonitor"
 
         // 检测间隔（毫秒）
-        private const val CHECK_INTERVAL_MS = 5000L
+        // 2025-fix-v32: 从 5 秒提高到 30 秒，减少检测频率
+        private const val CHECK_INTERVAL_MS = 30_000L
 
         // 连接超时阈值（毫秒）
-        private const val CONNECTION_TIMEOUT_MS = 30000L
+        // 2025-fix-v32: 从 30 秒提高到 120 秒，给连接更多时间
+        private const val CONNECTION_TIMEOUT_MS = 120_000L
 
         // 健康度评分阈值
         private const val HEALTH_SCORE_THRESHOLD = 50
 
         // 连接假死判定阈值（连续失败次数）
-        private const val STALE_THRESHOLD = 3
+        // 2025-fix-v32: 从 3 提高到 6，需要更多证据才触发恢复
+        private const val STALE_THRESHOLD = 6
 
         @Volatile
         private var instance: ConnectionHealthMonitor? = null
@@ -167,28 +170,23 @@ class ConnectionHealthMonitor private constructor(
                 return
             }
 
-            // 2. 检查连接活跃度
             val connectionStatus = checkConnectionActivity()
             val score = calculateHealthScore(connectionStatus)
             _healthScore.value = score
 
-            // 3. 检测连接假死
             val staleApps = detectStaleConnections(connectionStatus)
             if (staleApps.isNotEmpty()) {
                 val count = staleDetectionCount.incrementAndGet()
-                Log.w(TAG, "Detected stale connections: $staleApps (count: $count)")
+                Log.d(TAG, "Detected potential stale connections: $staleApps (count: $count)")
 
-                // 连续检测到假死，触发恢复
                 if (count >= STALE_THRESHOLD) {
-                    Log.w(TAG, "Stale connection threshold reached, triggering recovery")
-                    triggerRecovery(staleApps)
+                    Log.w(TAG, "Stale connection threshold reached: $staleApps")
                     staleDetectionCount.set(0)
                 }
             } else {
                 staleDetectionCount.set(0)
             }
 
-            // 4. 记录健康检查结果
             val result = HealthCheckResult(
                 isHealthy = score >= HEALTH_SCORE_THRESHOLD,
                 score = score,
@@ -321,16 +319,6 @@ class ConnectionHealthMonitor private constructor(
     }
 
     /**
-     * 触发恢复机制
-     */
-    private fun triggerRecovery(staleApps: List<String>) {
-        Log.i(TAG, "Triggering recovery for stale apps: $staleApps")
-
-        // 通知 PrecisionRecoveryManager 执行精准恢复
-        PrecisionRecoveryManager.getInstance(context).recoverApps(staleApps)
-    }
-
-    /**
      * 更新应用连接状态
      */
     fun updateAppState(packageName: String, isActive: Boolean, hasError: Boolean = false) {
@@ -370,6 +358,10 @@ class ConnectionHealthMonitor private constructor(
         Log.i(TAG, "Cleaning up ConnectionHealthMonitor")
         stopMonitoring()
         appConnectionStates.clear()
+        // scope 必须取消，否则协程资源泄漏
+        scope.cancel()
         initialized.set(false)
+        // 重置单例，下次 getInstance 时创建新实例
+        instance = null
     }
 }

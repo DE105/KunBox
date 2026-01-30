@@ -22,21 +22,21 @@ class RecoveryCoordinator(
     companion object {
         private const val TAG = "RecoveryCoordinator"
 
-        private const val COALESCE_WINDOW_MS = 2000L
+        // 2025-fix-v32: 增加合并窗口，减少恢复请求的频率
+        private const val COALESCE_WINDOW_MS = 5000L // 从 2 秒提高到 5 秒
         private const val RESTART_COOLDOWN_MS = 120000L
-        // 2025-fix-v10: 从 30 秒缩短到 10 秒
-        // 原来 30 秒太长，导致从 Doze 恢复后如果第一次 deep recovery 失败，需要等很久才能重试
-        private const val DEEP_COOLDOWN_MS = 10000L
-        // 2025-fix-v17: NetworkBump 冷却时间从 10 秒缩短到 2 秒
-        // 因为 NetworkBump 是轻量级操作，不需要太长冷却期
-        // 这样可以更快响应多次前台恢复（如快速切换应用）
-        private const val NETWORK_BUMP_COOLDOWN_MS = 2000L
+        // 2025-fix-v32: 大幅提高 deep recovery 冷却期
+        // 从 10 秒提高到 60 秒，减少激进恢复对网络的干扰
+        private const val DEEP_COOLDOWN_MS = 60000L
+        // 2025-fix-v32: 提高 NetworkBump 冷却时间
+        // 从 2 秒提高到 10 秒，避免频繁的网络闪断
+        private const val NETWORK_BUMP_COOLDOWN_MS = 10000L
 
         private const val MAX_REASON_LEN = 240
 
-        // 2025-fix-v10: 这些 reason 关键词可以绕过 deep recovery 冷却期
-        // 当系统退出 Doze 模式或用户主动返回前台时，恢复网络是最高优先级
-        private val COOLDOWN_EXEMPT_KEYWORDS = listOf("doze_exit", "app_foreground", "screen_on")
+        // 2025-fix-v32: 减少冷却期豁免关键词
+        // 只有 doze_exit 才是真正需要立即恢复的场景
+        private val COOLDOWN_EXEMPT_KEYWORDS = listOf("doze_exit")
 
         // 2025-fix-v19: 连通性验证配置
         private const val CONNECTIVITY_PROBE_URL = "https://www.gstatic.com/generate_204"

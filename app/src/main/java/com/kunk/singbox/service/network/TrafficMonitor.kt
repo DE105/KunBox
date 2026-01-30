@@ -15,10 +15,12 @@ class TrafficMonitor(
     companion object {
         private const val TAG = "TrafficMonitor"
         private const val SAMPLE_INTERVAL_MS = 3000L
-        private const val STALL_CHECK_INTERVAL_MS = 15000L
-        private const val STALL_MIN_BYTES_DELTA = 1024L
-        private const val STALL_MIN_SAMPLES = 3
-        private const val PROXY_IDLE_THRESHOLD_MS = 60_000L
+        // 2025-fix-v32: 大幅提高流量停滞检测间隔和阈值
+        // 原来的检测太敏感，会在分流切换时误报
+        private const val STALL_CHECK_INTERVAL_MS = 60_000L // 从 15 秒提高到 60 秒
+        private const val STALL_MIN_BYTES_DELTA = 5120L // 从 1024 提高到 5120
+        private const val STALL_MIN_SAMPLES = 5 // 从 3 提高到 5
+        private const val PROXY_IDLE_THRESHOLD_MS = 120_000L // 从 60 秒提高到 120 秒
     }
 
     data class TrafficSnapshot(
@@ -70,11 +72,21 @@ class TrafficMonitor(
         cachedListener = listener
         isPaused = false
 
+        initializeTrafficState(uid, resetBase = true)
+        startMonitorLoop(uid, listener)
+
+        Log.i(TAG, "Traffic monitor started for uid=$uid")
+    }
+
+    // start() 传 resetBase=true 重置累计流量基准，resume() 传 false 保留累计值
+    private fun initializeTrafficState(uid: Int, resetBase: Boolean) {
         val tx0 = TrafficStats.getUidTxBytes(uid).coerceAtLeast(0L)
         val rx0 = TrafficStats.getUidRxBytes(uid).coerceAtLeast(0L)
 
-        baseTxBytes = tx0
-        baseRxBytes = rx0
+        if (resetBase) {
+            baseTxBytes = tx0
+            baseRxBytes = rx0
+        }
         lastTxBytes = tx0
         lastRxBytes = rx0
         lastSampleTime = SystemClock.elapsedRealtime()
@@ -83,45 +95,50 @@ class TrafficMonitor(
         lastStallCheckAtMs = 0L
         lastTrafficActiveAtMs = SystemClock.elapsedRealtime()
         proxyIdleNotified = false
+    }
 
+    // 提取监控循环，start() 和 resume() 共用
+    private fun startMonitorLoop(uid: Int, listener: Listener) {
         monitorJob = scope.launch(Dispatchers.IO) {
             while (true) {
                 delay(SAMPLE_INTERVAL_MS)
-
-                val nowElapsed = SystemClock.elapsedRealtime()
-                val tx = TrafficStats.getUidTxBytes(uid).coerceAtLeast(0L)
-                val rx = TrafficStats.getUidRxBytes(uid).coerceAtLeast(0L)
-
-                val dtMs = (nowElapsed - lastSampleTime).coerceAtLeast(1L)
-                val dTx = (tx - lastTxBytes).coerceAtLeast(0L)
-                val dRx = (rx - lastRxBytes).coerceAtLeast(0L)
-
-                val uploadSpeedBps = dTx * 1000 / dtMs
-                val downloadSpeedBps = dRx * 1000 / dtMs
-
-                currentUploadSpeed = uploadSpeedBps
-                currentDownloadSpeed = downloadSpeedBps
-
-                val totalTx = (tx - baseTxBytes).coerceAtLeast(0L)
-                val totalRx = (rx - baseRxBytes).coerceAtLeast(0L)
-
-                listener.onTrafficUpdate(TrafficSnapshot(
-                    uploadSpeed = uploadSpeedBps,
-                    downloadSpeed = downloadSpeedBps,
-                    totalUpload = totalTx,
-                    totalDownload = totalRx
-                ))
-
-                checkForStall(tx + rx, listener)
-                checkForProxyIdle(dTx + dRx, nowElapsed, listener)
-
-                lastTxBytes = tx
-                lastRxBytes = rx
-                lastSampleTime = nowElapsed
+                collectAndEmitTraffic(uid, listener)
             }
         }
+    }
 
-        Log.i(TAG, "Traffic monitor started for uid=$uid")
+    // 提取采样和发射逻辑
+    private fun collectAndEmitTraffic(uid: Int, listener: Listener) {
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val tx = TrafficStats.getUidTxBytes(uid).coerceAtLeast(0L)
+        val rx = TrafficStats.getUidRxBytes(uid).coerceAtLeast(0L)
+
+        val dtMs = (nowElapsed - lastSampleTime).coerceAtLeast(1L)
+        val dTx = (tx - lastTxBytes).coerceAtLeast(0L)
+        val dRx = (rx - lastRxBytes).coerceAtLeast(0L)
+
+        val uploadSpeedBps = dTx * 1000 / dtMs
+        val downloadSpeedBps = dRx * 1000 / dtMs
+
+        currentUploadSpeed = uploadSpeedBps
+        currentDownloadSpeed = downloadSpeedBps
+
+        val totalTx = (tx - baseTxBytes).coerceAtLeast(0L)
+        val totalRx = (rx - baseRxBytes).coerceAtLeast(0L)
+
+        listener.onTrafficUpdate(TrafficSnapshot(
+            uploadSpeed = uploadSpeedBps,
+            downloadSpeed = downloadSpeedBps,
+            totalUpload = totalTx,
+            totalDownload = totalRx
+        ))
+
+        checkForStall(tx + rx, listener)
+        checkForProxyIdle(dTx + dRx, nowElapsed, listener)
+
+        lastTxBytes = tx
+        lastRxBytes = rx
+        lastSampleTime = nowElapsed
     }
 
     fun stop() {
@@ -209,53 +226,8 @@ class TrafficMonitor(
         val uid = cachedUid
         val listener = cachedListener
         if (uid > 0 && listener != null) {
-            val tx0 = TrafficStats.getUidTxBytes(uid).coerceAtLeast(0L)
-            val rx0 = TrafficStats.getUidRxBytes(uid).coerceAtLeast(0L)
-            lastTxBytes = tx0
-            lastRxBytes = rx0
-            lastSampleTime = SystemClock.elapsedRealtime()
-            stallConsecutiveCount = 0
-            lastStallTrafficBytes = 0L
-            lastStallCheckAtMs = 0L
-            lastTrafficActiveAtMs = SystemClock.elapsedRealtime()
-            proxyIdleNotified = false
-
-            monitorJob = scope.launch(Dispatchers.IO) {
-                while (true) {
-                    delay(SAMPLE_INTERVAL_MS)
-
-                    val nowElapsed = SystemClock.elapsedRealtime()
-                    val tx = TrafficStats.getUidTxBytes(uid).coerceAtLeast(0L)
-                    val rx = TrafficStats.getUidRxBytes(uid).coerceAtLeast(0L)
-
-                    val dtMs = (nowElapsed - lastSampleTime).coerceAtLeast(1L)
-                    val dTx = (tx - lastTxBytes).coerceAtLeast(0L)
-                    val dRx = (rx - lastRxBytes).coerceAtLeast(0L)
-
-                    val uploadSpeedBps = dTx * 1000 / dtMs
-                    val downloadSpeedBps = dRx * 1000 / dtMs
-
-                    currentUploadSpeed = uploadSpeedBps
-                    currentDownloadSpeed = downloadSpeedBps
-
-                    val totalTx = (tx - baseTxBytes).coerceAtLeast(0L)
-                    val totalRx = (rx - baseRxBytes).coerceAtLeast(0L)
-
-                    listener.onTrafficUpdate(TrafficSnapshot(
-                        uploadSpeed = uploadSpeedBps,
-                        downloadSpeed = downloadSpeedBps,
-                        totalUpload = totalTx,
-                        totalDownload = totalRx
-                    ))
-
-                    checkForStall(tx + rx, listener)
-                    checkForProxyIdle(dTx + dRx, nowElapsed, listener)
-
-                    lastTxBytes = tx
-                    lastRxBytes = rx
-                    lastSampleTime = nowElapsed
-                }
-            }
+            initializeTrafficState(uid, resetBase = false)
+            startMonitorLoop(uid, listener)
             Log.i(TAG, "Traffic monitor resumed")
         } else {
             Log.w(TAG, "Cannot resume: missing uid or listener")

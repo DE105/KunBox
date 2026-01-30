@@ -1,9 +1,16 @@
 package com.kunk.singbox.ui.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -86,6 +94,21 @@ fun TrafficStatsScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showClearDialog by remember { mutableStateOf(false) }
 
+    // Refresh button interaction
+    val refreshInteractionSource = remember { MutableInteractionSource() }
+    val isRefreshPressed by refreshInteractionSource.collectIsPressedAsState()
+
+    // Refresh animation
+    val infiniteTransition = rememberInfiniteTransition(label = "refresh")
+    val refreshRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = LinearEasing)
+        ),
+        label = "refresh_rotation"
+    )
+
     if (showClearDialog) {
         ConfirmDialog(
             title = "清除流量统计",
@@ -114,11 +137,38 @@ fun TrafficStatsScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.refresh() }) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isRefreshPressed || uiState.isLoading) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                } else {
+                                    Color.Transparent
+                                }
+                            )
+                            .clickable(
+                                interactionSource = refreshInteractionSource,
+                                indication = null
+                            ) {
+                                viewModel.refresh()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(
                             Icons.Rounded.Refresh,
                             contentDescription = "刷新",
-                            tint = MaterialTheme.colorScheme.onBackground
+                            tint = if (uiState.isLoading) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onBackground
+                            },
+                            modifier = if (uiState.isLoading) {
+                                Modifier.rotate(refreshRotation)
+                            } else {
+                                Modifier
+                            }
                         )
                     }
                     IconButton(onClick = { showClearDialog = true }) {

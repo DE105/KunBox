@@ -273,8 +273,6 @@ class NetworkHelper(
         updateLastReset(now)
 
         withContext(Dispatchers.IO) {
-            // 1. KunBox 扩展：recoverNetworkAuto 会通过 TrafficManager 关闭追踪连接（向应用发送 RST/FIN）
-            // 这是修复“TG 等应用后台回来一直加载”的关键路径
             if (BoxWrapperManager.isAvailable()) {
                 val ok = runCatching { BoxWrapperManager.recoverNetworkAuto() }.getOrDefault(false)
                 Log.i(TAG, "[$reason] Used recoverNetworkAuto (ok=$ok)")
@@ -282,7 +280,6 @@ class NetworkHelper(
                 return@withContext
             }
 
-            // 2. 兼容：回退到 resetAllConnections（仅关闭内核侧 conntrack）
             if (LibboxCompat.hasResetAllConnections) {
                 if (LibboxCompat.resetAllConnections(true)) {
                     Log.i(TAG, "[$reason] Used native resetAllConnections")
@@ -291,13 +288,11 @@ class NetworkHelper(
                 }
             }
 
-            // 3. 尝试 CommandClient
             if (commandManager.closeConnections()) {
                 Log.i(TAG, "[$reason] Used CommandClient.closeConnections()")
                 return@withContext
             }
 
-            // 4. 回退到逐个关闭
             Log.w(TAG, "[$reason] Falling back to closeRecent")
             closeRecentFn(reason)
         }

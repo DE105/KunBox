@@ -314,32 +314,20 @@ class SingBoxService : VpnService() {
     }
 
     private fun initConnectManager() {
-        // 2025-fix-v16: 参考 v2rayNG，传入 setUnderlyingNetworksFn
-        // 让 ConnectManager 在 NetworkCallback 中立即调用 setUnderlyingNetworks
-        // 这样 Android 系统能及时通知上层应用网络状态变化
         connectManager.init(
             onNetworkChanged = { network ->
-                // 这里不再需要手动调用 setUnderlyingNetworks
-                // 因为 ConnectManager 内部已经在 callback 中立即调用了
                 if (network != null) {
-                    Log.d(TAG, "Network changed via ConnectManager: $network")
+                    Log.d(TAG, "Network changed: $network")
                 }
             },
             onNetworkLost = {
-                Log.i(TAG, "Network lost via ConnectManager")
-            },
-            onNetworkChangeReset = { reason ->
-                Log.i(TAG, "[NetworkChangeReset] Triggered: $reason")
-                recoveryCoordinator.request(
-                    RecoveryCoordinator.Request.NetworkBump("network_change:$reason")
-                )
+                Log.i(TAG, "Network lost")
             },
             setUnderlyingNetworksFn = { nets ->
-                // 直接调用 VpnService 的 setUnderlyingNetworks
                 setUnderlyingNetworks(nets)
             }
         )
-        Log.i(TAG, "ConnectManager initialized (v2rayNG-style)")
+        Log.i(TAG, "ConnectManager initialized")
     }
 
     private fun initServiceSelectorManager() {
@@ -713,9 +701,6 @@ class SingBoxService : VpnService() {
 
                 override fun suspendNonEssentialProcesses() {
                     Log.i(TAG, "[PowerSaving] Suspending non-essential processes...")
-
-                    // 2025-fix-v22: 进入省电模式时强制关闭所有连接
-                    // 这确保当用户后来打开其他应用（如 TG）时，不会使用死连接
                     val closedCount = BoxWrapperManager.closeAllTrackedConnections()
                     if (closedCount > 0) {
                         Log.i(TAG, "[PowerSaving] Closed $closedCount tracked connections")
@@ -1221,11 +1206,6 @@ class SingBoxService : VpnService() {
      * sing-box 的 Selector.SelectOutbound() 内部会调用 interruptGroup.Interrupt(interruptExternalConnections)
      * 当 PROXY selector 配置了 interrupt_exist_connections=true 时,
      * selectOutbound 会自动中断所有外部连接(入站连接)
-     *
-     * 修复策略:
-     * 1. 直接调用 selectOutbound，sing-box 内部自动处理连接中断
-     * 2. 不进行网络震荡，避免触发多次 CONNECTIVITY_CHANGE 广播
-     *    这是 Telegram 重复"加载中-加载完成"的根因
      */
     suspend fun hotSwitchNode(nodeTag: String): Boolean {
         if (!coreManager.isServiceRunning() || !isRunning) return false
@@ -1304,36 +1284,29 @@ class SingBoxService : VpnService() {
         }
 
         override fun onTrafficStall(consecutiveCount: Int) {
-            // 流量停滞检测 - 触发轻量级健康检查
             stallRefreshAttempts++
-            Log.w(TAG, "Traffic stall detected (count=$consecutiveCount, refreshAttempt=$stallRefreshAttempts/$maxStallRefreshAttempts)")
+            val maxAttempts = maxStallRefreshAttempts
+            Log.d(TAG, "Traffic stall detected (count=$consecutiveCount, attempt=$stallRefreshAttempts/$maxAttempts)")
 
-            if (stallRefreshAttempts >= maxStallRefreshAttempts) {
-                Log.e(TAG, "Too many stall refresh attempts ($stallRefreshAttempts), restarting VPN service")
+            if (stallRefreshAttempts >= maxStallRefreshAttempts * 2) {
+                Log.w(TAG, "Persistent traffic stall after $stallRefreshAttempts attempts")
                 LogRepository.getInstance().addLog(
-                    "ERROR: VPN connection stalled for too long, automatically restarting..."
+                    "WARN: Traffic stall detected, attempting gentle recovery..."
                 )
                 stallRefreshAttempts = 0
                 trafficMonitor.resetStallCounter()
                 recoveryCoordinator.request(
-                    RecoveryCoordinator.Request.Restart("traffic_stall_persistent")
+                    RecoveryCoordinator.Request.CloseIdleConnections(30, "traffic_stall_persistent")
                 )
             } else {
-                // 尝试刷新连接
                 serviceScope.launch {
                     try {
-                        coreManager.wakeService()
-                        delay(30)
-                        // Use full recovery: wake -> close connections -> DNS -> reset network stack.
-                        recoveryCoordinator.request(
-                            RecoveryCoordinator.Request.Recover(
-                                ScreenStateManager.RECOVERY_MODE_FULL,
-                                "traffic_stall"
-                            )
-                        )
-                        Log.i(TAG, "Triggered full recovery after stall")
+                        val closed = BoxWrapperManager.closeIdleConnections(30)
+                        if (closed > 0) {
+                            Log.i(TAG, "Closed $closed idle connections after stall")
+                        }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to clear connections after stall", e)
+                        Log.w(TAG, "Failed to close idle connections after stall", e)
                     }
                     trafficMonitor.resetStallCounter()
                 }
@@ -1461,13 +1434,11 @@ class SingBoxService : VpnService() {
 
 // VPN 启动窗口期保护
 // 在 VPN 启动后的短时间内，updateDefaultInterface 跳过 setUnderlyingNetworks 调用
-// 因为 openTun() 已经设置过底层网络，重复调用会导致 UDP 连接断开
     private val vpnStartedAtMs = AtomicLong(0)
-    private val vpnStartupWindowMs: Long = 3000L // 启动后 3 秒内跳过重复设置
+    private val vpnStartupWindowMs: Long = 3000L
 
-// 连接重置防抖，避免多次重置导致 Telegram 反复加载
     @Volatile private var lastConnectionsResetAtMs: Long = 0L
-    private val connectionsResetDebounceMs: Long = 2000L // 2秒内不重复重置
+    private val connectionsResetDebounceMs: Long = 2000L
 
 // ACTION_PREPARE_RESTART 防抖：避免短时间内重复触发导致网络反复震荡
     private val lastPrepareRestartAtMs = AtomicLong(0L)
@@ -1721,9 +1692,6 @@ class SingBoxService : VpnService() {
                 }
             }
             ACTION_PREPARE_RESTART -> {
-                // ⭐ 2025-fix: 跨配置切换预清理机制
-                // 在 VPN 重启前先关闭所有现有连接并触发网络震荡
-                // 让应用（如 Telegram）立即感知网络中断，而不是在旧连接上等待超时
                 val reason = intent.getStringExtra(EXTRA_PREPARE_RESTART_REASON).orEmpty()
                 Log.i(TAG, "Received ACTION_PREPARE_RESTART (reason='$reason') -> preparing for VPN restart")
                 performPrepareRestart()
@@ -1780,14 +1748,8 @@ class SingBoxService : VpnService() {
 
     @Volatile private var pendingHotSwitchFallbackConfigPath: String? = null
 
-/**
+    /**
      * 执行预清理操作
-     * 在跨配置切换导致 VPN 重启前调用
-     * 目的是让应用（如 Telegram）立即感知网络中断，避免在旧连接上等待超时
-     *
-     * 2025-fix-v2: 简化流程
-     * 跨配置切换时 VPN 会完全重启，服务关闭会强制关闭所有连接
-     * 所以这里只需要提前通知应用网络变化即可，不需要手动关闭连接
      */
     private fun performPrepareRestart() {
         if (!isRunning) {
@@ -1809,9 +1771,7 @@ class SingBoxService : VpnService() {
                 Log.i(TAG, "[PrepareRestart] Step 1/3: Wake up core")
                 coreManager.wakeService()
 
-                // Step 2: 设置底层网络为 null，触发系统广播 CONNECTIVITY_CHANGE
-                // 这是让 Telegram 等应用感知网络变化的关键步骤
-                Log.i(TAG, "[PrepareRestart] Step 2/3: Disconnect underlying network to trigger system broadcast")
+                Log.i(TAG, "[PrepareRestart] Step 2/3: Disconnect underlying network")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                     setUnderlyingNetworks(null)
                 }
@@ -1933,6 +1893,9 @@ class SingBoxService : VpnService() {
      * 同步版本的热重载，供 IPC 调用
      * 直接调用 Go 层 StartOrReloadService，阻塞等待结果
      *
+     * 这里使用 runBlocking 是因为 AIDL 接口不支持挂起函数，
+     * 调用来自 VPN 进程的 Binder 线程池，使用 Dispatchers.IO 避免阻塞调用线程
+     *
      * @return true=成功, false=失败
      */
     fun performHotReloadSync(configContent: String): Boolean {
@@ -1942,7 +1905,7 @@ class SingBoxService : VpnService() {
         }
 
         return try {
-            kotlinx.coroutines.runBlocking {
+            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
                 Log.i(TAG, "[HotReload-Sync] Starting kernel-level hot reload...")
 
                 val settings = SettingsRepository.getInstance(applicationContext).settings.first()

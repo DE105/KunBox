@@ -10,7 +10,6 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import com.kunk.singbox.core.BoxWrapperManager
-import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -27,9 +26,6 @@ class ScreenStateManager(
     companion object {
         private const val TAG = "ScreenStateManager"
         private const val SCREEN_ON_CHECK_DEBOUNCE_MS = 3000L
-        // 2025-fix-v17: 从 10 秒缩短到 2 秒
-        // 参考 v2rayNG，屏幕点亮时应该尽快刷新网络状态
-        private const val SCREEN_ON_RECOVERY_DEBOUNCE_MS = 2_000L
         private const val DOZE_EXIT_RECOVERY_DEBOUNCE_MS = 5_000L
 
         // Recovery modes (must match Go side constants)
@@ -80,13 +76,13 @@ class ScreenStateManager(
     private var powerManager: BackgroundPowerManager? = null
 
     @Volatile private var lastScreenOnCheckMs: Long = 0L
-    @Volatile private var lastScreenOnRecoveryAtMs: Long = 0L
     @Volatile private var lastDozeExitRecoveryAtMs: Long = 0L
 
     @Volatile var isScreenOn: Boolean = true
         private set
     @Volatile var isAppInForeground: Boolean = true
         private set
+    @Suppress("UnusedPrivateProperty")
     @Volatile private var lastAppBackgroundAtMs: Long = 0L
 
     fun init(callbacks: Callbacks) {
@@ -122,28 +118,11 @@ class ScreenStateManager(
                     Log.i(TAG, "Screen ON detected")
                     isScreenOn = true
                     powerManager?.onScreenOn()
-
-                    // 2025-fix-v31: 直接重置连接，绕过 RecoveryCoordinator
-                    // 之前的 NetworkBump 会先做连通性探测，探测成功就不做操作
-                    // 但探测只能测试 VPN 隧道，无法检测应用层 TCP 假死
-                    if (callbacks?.isRunning == true) {
-                        val now = SystemClock.elapsedRealtime()
-                        val elapsed = now - lastScreenOnRecoveryAtMs
-                        if (elapsed < SCREEN_ON_RECOVERY_DEBOUNCE_MS) {
-                            Log.d(TAG, "[ScreenOn] Recovery skipped (debounce, elapsed=${elapsed}ms)")
-                        } else {
-                            lastScreenOnRecoveryAtMs = now
-                            Log.i(TAG, "[ScreenOn] Direct resetAllConnections")
-                            val resetOk = BoxWrapperManager.resetAllConnections(true)
-                            Log.i(TAG, "[ScreenOn] resetAllConnections result=$resetOk")
-                        }
-                    }
                 }
 
                 private fun handleScreenOff() {
                     Log.i(TAG, "Screen OFF detected")
                     isScreenOn = false
-                    // 通知省电管理器屏幕关闭
                     powerManager?.onScreenOff()
                 }
 
@@ -154,20 +133,8 @@ class ScreenStateManager(
                     lastScreenOnCheckMs = now
                     Log.i(TAG, "[Unlock] User unlocked device")
 
-                    // 2025-fix-v31: 立即重置连接，不再延迟
-                    // handleScreenOn 已经在亮屏时重置了一次，这里是额外保险
-                    val settings = runCatching {
-                        SettingsRepository.getInstance(context).settings.value
-                    }.getOrNull()
-                    if (callbacks?.isRunning == true && settings?.wakeResetConnections == true) {
-                        Log.i(TAG, "[Unlock] wakeResetConnections enabled, direct call to BoxWrapperManager")
-                        val resetOk = BoxWrapperManager.resetAllConnections(true)
-                        Log.i(TAG, "[Unlock] resetAllConnections result=$resetOk")
-                    }
-
-                    // 异步执行其他检查（不影响连接重置的时机）
                     serviceScope.launch {
-                        delay(300)
+                        delay(500)
                         callbacks?.performScreenOnCheck()
                     }
                 }
@@ -301,7 +268,6 @@ class ScreenStateManager(
 
     /**
      * 设备退出空闲模式
-     * 2025-fix-v31: 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator 异步队列
      */
     private suspend fun handleDeviceWake() {
         if (callbacks?.isRunning != true) return
@@ -317,26 +283,14 @@ class ScreenStateManager(
 
             lastDozeExitRecoveryAtMs = now
 
-            // Step 1: 显式唤醒内核
             Log.i(TAG, "[Doze] Device wake - waking core")
             val wakeOk = runCatching { callbacks?.wakeCore("doze_exit") }.getOrNull() == true
             if (!wakeOk) {
                 Log.w(TAG, "[Doze] wakeCore failed, but continuing")
             }
 
-            // Step 2: 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator
-            val settings = runCatching {
-                SettingsRepository.getInstance(context).settings.value
-            }.getOrNull()
-
-            if (settings?.wakeResetConnections == true) {
-                Log.i(TAG, "[Doze] wakeResetConnections=true, direct resetAllConnections")
-                val resetOk = BoxWrapperManager.resetAllConnections(true)
-                Log.i(TAG, "[Doze] resetAllConnections result=$resetOk")
-            } else {
-                Log.i(TAG, "[Doze] wakeResetConnections=false, performing NetworkBump only")
-                callbacks?.performNetworkBump("doze_exit")
-            }
+            val closedCount = BoxWrapperManager.closeIdleConnections(30)
+            Log.i(TAG, "[Doze] Closed $closedCount idle connections")
 
             callbacks?.notifyRemoteStateUpdate(true)
         } catch (e: Exception) {

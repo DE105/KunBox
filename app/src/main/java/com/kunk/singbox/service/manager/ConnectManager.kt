@@ -8,6 +8,7 @@ import android.net.NetworkRequest
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.utils.perf.StateCache
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicLong
@@ -15,7 +16,6 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * 连接管理器
  * 负责网络状态监控、底层网络绑定、连接重置等
- * 使用 Result<T> 返回值模式
  */
 class ConnectManager(
     private val context: Context,
@@ -23,10 +23,7 @@ class ConnectManager(
 ) {
     companion object {
         private const val TAG = "ConnectManager"
-        // 2025-fix-v16: 参考 v2rayNG，移除 setUnderlyingNetworks 的防抖
-        // v2rayNG 在每次 onAvailable/onCapabilitiesChanged 时都立即调用 setUnderlyingNetworks
-        // 这让 Android 系统能及时通知上层应用网络状态变化，应用会主动重建连接
-        private const val CONNECTION_RESET_DEBOUNCE_MS = 2000L // 仅用于连接重置
+        private const val CONNECTION_RESET_DEBOUNCE_MS = 2000L
         private const val STARTUP_WINDOW_MS = 3000L
     }
 
@@ -36,27 +33,17 @@ class ConnectManager(
 
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastKnownNetwork: Network? = null
-
-    // 2025-fix-v16: 参考 v2rayNG，添加直接设置底层网络的回调
-    // 这样可以在 NetworkCallback 内部立即调用 setUnderlyingNetworks
     private var setUnderlyingNetworksFn: ((Array<Network>?) -> Unit)? = null
 
     @Volatile
     private var isReady = false
-
-    @Volatile
-    private var networkChangeResetEnabled = true
 
     private val vpnStartedAtMs = AtomicLong(0)
     private val lastConnectionResetAtMs = AtomicLong(0)
 
     private var onNetworkChanged: ((Network?) -> Unit)? = null
     private var onNetworkLost: (() -> Unit)? = null
-    private var onNetworkChangeReset: ((String) -> Unit)? = null
 
-    /**
-     * 网络状态
-     */
     data class NetworkState(
         val network: Network?,
         val isValid: Boolean,
@@ -64,36 +51,19 @@ class ConnectManager(
         val isNotVpn: Boolean
     )
 
-    /**
-     * 初始化管理器
-     * @param setUnderlyingNetworksFn 直接设置底层网络的回调，用于在 NetworkCallback 内立即调用
-     */
     fun init(
         onNetworkChanged: (Network?) -> Unit,
         onNetworkLost: () -> Unit,
-        onNetworkChangeReset: ((String) -> Unit)? = null,
         setUnderlyingNetworksFn: ((Array<Network>?) -> Unit)? = null
     ): Result<Unit> {
         return runCatching {
             this.onNetworkChanged = onNetworkChanged
             this.onNetworkLost = onNetworkLost
-            this.onNetworkChangeReset = onNetworkChangeReset
             this.setUnderlyingNetworksFn = setUnderlyingNetworksFn
-            Log.i(TAG, "ConnectManager initialized (v2rayNG-style immediate underlying network update)")
+            Log.i(TAG, "ConnectManager initialized")
         }
     }
 
-    /**
-     * 设置网络变化时是否重置连接
-     */
-    fun setNetworkChangeResetEnabled(enabled: Boolean) {
-        networkChangeResetEnabled = enabled
-        Log.i(TAG, "Network change reset enabled: $enabled")
-    }
-
-    /**
-     * 注册网络回调
-     */
     fun registerNetworkCallback(): Result<Unit> {
         return runCatching {
             val cm = connectivityManager
@@ -283,7 +253,6 @@ class ConnectManager(
             isReady = false
             onNetworkChanged = null
             onNetworkLost = null
-            onNetworkChangeReset = null
             setUnderlyingNetworksFn = null
             StateCache.invalidateNetworkCache()
             Log.i(TAG, "ConnectManager cleaned up")
@@ -297,14 +266,19 @@ class ConnectManager(
         StateCache.updateNetworkCache(network)
         isReady = true
 
-        // 2025-fix-v16: 参考 v2rayNG，立即调用 setUnderlyingNetworks
-        // 这让 Android 系统能及时通知上层应用网络状态变化
         setUnderlyingNetworksFn?.invoke(arrayOf(network))
-
         onNetworkChanged?.invoke(network)
 
+        // 2025-fix-v32: 优化网络切换时的连接重置策略
+        // 改用 closeIdleConnections 替代 closeAllTrackedConnections
+        // 只关闭空闲连接，保留活跃连接，减少分流切换时的性能损失
         if (previousNetwork != null && previousNetwork != network) {
-            triggerNetworkChangeReset("network_switch")
+            serviceScope.launch(Dispatchers.IO) {
+                val idleClosed = BoxWrapperManager.closeIdleConnections(5)
+                if (idleClosed > 0) {
+                    Log.i(TAG, "[NetworkSwitch] Closed $idleClosed idle connections")
+                }
+            }
         }
     }
 
@@ -313,16 +287,12 @@ class ConnectManager(
         if (lastKnownNetwork == network) {
             lastKnownNetwork = null
             StateCache.invalidateNetworkCache()
-
-            // 2025-fix-v16: 参考 v2rayNG，网络丢失时设置为 null
             setUnderlyingNetworksFn?.invoke(null)
         }
         onNetworkLost?.invoke()
     }
 
     private fun handleCapabilitiesChanged(network: Network) {
-        // 2025-fix-v16: 参考 v2rayNG，每次能力变化都更新底层网络
-        // 原注释: "it's a good idea to refresh capabilities"
         setUnderlyingNetworksFn?.invoke(arrayOf(network))
 
         if (lastKnownNetwork != network) {
@@ -332,7 +302,12 @@ class ConnectManager(
             onNetworkChanged?.invoke(network)
 
             if (previousNetwork != null) {
-                triggerNetworkChangeReset("capabilities_change")
+                serviceScope.launch(Dispatchers.IO) {
+                    val idleClosed = BoxWrapperManager.closeIdleConnections(10)
+                    if (idleClosed > 0) {
+                        Log.i(TAG, "[CapChange] Closed $idleClosed idle connections")
+                    }
+                }
             }
         }
     }
@@ -341,28 +316,5 @@ class ConnectManager(
         if (caps == null) return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-    }
-
-    private fun triggerNetworkChangeReset(reason: String) {
-        if (!networkChangeResetEnabled) {
-            Log.d(TAG, "Network change reset disabled, skipping")
-            return
-        }
-
-        // 2025-fix-v16: 由于 setUnderlyingNetworks 已经立即触发，
-        // 这里的 NetworkBump 变成了可选的补充措施
-        // 保持原有防抖逻辑，避免频繁触发
-        val now = SystemClock.elapsedRealtime()
-        val last = lastConnectionResetAtMs.get()
-        if ((now - last) < CONNECTION_RESET_DEBOUNCE_MS) {
-            Log.d(TAG, "Debouncing network change reset")
-            return
-        }
-
-        serviceScope.launch {
-            delay(100) // 短暂延迟，让 setUnderlyingNetworks 生效
-            Log.i(TAG, "Triggering network change reset: $reason")
-            onNetworkChangeReset?.invoke(reason)
-        }
     }
 }

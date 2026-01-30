@@ -32,6 +32,7 @@ import com.kunk.singbox.service.VpnTileService
 import com.kunk.singbox.core.SingBoxCore
 import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.repository.ConfigRepository
+import com.kunk.singbox.viewmodel.shared.NodeDisplaySettings
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -66,6 +67,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val configRepository = ConfigRepository.getInstance(application)
     private val settingsRepository = SettingsRepository.getInstance(application)
     private val singBoxCore = SingBoxCore.getInstance(application)
+
+    // 使用共享的设置状态，和 NodesViewModel 共享同一份数据
+    private val displaySettings = NodeDisplaySettings.getInstance(application)
 
     // Connection state
     private val _connectionState = MutableStateFlow(ConnectionState.Idle)
@@ -199,15 +203,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             initialValue = emptyList()
         )
 
-    private val _nodeFilter = MutableStateFlow(NodeFilter())
-    private val _sortType = MutableStateFlow(NodeSortType.DEFAULT)
-    private val _customNodeOrder = MutableStateFlow<List<String>>(emptyList())
-
     val nodes: StateFlow<List<NodeUi>> = combine(
         configRepository.nodes,
-        _nodeFilter,
-        _sortType,
-        _customNodeOrder,
+        displaySettings.nodeFilter,
+        displaySettings.sortType,
+        displaySettings.customOrder,
         configRepository.activeNodeId
     ) { nodes: List<NodeUi>, filter: NodeFilter, sortType: NodeSortType, customOrder: List<String>, _ ->
         val filtered = when (filter.filterMode) {
@@ -241,11 +241,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 filtered.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
             }
         }
-
-        // 2025-fix: 移除自动选择第一个节点的逻辑
-        // 原因: 配置切换时 ProfilesViewModel/DashboardViewModel.setActiveProfile() 已经处理了节点切换
-        // 这里再次调用 setActiveNode() 会导致重复触发 VPN 重启，造成 TG 等应用二次加载
-        // 如果用户过滤后当前节点不在列表中，UI 只需显示第一个节点即可，不需要强制切换 VPN
 
         sorted
     }.stateIn(
@@ -283,21 +278,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private var systemVpnDetectedOnBoot = false
 
     init {
-        viewModelScope.launch {
-            settingsRepository.getNodeFilterFlow().collect {
-                _nodeFilter.value = it
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.getNodeSortType().collect {
-                _sortType.value = it
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.getCustomNodeOrder().collect {
-                _customNodeOrder.value = it
-            }
-        }
+        // nodeFilter/sortType/customOrder 现在从 displaySettings 共享获取，无需单独收集
+
         // Ensure IPC is bound before subscribing to state flows
         // This prevents stale state when app returns from background
         viewModelScope.launch {

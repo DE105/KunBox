@@ -190,6 +190,9 @@ class TrafficRepository private constructor(private val context: Context) {
         if (!nodeName.isNullOrBlank()) {
             dailyStats.nodeName = nodeName
         }
+
+        // 自动保存（有节流）
+        saveStats()
     }
 
     fun getStats(nodeId: String): NodeTrafficStats? {
@@ -339,6 +342,18 @@ class TrafficRepository private constructor(private val context: Context) {
     fun forceSave() {
         lastSaveTime = 0L
         saveStats()
+    }
+
+    /**
+     * 从文件重新加载数据（用于跨进程同步）
+     * UI 进程调用此方法以获取 VPN 进程保存的最新数据
+     */
+    fun reloadFromDisk() {
+        trafficMap.clear()
+        dailyRecords.clear()
+        loadStats()
+        loadDailyRecords()
+        Log.i(TAG, "Reloaded traffic stats from disk: ${trafficMap.size} nodes")
     }
 
     fun clearAllStats() {

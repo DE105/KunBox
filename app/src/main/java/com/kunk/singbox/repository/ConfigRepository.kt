@@ -168,7 +168,7 @@ class ConfigRepository(private val context: Context) {
         val caps = getNetworkCapabilities() ?: return configuredMtu
 
         // Throughput-first for Wi-Fi/Ethernet; conservative for cellular.
-        // QUIC-based proxies (Hysteria2/TUIC) + YouTube QUIC = double encapsulation,
+        // QUIC-based proxies + QUIC traffic = double encapsulation,
         // requiring higher MTU to avoid fragmentation blackholes.
         val recommendedMtu = when {
             caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 1480
@@ -1756,9 +1756,6 @@ class ConfigRepository(private val context: Context) {
 
                 val coreMode = VpnStateStore.getMode()
 
-                // ⭐ 2025-fix: 跨配置切换预清理机制
-                // 如果需要重启 VPN (tagsChanged=true)，先发送预清理信号让 Service 关闭现有连接
-                // 这样应用（如 Telegram）能立即感知网络中断，而不是在旧连接上等待超时
                 if (tagsChanged && remoteRunning) {
                     Log.i(TAG, "Sending PREPARE_RESTART before VPN restart")
                     if (!VpnStateStore.shouldTriggerPrepareRestart(1500L)) {
@@ -2766,9 +2763,6 @@ class ConfigRepository(private val context: Context) {
         // 使用 filesDir 而非 cacheDir，确保 FakeIP 缓存不会被系统清理
         val singboxDataDir = File(context.filesDir, "singbox_data").also { it.mkdirs() }
 
-        // 启用 Clash API 提供额外的保活机制
-        // 这会定期发送心跳，防止长连接应用（Telegram等）的TCP连接被NAT设备超时关闭
-        // 自动查找可用端口，避免端口冲突导致启动失败
         val clashApiPort = findAvailablePort(9090)
         val clashApi = ClashApiConfig(
             externalController = "127.0.0.1:$clashApiPort",

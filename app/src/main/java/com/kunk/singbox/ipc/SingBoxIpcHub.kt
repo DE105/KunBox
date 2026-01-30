@@ -15,6 +15,9 @@ import java.util.concurrent.atomic.AtomicLong
 object SingBoxIpcHub {
     private const val TAG = "SingBoxIpcHub"
 
+    // 高频状态更新时避免 CPU 空转，50ms 是 RemoteCallbackList 回调的合理间隔
+    private const val MIN_BROADCAST_INTERVAL_MS = 50L
+
     private val logRepo by lazy { LogRepository.getInstance() }
 
     private fun log(msg: String) {
@@ -42,6 +45,7 @@ object SingBoxIpcHub {
     private val broadcastLock = Any()
     @Volatile private var broadcasting: Boolean = false
     @Volatile private var broadcastPending: Boolean = false
+    private val lastBroadcastAtMs = AtomicLong(0L)
 
     // 省电管理器引用，由 SingBoxService 设置
     @Volatile
@@ -60,8 +64,10 @@ object SingBoxIpcHub {
     // 2025-fix-v11: 上次应用进入后台的时间戳，用于计算后台时长
     private val lastBackgroundAtMs = AtomicLong(0L)
 
-    // 2025-fix-v11: 前台恢复防抖最小间隔 (2秒)
+    // 2025-fix-v32: 前台恢复需要更长的后台时长阈值
+    // 30秒后台时间才触发恢复，避免应用切换时频繁恢复
     private const val FOREGROUND_RESET_DEBOUNCE_MS = 2_000L
+    private const val FOREGROUND_RECOVERY_MIN_BACKGROUND_MS = 30_000L
 
     fun setPowerManager(manager: BackgroundPowerManager?) {
         powerManager = manager
@@ -100,9 +106,6 @@ object SingBoxIpcHub {
         }
     }
 
-    /**
-     * 2025-fix-v14: 前台恢复 - 使用 NetworkBump 触发应用重建连接
-     */
     @Suppress("CognitiveComplexMethod", "NestedBlockDepth", "ReturnCount")
     private fun performForegroundRecovery() {
         val isVpnRunning = stateOrdinal == ServiceState.RUNNING.ordinal
@@ -121,27 +124,17 @@ object SingBoxIpcHub {
 
         val backgroundDuration = now - lastBackgroundAtMs.get()
 
-        // 2025-fix-v14: 如果从未进入过后台或后台时间太短，跳过恢复
-        if (lastBackgroundAtMs.get() == 0L || backgroundDuration < FOREGROUND_RESET_DEBOUNCE_MS) {
-            Log.d(TAG, "[Foreground] skipped (background too short: ${backgroundDuration}ms)")
+        if (lastBackgroundAtMs.get() == 0L || backgroundDuration < FOREGROUND_RECOVERY_MIN_BACKGROUND_MS) {
+            val minMs = FOREGROUND_RECOVERY_MIN_BACKGROUND_MS
+            Log.d(TAG, "[Foreground] skipped (background too short: ${backgroundDuration}ms < ${minMs}ms)")
             return
         }
 
-        log("[Foreground] VPN running, background=${backgroundDuration}ms, triggering NetworkBump")
+        log("[Foreground] VPN running, background=${backgroundDuration}ms, performing gentle recovery")
 
-        // 2025-fix-v14: 使用 NetworkBump 替代分级恢复模式
-        // NetworkBump 通过短暂改变底层网络触发应用重建连接，是根治方案
-        val handler = foregroundRecoveryHandler
-        if (handler != null) {
-            handler.invoke()
-            lastForegroundAtMs.set(now)
-            log("[Foreground] NetworkBump requested via handler")
-        } else {
-            // Fallback: 直接调用 BoxWrapperManager（不触发应用重建连接，但至少重置 sing-box 内部状态）
-            Log.w(TAG, "[Foreground] foregroundRecoveryHandler not set, using fallback")
-            BoxWrapperManager.resetAllConnections(true)
-            lastForegroundAtMs.set(now)
-        }
+        val closedCount = BoxWrapperManager.closeIdleConnections(60)
+        lastForegroundAtMs.set(now)
+        log("[Foreground] Closed $closedCount idle connections")
     }
 
     fun getStateOrdinal(): Int = stateOrdinal
@@ -218,6 +211,18 @@ object SingBoxIpcHub {
 
     private fun drainBroadcastLoop() {
         while (true) {
+            // 限制广播频率，防止高频状态更新导致 CPU 空转
+            val now = SystemClock.elapsedRealtime()
+            val elapsed = now - lastBroadcastAtMs.get()
+            if (elapsed < MIN_BROADCAST_INTERVAL_MS) {
+                try {
+                    Thread.sleep(MIN_BROADCAST_INTERVAL_MS - elapsed)
+                } catch (_: InterruptedException) {
+                    return
+                }
+            }
+            lastBroadcastAtMs.set(SystemClock.elapsedRealtime())
+
             val snapshot = synchronized(broadcastLock) {
                 broadcastPending = false
                 StateSnapshot(stateOrdinal, activeLabel, lastError, manuallyStopped)

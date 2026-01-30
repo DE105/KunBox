@@ -315,13 +315,37 @@ class CommandManager(
                 val trafficRepo = TrafficRepository.getInstance(context)
                 val configRepo = ConfigRepository.getInstance(context)
                 val perOutboundTraffic = BoxWrapperManager.getTrafficByOutbound()
+                    .filterKeys { tag ->
+                        // 过滤掉直连流量
+                        !tag.equals("direct", ignoreCase = true) &&
+                        !tag.equals("block", ignoreCase = true) &&
+                        !tag.equals("dns-out", ignoreCase = true)
+                    }
 
                 if (perOutboundTraffic.isNotEmpty()) {
-                    perOutboundTraffic.forEach { (nodeTag, traffic) ->
-                        val (upload, download) = traffic
-                        if (upload > 0 || download > 0) {
-                            val nodeName = configRepo.getNodeById(nodeTag)?.name
-                            trafficRepo.addTraffic(nodeTag, upload, download, nodeName)
+                    // Calculate total traffic from all outbounds
+                    var totalOutboundUp = 0L
+                    var totalOutboundDown = 0L
+                    perOutboundTraffic.forEach { (_, traffic) ->
+                        totalOutboundUp += traffic.first
+                        totalOutboundDown += traffic.second
+                    }
+
+                    // Distribute diff proportionally to each outbound
+                    if (totalOutboundUp > 0 || totalOutboundDown > 0) {
+                        perOutboundTraffic.forEach { (nodeTag, traffic) ->
+                            val (outboundUp, outboundDown) = traffic
+                            val allocUp = if (totalOutboundUp > 0) {
+                                (diffUp * outboundUp / totalOutboundUp)
+                            } else 0L
+                            val allocDown = if (totalOutboundDown > 0) {
+                                (diffDown * outboundDown / totalOutboundDown)
+                            } else 0L
+
+                            if (allocUp > 0 || allocDown > 0) {
+                                val nodeName = configRepo.getNodeById(nodeTag)?.name
+                                trafficRepo.addTraffic(nodeTag, allocUp, allocDown, nodeName)
+                            }
                         }
                     }
                 } else {

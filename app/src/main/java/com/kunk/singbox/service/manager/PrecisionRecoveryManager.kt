@@ -316,5 +316,7 @@ class PrecisionRecoveryManager private constructor(
         scope.cancel()
         recoveryHistory.clear()
         initialized.set(false)
+        // 重置单例，下次 getInstance 时创建新实例（含新 scope）
+        instance = null
     }
 }
