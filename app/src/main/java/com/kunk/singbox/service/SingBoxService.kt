@@ -770,7 +770,31 @@ class SingBoxService : VpnService() {
                 override fun triggerQUICRecovery(reason: String) {
                     Log.i(TAG, "[BackgroundRecovery] Triggering QUIC Recovery: $reason")
                     serviceScope.launch(Dispatchers.IO) {
+                        // Step 1: 重置 VPN 内核的 QUIC 出站连接
                         BoxWrapperManager.recoverNetworkForQUIC()
+
+                        // Step 2: 强制网络重置，触发应用感知网络变化
+                        // 2025-fix-v27: 使用 "null bounce" 技术强制应用重建连接
+                        // 原因：单纯设置 setUnderlyingNetworks(network) 不足以让应用感知变化
+                        // 解决：先设为 null (断开)，再设回正常网络 (重连)
+                        val network = connectManager.getCurrentNetwork()
+                        if (network != null) {
+                            Log.i(TAG, "[QUICRecovery] Null-bouncing underlying network to force app reconnect")
+                            withContext(Dispatchers.Main) {
+                                // Step 2a: 短暂设置为 null，模拟网络断开
+                                setUnderlyingNetworks(null)
+                            }
+                            // Step 2b: 等待一小段时间让系统处理
+                            delay(50)
+                            withContext(Dispatchers.Main) {
+                                // Step 2c: 设置回正常网络，触发重连
+                                setUnderlyingNetworks(arrayOf(network))
+                            }
+                        }
+
+                        // Step 3: 关闭所有追踪的应用连接，强制它们重新建立
+                        val closed = BoxWrapperManager.closeAllTrackedConnections()
+                        Log.i(TAG, "[QUICRecovery] Closed $closed tracked connections, apps will reconnect")
                     }
                 }
             },

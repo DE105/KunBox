@@ -46,10 +46,14 @@ class BackgroundPowerManager(
 
         // ==================== 后台恢复阈值 (解决 TG 加载问题) ====================
 
-        /** 后台超过此时间后回前台，触发 NetworkBump (改为 0 秒，始终触发) */
+        /** 后台超过此时间后回前台，触发 NetworkBump (TCP 协议，0 秒阈值) */
         // 2025-fix-v17: 参考 v2rayNG，每次前台恢复都刷新底层网络
-        // 原来 30 秒阈值导致短时间后台恢复时不触发，造成 TG 等应用加载慢
         const val BACKGROUND_BUMP_THRESHOLD_MS = 0L
+
+        /** QUIC 协议专用阈值：后台超过 30 秒才触发 QUIC Recovery */
+        // 2025-fix-v28: QUIC Recovery 会关闭所有连接，太激进
+        // 短时间后台（如应用切换）不应触发，否则会破坏正常工作的连接
+        const val BACKGROUND_QUIC_RECOVERY_THRESHOLD_MS = 30 * 1000L
 
         /** 后台超过此时间后回前台，触发完整恢复 (5分钟) */
         const val BACKGROUND_FULL_RECOVERY_THRESHOLD_MS = 5 * 60 * 1000L
@@ -211,13 +215,17 @@ class BackgroundPowerManager(
         if (!isScreenOff) return
         isScreenOff = false
 
-        val backgroundDuration = if (backgroundStartTimeMs > 0) {
-            SystemClock.elapsedRealtime() - backgroundStartTimeMs
+        // 2025-fix-v25: 使用 userAwayAtMs 而不是 backgroundStartTimeMs
+        // 因为 backgroundStartTimeMs 只在 App 进入后台时设置
+        // 而 userAwayAtMs 在息屏时也会设置
+        // 这修复了息屏后恢复时 duration=0 导致不触发 QUIC 恢复的 bug
+        val awayDuration = if (userAwayAtMs > 0) {
+            SystemClock.elapsedRealtime() - userAwayAtMs
         } else 0L
 
-        Log.i(TAG, "[Screen] Screen turned ON after ${backgroundDuration / 1000}s background")
+        Log.i(TAG, "[Screen] Screen turned ON after ${awayDuration / 1000}s away")
 
-        triggerForegroundRecoveryIfNeeded(backgroundDuration, "screen_on")
+        triggerForegroundRecoveryIfNeeded(awayDuration, "screen_on")
 
         evaluateUserPresence()
     }
@@ -252,26 +260,33 @@ class BackgroundPowerManager(
                     callbacks?.triggerFullRecovery("${source}_${backgroundDurationMs / 1000}s")
                 }
             }
-            backgroundDurationMs > BACKGROUND_BUMP_THRESHOLD_MS -> {
+            // 2025-fix-v28: QUIC 协议使用单独的阈值 (30秒)
+            // 短时间后台不触发 QUIC Recovery，避免破坏正常连接
+            isQUIC && backgroundDurationMs > BACKGROUND_QUIC_RECOVERY_THRESHOLD_MS -> {
+                Log.i(
+                    TAG,
+                    "[$source] QUIC background (${backgroundDurationMs / 1000}s > 30s), " +
+                        "triggering QUIC recovery"
+                )
                 lastForegroundRecoveryAtMs = now
-                if (isQUIC) {
-                    Log.i(
-                        TAG,
-                        "[$source] Medium background (${backgroundDurationMs / 1000}s), " +
-                            "triggering QUIC recovery"
-                    )
-                    callbacks?.triggerQUICRecovery("${source}_${backgroundDurationMs / 1000}s")
-                } else {
-                    Log.i(
-                        TAG,
-                        "[$source] Medium background (${backgroundDurationMs / 1000}s > 0s), " +
-                            "triggering network bump"
-                    )
-                    callbacks?.triggerNetworkBump("${source}_${backgroundDurationMs / 1000}s")
-                }
+                callbacks?.triggerQUICRecovery("${source}_${backgroundDurationMs / 1000}s")
+            }
+            // TCP 协议使用 0 阈值，任何后台都触发温和的 NetworkBump
+            !isQUIC && backgroundDurationMs > BACKGROUND_BUMP_THRESHOLD_MS -> {
+                Log.i(
+                    TAG,
+                    "[$source] TCP background (${backgroundDurationMs / 1000}s), " +
+                        "triggering network bump"
+                )
+                lastForegroundRecoveryAtMs = now
+                callbacks?.triggerNetworkBump("${source}_${backgroundDurationMs / 1000}s")
             }
             else -> {
-                Log.d(TAG, "[$source] Short background (${backgroundDurationMs / 1000}s), no recovery needed")
+                Log.d(
+                    TAG,
+                    "[$source] Short background (${backgroundDurationMs / 1000}s), " +
+                        "no recovery needed (isQUIC=$isQUIC)"
+                )
             }
         }
     }
