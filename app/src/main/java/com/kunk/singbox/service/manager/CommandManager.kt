@@ -327,18 +327,19 @@ class CommandManager(
                     val trafficRepo = TrafficRepository.getInstance(context)
                     val configRepo = ConfigRepository.getInstance(context)
 
-                    // TODO: 暂时禁用，调查崩溃原因
-                    // val perOutboundTraffic = BoxWrapperManager.getTrafficByOutbound()
-                    //     .filterKeys { tag ->
-                    //         // 过滤掉直连流量
-                    //         !tag.equals("direct", ignoreCase = true) &&
-                    //             !tag.equals("block", ignoreCase = true) &&
-                    //             !tag.equals("dns-out", ignoreCase = true)
-                    //     }
-                    val perOutboundTraffic = emptyMap<String, Pair<Long, Long>>()
+                    val perOutboundTraffic = try {
+                        BoxWrapperManager.getTrafficByOutbound()
+                            .filterKeys { tag ->
+                                !tag.equals("direct", ignoreCase = true) &&
+                                    !tag.equals("block", ignoreCase = true) &&
+                                    !tag.equals("dns-out", ignoreCase = true)
+                            }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "getTrafficByOutbound failed, fallback to activeNode", e)
+                        emptyMap()
+                    }
 
                     if (perOutboundTraffic.isNotEmpty()) {
-                        // Calculate total traffic from all outbounds
                         var totalOutboundUp = 0L
                         var totalOutboundDown = 0L
                         perOutboundTraffic.forEach { (_, traffic) ->
@@ -346,7 +347,6 @@ class CommandManager(
                             totalOutboundDown += traffic.second
                         }
 
-                        // Distribute diff proportionally to each outbound
                         if (totalOutboundUp > 0 || totalOutboundDown > 0) {
                             perOutboundTraffic.forEach { (nodeTag, traffic) ->
                                 val (outboundUp, outboundDown) = traffic
@@ -358,8 +358,10 @@ class CommandManager(
                                 } else 0L
 
                                 if (allocUp > 0 || allocDown > 0) {
-                                    val nodeName = configRepo.getNodeById(nodeTag)?.name
-                                    trafficRepo.addTraffic(nodeTag, allocUp, allocDown, nodeName)
+                                    val node = configRepo.getNodeByName(nodeTag)
+                                    val nodeId = node?.id ?: nodeTag
+                                    val nodeName = node?.name ?: nodeTag
+                                    trafficRepo.addTraffic(nodeId, allocUp, allocDown, nodeName)
                                 }
                             }
                         }

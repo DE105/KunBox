@@ -272,6 +272,9 @@ class TrafficRepository private constructor(private val context: Context) {
                             if (stats.lastUpdated > existing.lastUpdated) {
                                 existing.lastUpdated = stats.lastUpdated
                             }
+                            if (existing.nodeName.isNullOrBlank() && !stats.nodeName.isNullOrBlank()) {
+                                existing.nodeName = stats.nodeName
+                            }
                         }
                     }
                 }
@@ -305,13 +308,17 @@ class TrafficRepository private constructor(private val context: Context) {
         val aggregated = mutableMapOf<String, NodeTrafficStats>()
 
         trafficMap.forEach { (nodeId, stats) ->
-            aggregated[nodeId] = NodeTrafficStats(nodeId, stats.upload, stats.download, stats.lastUpdated)
+            aggregated[nodeId] = NodeTrafficStats(
+                nodeId, stats.upload, stats.download, stats.lastUpdated, stats.nodeName
+            )
         }
 
         dailyRecords.values.forEach { record ->
             record.nodeStats.forEach { (nodeId, stats) ->
                 if (!aggregated.containsKey(nodeId)) {
-                    aggregated[nodeId] = NodeTrafficStats(nodeId, stats.upload, stats.download, stats.lastUpdated)
+                    aggregated[nodeId] = NodeTrafficStats(
+                        nodeId, stats.upload, stats.download, stats.lastUpdated, stats.nodeName
+                    )
                 }
             }
         }
@@ -328,7 +335,9 @@ class TrafficRepository private constructor(private val context: Context) {
     }
 
     fun getTopNodes(period: TrafficPeriod, limit: Int = 10): List<NodeTrafficStats> {
-        return getTrafficSummary(period).nodeStats.take(limit)
+        return getTrafficSummary(period).nodeStats
+            .filter { it.upload + it.download > 0 }
+            .take(limit)
     }
 
     fun getNodeTrafficPercentages(period: TrafficPeriod): List<Pair<NodeTrafficStats, Float>> {
@@ -336,11 +345,13 @@ class TrafficRepository private constructor(private val context: Context) {
         val total = summary.totalUpload + summary.totalDownload
         if (total == 0L) return emptyList()
 
-        return summary.nodeStats.map { stats ->
-            val nodeTotal = stats.upload + stats.download
-            val percentage = (nodeTotal.toFloat() / total.toFloat()) * 100f
-            Pair(stats, percentage)
-        }
+        return summary.nodeStats
+            .filter { it.upload + it.download > 0 }
+            .map { stats ->
+                val nodeTotal = stats.upload + stats.download
+                val percentage = (nodeTotal.toFloat() / total.toFloat()) * 100f
+                Pair(stats, percentage)
+            }
     }
 
     fun forceSave() {

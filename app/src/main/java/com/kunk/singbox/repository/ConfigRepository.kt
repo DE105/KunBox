@@ -3655,6 +3655,25 @@ class ConfigRepository(private val context: Context) {
     }
 
     /**
+     * 根据节点名称获取NodeUi
+     * 用于流量统计等需要通过 outbound tag（节点名称）查找节点的场景
+     */
+    fun getNodeByName(nodeName: String): NodeUi? {
+        // 首先在当前配置的节点中查找
+        _nodes.value.find { it.name == nodeName }?.let { return it }
+
+        // 如果当前配置中没有，尝试从所有已加载的配置中查找
+        for ((_, nodes) in profileNodes) {
+            nodes.find { it.name == nodeName }?.let { return it }
+        }
+
+        // 最后尝试从 allNodes 中查找
+        _allNodes.value.find { it.name == nodeName }?.let { return it }
+
+        return null
+    }
+
+    /**
      * 删除节点
      */
     /**
