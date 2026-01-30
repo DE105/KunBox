@@ -50,10 +50,12 @@ class BackgroundPowerManager(
         // 2025-fix-v17: 参考 v2rayNG，每次前台恢复都刷新底层网络
         const val BACKGROUND_BUMP_THRESHOLD_MS = 0L
 
-        /** QUIC 协议专用阈值：后台超过 30 秒才触发 QUIC Recovery */
-        // 2025-fix-v28: QUIC Recovery 会关闭所有连接，太激进
-        // 短时间后台（如应用切换）不应触发，否则会破坏正常工作的连接
-        const val BACKGROUND_QUIC_RECOVERY_THRESHOLD_MS = 30 * 1000L
+        /** QUIC 协议专用阈值：后台超过 10 秒触发 QUIC Recovery */
+        // 2025-fix-v29: 从 30 秒降到 10 秒
+        // 原因：QUIC/UDP 协议的 NAT 表项超时通常只有 30-60 秒
+        // 等 30 秒再恢复太晚了，此时 NAT 可能已经失效导致连接断开
+        // 10 秒是合理的平衡点：足够区分快速应用切换，又能及时响应真正的后台场景
+        const val BACKGROUND_QUIC_RECOVERY_THRESHOLD_MS = 10 * 1000L
 
         /** 后台超过此时间后回前台，触发完整恢复 (5分钟) */
         const val BACKGROUND_FULL_RECOVERY_THRESHOLD_MS = 5 * 60 * 1000L

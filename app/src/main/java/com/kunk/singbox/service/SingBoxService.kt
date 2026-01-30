@@ -816,13 +816,12 @@ class SingBoxService : VpnService() {
 
         // 设置 IPC Hub 的 PowerManager 引用，用于接收主进程的生命周期通知
         SingBoxIpcHub.setPowerManager(backgroundPowerManager)
-        // 2025-fix-v14: 使用 NetworkBump 替代 PROACTIVE 恢复模式
-        // NetworkBump 通过短暂改变底层网络设置触发应用重建连接
+        // 2025-fix-v31: 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator
+        // 参考 NekoBox：直接调用 Libcore.resetAllConnections(true) 而不是异步队列
         // 这是解决"后台恢复后 TG 等应用一直加载中"问题的根治方案
         SingBoxIpcHub.setForegroundRecoveryHandler {
-            recoveryCoordinator.request(
-                RecoveryCoordinator.Request.NetworkBump("app_foreground")
-            )
+            Log.i(TAG, "[IPC] ForegroundRecovery: direct call to BoxWrapperManager (NekoBox style)")
+            BoxWrapperManager.resetAllConnections(true)
         }
         // 设置 ScreenStateManager 的 PowerManager 引用，用于接收屏幕状态通知
         screenStateManager.setPowerManager(backgroundPowerManager)

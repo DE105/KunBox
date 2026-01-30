@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -166,12 +167,14 @@ class ScreenStateManager(
                         callbacks?.performScreenOnCheck()
 
                         // 参考 NekoBox: 唤醒后按需重置出站连接，避免应用(如 Telegram)卡在旧连接上等待超时
+                        // 2025-fix-v31: 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator
                         val settings = runCatching {
                             SettingsRepository.getInstance(context).settings.value
                         }.getOrNull()
                         if (callbacks?.isRunning == true && settings?.wakeResetConnections == true) {
-                            Log.i(TAG, "[Unlock] wakeResetConnections enabled, resetting connections")
-                            callbacks?.resetConnectionsOptimal("user_present", false)
+                            Log.i(TAG, "[Unlock] wakeResetConnections enabled, direct call to BoxWrapperManager")
+                            val resetOk = BoxWrapperManager.resetAllConnections(true)
+                            Log.i(TAG, "[Unlock] resetAllConnections result=$resetOk")
                         }
                     }
                 }
@@ -306,7 +309,9 @@ class ScreenStateManager(
 
     /**
      * 设备退出空闲模式
-     * 2025-fix-v21: 添加显式 wake 调用，确保内核完全活跃后再执行恢复
+     * 2025-fix-v31: 参考 NekoBox 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator
+     * NekoBox 实现: proxy?.box?.wake() 然后 Libcore.resetAllConnections(true)
+     * 关键差异：NekoBox 直接调用，KunBox 之前走 RecoveryCoordinator 异步队列导致延迟
      */
     private suspend fun handleDeviceWake() {
         if (callbacks?.isRunning != true) return
@@ -321,38 +326,29 @@ class ScreenStateManager(
             }
 
             lastDozeExitRecoveryAtMs = now
-            Log.i(TAG, "[Doze] Device wake - step 1: wake core explicitly")
 
-            // 2025-fix-v21: Step 1 - 显式唤醒内核
-            // 这是解决"息屏久了亮屏后 VPN 连着但没网络"的关键
-            // 必须在任何网络操作之前确保内核完全活跃
+            // Step 1: 显式唤醒内核 (参考 NekoBox: proxy?.box?.wake())
+            Log.i(TAG, "[Doze] Device wake - waking core")
             val wakeOk = runCatching { callbacks?.wakeCore("doze_exit") }.getOrNull() == true
             if (!wakeOk) {
-                Log.w(TAG, "[Doze] wakeCore failed, but continuing with recovery")
+                Log.w(TAG, "[Doze] wakeCore failed, but continuing")
             }
 
-            // Step 2: 短暂等待让内核初始化完成
-            delay(100)
+            // Step 2: 参考 NekoBox - 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator
+            // NekoBox: if (DataStore.wakeResetConnections) Libcore.resetAllConnections(true)
+            // 2025-fix-v31: 直接调用，不走 RecoveryCoordinator 异步队列
+            val settings = runCatching {
+                SettingsRepository.getInstance(context).settings.value
+            }.getOrNull()
 
-            Log.i(TAG, "[Doze] Device wake - step 2: network bump")
-            callbacks?.performNetworkBump("doze_exit")
-
-            // Step 3: 深度恢复
-            Log.i(TAG, "[Doze] Device wake - step 3: deep recovery")
-            try {
-                callbacks?.performNetworkRecovery(RECOVERY_MODE_DEEP, "doze_exit")
-            } catch (e: Exception) {
-                Log.w(TAG, "[Doze] Deep recovery failed, falling back to full recovery", e)
-                runCatching {
-                    callbacks?.performNetworkRecovery(RECOVERY_MODE_FULL, "doze_exit_fallback")
-                }.onFailure { e2 ->
-                    Log.w(TAG, "[Doze] Full recovery also failed", e2)
-                    val settings = SettingsRepository.getInstance(context).settings.value
-                    if (settings.wakeResetConnections) {
-                        Log.i(TAG, "[Doze] wakeResetConnections enabled, resetting connections")
-                        callbacks?.resetConnectionsOptimal("doze_exit", false)
-                    }
-                }
+            if (settings?.wakeResetConnections == true) {
+                Log.i(TAG, "[Doze] wakeResetConnections=true, direct call to BoxWrapperManager (NekoBox style)")
+                val resetOk = BoxWrapperManager.resetAllConnections(true)
+                Log.i(TAG, "[Doze] resetAllConnections result=$resetOk")
+            } else {
+                // 即使没有启用 wakeResetConnections，也执行 NetworkBump 确保应用层连接刷新
+                Log.i(TAG, "[Doze] wakeResetConnections=false, performing NetworkBump only")
+                callbacks?.performNetworkBump("doze_exit")
             }
 
             callbacks?.notifyRemoteStateUpdate(true)
