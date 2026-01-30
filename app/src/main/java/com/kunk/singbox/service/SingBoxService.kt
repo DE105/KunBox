@@ -816,11 +816,9 @@ class SingBoxService : VpnService() {
 
         // 设置 IPC Hub 的 PowerManager 引用，用于接收主进程的生命周期通知
         SingBoxIpcHub.setPowerManager(backgroundPowerManager)
-        // 2025-fix-v31: 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator
-        // 参考 NekoBox：直接调用 Libcore.resetAllConnections(true) 而不是异步队列
-        // 这是解决"后台恢复后 TG 等应用一直加载中"问题的根治方案
+        // 2025-fix-v31: 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator 异步队列
         SingBoxIpcHub.setForegroundRecoveryHandler {
-            Log.i(TAG, "[IPC] ForegroundRecovery: direct call to BoxWrapperManager (NekoBox style)")
+            Log.i(TAG, "[IPC] ForegroundRecovery: direct resetAllConnections")
             BoxWrapperManager.resetAllConnections(true)
         }
         // 设置 ScreenStateManager 的 PowerManager 引用，用于接收屏幕状态通知
@@ -1218,8 +1216,6 @@ class SingBoxService : VpnService() {
      * 暴露给 ConfigRepository 调用，尝试热切换节点
      * @return true if hot switch triggered successfully, false if restart is needed
      *
-     * 2025-fix-v3: 学习 NekoBox 的简洁做法，移除网络震荡
-     *
      * 核心原理:
      * sing-box 的 Selector.SelectOutbound() 内部会调用 interruptGroup.Interrupt(interruptExternalConnections)
      * 当 PROXY selector 配置了 interrupt_exist_connections=true 时,
@@ -1462,13 +1458,13 @@ class SingBoxService : VpnService() {
     private val lastSetUnderlyingNetworksAtMs = AtomicLong(0)
     private val setUnderlyingNetworksDebounceMs: Long = 2000L // 2秒防抖
 
-// VPN 启动窗口期保护 - 参考 NekoBox 设计
+// VPN 启动窗口期保护
 // 在 VPN 启动后的短时间内，updateDefaultInterface 跳过 setUnderlyingNetworks 调用
 // 因为 openTun() 已经设置过底层网络，重复调用会导致 UDP 连接断开
     private val vpnStartedAtMs = AtomicLong(0)
     private val vpnStartupWindowMs: Long = 3000L // 启动后 3 秒内跳过重复设置
 
-// NekoBox-style: 连接重置防抖，避免多次重置导致 Telegram 反复加载
+// 连接重置防抖，避免多次重置导致 Telegram 反复加载
     @Volatile private var lastConnectionsResetAtMs: Long = 0L
     private val connectionsResetDebounceMs: Long = 2000L // 2秒内不重复重置
 

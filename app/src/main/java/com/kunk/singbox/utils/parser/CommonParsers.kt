@@ -10,7 +10,7 @@ import com.kunk.singbox.model.SingBoxConfig
 
 /**
  * Sing-box JSON 格式解析器
- * 参考 NekoBox 的导入逻辑：只提取 outbounds 节点，忽略规则配置
+ * 只提取 outbounds 节点，忽略规则配置
  * 防止因 sing-box 规则版本更新导致解析失败
  */
 class SingBoxParser(private val gson: Gson) : SubscriptionParser {

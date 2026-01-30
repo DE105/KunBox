@@ -14,8 +14,8 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * 全局共享的 OkHttpClient 单例 - 优化版
  *
- * 参考 NekoBox 的连接池实现进行优化：
- * 1. 更大的连接池容量（10 连接 vs 5）
+ * 特性：
+ * 1. 更大的连接池容量（10 连接）
  * 2. 智能 VPN 状态感知，自动清理失效连接
  * 3. HTTP/2 多路复用支持
  * 4. 连接健康检查

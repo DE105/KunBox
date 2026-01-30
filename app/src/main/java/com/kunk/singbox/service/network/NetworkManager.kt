@@ -21,7 +21,7 @@ class NetworkManager(
 ) {
     companion object {
         private const val TAG = "NetworkManager"
-        // 2025-fix: Remove debounce to ensure immediate network updates like NekoBox
+        // 移除防抖以确保网络变化立即更新
         // private const val DEBOUNCE_MS = 2000L
     }
 

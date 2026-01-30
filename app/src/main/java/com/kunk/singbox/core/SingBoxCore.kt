@@ -135,7 +135,7 @@ class SingBoxCore private constructor(private val context: Context) {
 
     /**
      * 使用 Libbox 原生方法进行延迟测试
-     * 优先尝试调用 NekoBox 内核的 urlTest 方法，失败则回退到本地 HTTP 代理测速
+     * 优先尝试调用内核的 urlTest 方法，失败则回退到本地 HTTP 代理测速
      */
     private suspend fun testOutboundLatencyWithLibbox(
         outbound: Outbound,
@@ -148,7 +148,7 @@ class SingBoxCore private constructor(private val context: Context) {
         val url = adjustUrlForMode(finalSettings.latencyTestUrl, finalSettings.latencyTestMethod)
         val timeoutMs = finalSettings.latencyTestTimeout
 
-        // 尝试使用 NekoBox 原生 urlTest
+        // 尝试使用原生 urlTest
         // Remove mutex to allow concurrent testing
         val nativeRtt = testWithLibboxStaticUrlTest(outbound, url, timeoutMs, finalSettings.latencyTestMethod)
 

@@ -57,7 +57,7 @@ class SingBoxApplication : Application(), Configuration.Provider {
                     android.util.Log.w("SingBoxApp", "Failed to read power saving setting", e)
                 }
 
-                // 预缓存物理网络 - 参考 NekoBox 优化
+                // 预缓存物理网络
                 // VPN 启动时可直接使用已缓存的网络，避免应用二次加载
                 val cm = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager
                 if (cm != null) {

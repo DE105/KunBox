@@ -6,7 +6,7 @@ import androidx.room.PrimaryKey
 /**
  * 设置实体 - 单行存储整个 AppSettings
  *
- * 相比 NekoBox 的 KeyValuePair 方案:
+ * 设计优势:
  * - 单次读写 vs N 次读写
  * - 类型安全 vs 字符串转换
  * - Flow 实时观察 vs 手动刷新

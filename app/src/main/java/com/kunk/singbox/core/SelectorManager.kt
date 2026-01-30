@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * 负责跟踪当前配置的 selector 结构，判断是否支持热切换。
  *
- * 热切换条件 (参考 NekoBox canReloadSelector):
+ * 热切换条件:
  * 1. VPN 正在运行
  * 2. 当前配置有 selector 类型的出站
  * 3. 新节点在同一 selector group 内 (签名匹配)

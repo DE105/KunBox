@@ -20,13 +20,11 @@ import kotlinx.coroutines.sync.withLock
 /**
  * 设置存储 - 使用 Room 数据库存储
  *
- * 相比 NekoBox 的 KeyValuePair 方案:
+ * 设计优势:
  * - 单次读写整个设置对象 vs N 次键值对操作
  * - JSON 序列化类型安全 vs 字符串手动转换
  * - Flow 实时观察 vs 手动刷新
  * - 内置版本控制支持迁移 vs 无版本
- *
- * 优势:
  * - Room 数据库在重装后保留
  * - 事务支持保证数据一致性
  */

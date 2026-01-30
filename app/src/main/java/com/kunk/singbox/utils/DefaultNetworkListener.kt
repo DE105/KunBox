@@ -19,7 +19,6 @@ import java.lang.ref.WeakReference
 /**
  * 网络监听器 - 在 Application 启动时开始监听物理网络变化
  *
- * 设计参考 NekoBox 的 DefaultNetworkListener
  * 核心优化: 预缓存物理网络, VPN 启动时直接使用已缓存的网络
  * 避免 VPN establish 后应用需要重新探测网络导致的二次加载
  */

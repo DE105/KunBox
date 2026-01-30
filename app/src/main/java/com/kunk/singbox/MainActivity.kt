@@ -159,10 +159,8 @@ fun SingBoxApp() {
         dashboardViewModel.refreshState()
     }
 
-    // 2025-fix-v5: NekoBox 风格 - 在 ON_START 时强制重新绑定 IPC
-    // 参考 NekoBox MainActivity: onStart() 调用 connection.updateConnectionId()
-    // 这确保从后台返回时 IPC 连接是有效的
-    // 2025-fix-v10: 使用原子化方法，避免 rebind 和 notifyAppLifecycle 的竞态条件
+    // 在 ON_START 时强制重新绑定 IPC，确保从后台返回时 IPC 连接是有效的
+    // 使用原子化方法，避免 rebind 和 notifyAppLifecycle 的竞态条件
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
         SingBoxRemote.rebindAndNotifyForeground(context)
     }

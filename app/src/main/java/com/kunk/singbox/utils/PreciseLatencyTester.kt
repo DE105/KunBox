@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 精确延迟测试器 - 参考 NekoBox speedtest.go 实现
+ * 精确延迟测试器
  *
  * 使用 OkHttp EventListener 精确测量各阶段耗时：
  * - RTT: 从 TLS 握手完成到收到首字节的时间（排除连接建立开销）

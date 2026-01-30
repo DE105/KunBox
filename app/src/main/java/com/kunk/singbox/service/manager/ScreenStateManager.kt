@@ -121,29 +121,21 @@ class ScreenStateManager(
                 private fun handleScreenOn() {
                     Log.i(TAG, "Screen ON detected")
                     isScreenOn = true
-                    // 通知省电管理器屏幕点亮
                     powerManager?.onScreenOn()
 
-                    // ===== 早期恢复：屏幕亮起时立即开始网络恢复（带节流） =====
-                    // 解决 TG 等应用后台恢复后一直加载中的问题
-                    // 2025-fix-v15: 移除 isNetworkRecoveryNeeded() 条件检查，因为它无法检测应用层 TCP 假死
-                    // 改用 NetworkBump 替代 RECOVERY_MODE_QUICK，更激进地处理陈旧连接
+                    // 2025-fix-v31: 直接重置连接，绕过 RecoveryCoordinator
+                    // 之前的 NetworkBump 会先做连通性探测，探测成功就不做操作
+                    // 但探测只能测试 VPN 隧道，无法检测应用层 TCP 假死
                     if (callbacks?.isRunning == true) {
                         val now = SystemClock.elapsedRealtime()
                         val elapsed = now - lastScreenOnRecoveryAtMs
                         if (elapsed < SCREEN_ON_RECOVERY_DEBOUNCE_MS) {
-                            Log.d(TAG, "[ScreenOn] Early recovery skipped (debounce, elapsed=${elapsed}ms)")
+                            Log.d(TAG, "[ScreenOn] Recovery skipped (debounce, elapsed=${elapsed}ms)")
                         } else {
                             lastScreenOnRecoveryAtMs = now
-                            serviceScope.launch {
-                                Log.i(TAG, "[ScreenOn] NetworkBump triggered (fix TG loading issue)")
-                                try {
-                                    // 使用 NetworkBump 替代快速恢复，确保应用层连接被重置
-                                    callbacks?.performNetworkBump("screen_on")
-                                } catch (e: Exception) {
-                                    Log.w(TAG, "[ScreenOn] NetworkBump failed", e)
-                                }
-                            }
+                            Log.i(TAG, "[ScreenOn] Direct resetAllConnections")
+                            val resetOk = BoxWrapperManager.resetAllConnections(true)
+                            Log.i(TAG, "[ScreenOn] resetAllConnections result=$resetOk")
                         }
                     }
                 }
@@ -162,20 +154,21 @@ class ScreenStateManager(
                     lastScreenOnCheckMs = now
                     Log.i(TAG, "[Unlock] User unlocked device")
 
-                    serviceScope.launch {
-                        delay(800) // Reduced from 1200ms for faster response
-                        callbacks?.performScreenOnCheck()
+                    // 2025-fix-v31: 立即重置连接，不再延迟
+                    // handleScreenOn 已经在亮屏时重置了一次，这里是额外保险
+                    val settings = runCatching {
+                        SettingsRepository.getInstance(context).settings.value
+                    }.getOrNull()
+                    if (callbacks?.isRunning == true && settings?.wakeResetConnections == true) {
+                        Log.i(TAG, "[Unlock] wakeResetConnections enabled, direct call to BoxWrapperManager")
+                        val resetOk = BoxWrapperManager.resetAllConnections(true)
+                        Log.i(TAG, "[Unlock] resetAllConnections result=$resetOk")
+                    }
 
-                        // 参考 NekoBox: 唤醒后按需重置出站连接，避免应用(如 Telegram)卡在旧连接上等待超时
-                        // 2025-fix-v31: 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator
-                        val settings = runCatching {
-                            SettingsRepository.getInstance(context).settings.value
-                        }.getOrNull()
-                        if (callbacks?.isRunning == true && settings?.wakeResetConnections == true) {
-                            Log.i(TAG, "[Unlock] wakeResetConnections enabled, direct call to BoxWrapperManager")
-                            val resetOk = BoxWrapperManager.resetAllConnections(true)
-                            Log.i(TAG, "[Unlock] resetAllConnections result=$resetOk")
-                        }
+                    // 异步执行其他检查（不影响连接重置的时机）
+                    serviceScope.launch {
+                        delay(300)
+                        callbacks?.performScreenOnCheck()
                     }
                 }
 
@@ -247,7 +240,6 @@ class ScreenStateManager(
                             callbacks?.notifyRemoteStateUpdate(true)
 
                             // Only update UI state, do NOT reset network connections
-                            // NekoBox/SagerNet philosophy: UI should not interfere with background service state
                             if (callbacks?.isRunning == true) {
                                 Log.i(TAG, "[Foreground] App returned to foreground, updating UI state only")
                             }
@@ -309,9 +301,7 @@ class ScreenStateManager(
 
     /**
      * 设备退出空闲模式
-     * 2025-fix-v31: 参考 NekoBox 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator
-     * NekoBox 实现: proxy?.box?.wake() 然后 Libcore.resetAllConnections(true)
-     * 关键差异：NekoBox 直接调用，KunBox 之前走 RecoveryCoordinator 异步队列导致延迟
+     * 2025-fix-v31: 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator 异步队列
      */
     private suspend fun handleDeviceWake() {
         if (callbacks?.isRunning != true) return
@@ -327,26 +317,23 @@ class ScreenStateManager(
 
             lastDozeExitRecoveryAtMs = now
 
-            // Step 1: 显式唤醒内核 (参考 NekoBox: proxy?.box?.wake())
+            // Step 1: 显式唤醒内核
             Log.i(TAG, "[Doze] Device wake - waking core")
             val wakeOk = runCatching { callbacks?.wakeCore("doze_exit") }.getOrNull() == true
             if (!wakeOk) {
                 Log.w(TAG, "[Doze] wakeCore failed, but continuing")
             }
 
-            // Step 2: 参考 NekoBox - 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator
-            // NekoBox: if (DataStore.wakeResetConnections) Libcore.resetAllConnections(true)
-            // 2025-fix-v31: 直接调用，不走 RecoveryCoordinator 异步队列
+            // Step 2: 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator
             val settings = runCatching {
                 SettingsRepository.getInstance(context).settings.value
             }.getOrNull()
 
             if (settings?.wakeResetConnections == true) {
-                Log.i(TAG, "[Doze] wakeResetConnections=true, direct call to BoxWrapperManager (NekoBox style)")
+                Log.i(TAG, "[Doze] wakeResetConnections=true, direct resetAllConnections")
                 val resetOk = BoxWrapperManager.resetAllConnections(true)
                 Log.i(TAG, "[Doze] resetAllConnections result=$resetOk")
             } else {
-                // 即使没有启用 wakeResetConnections，也执行 NetworkBump 确保应用层连接刷新
                 Log.i(TAG, "[Doze] wakeResetConnections=false, performing NetworkBump only")
                 callbacks?.performNetworkBump("doze_exit")
             }

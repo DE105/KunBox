@@ -30,8 +30,6 @@ import java.lang.ref.WeakReference
  * 2. 回调心跳检测 - 检测回调通道是否正常工作
  * 3. 强制重连机制 - rebind() 时直接断开再重连，不尝试复用
  * 4. 状态同步超时 - 如果回调超过阈值未更新，主动从 VpnStateStore 恢复
- *
- * 参考: NekoBox SagerConnection.kt
  */
 object SingBoxRemote {
     private const val TAG = "SingBoxRemote"
@@ -144,7 +142,7 @@ object SingBoxRemote {
 
     private val deathRecipient = object : IBinder.DeathRecipient {
         override fun binderDied() {
-            Log.w(TAG, "Binder died, performing NekoBox-style immediate reconnect")
+            Log.w(TAG, "Binder died, performing immediate reconnect")
             service = null
             callbackRegistered = false
 
@@ -376,10 +374,8 @@ object SingBoxRemote {
     }
 
     /**
-     * NekoBox 风格: 强制重新绑定
-     *
-     * 2025-fix-v6: 增强版 - 直接断开再重连，不尝试复用 stale 连接
-     * 这是解决后台恢复后 UI 卡住的关键修复
+     * 强制重新绑定
+     * 直接断开再重连，不尝试复用 stale 连接
      */
     fun rebind(context: Context) {
         Log.i(TAG, "rebind: forcing disconnect -> connect cycle")

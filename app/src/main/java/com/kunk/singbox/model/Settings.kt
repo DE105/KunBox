@@ -70,7 +70,7 @@ data class AppSettings(
     @SerializedName("blockQuic") val blockQuic: Boolean = false,
     @SerializedName("debugLoggingEnabled") val debugLoggingEnabled: Boolean = false,
 
-    // 连接重置设置 (参考 NekoBox)
+    // 连接重置设置
     @SerializedName("networkChangeResetConnections") val networkChangeResetConnections: Boolean = true,
     @SerializedName("wakeResetConnections") val wakeResetConnections: Boolean = true,
 

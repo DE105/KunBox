@@ -7,8 +7,6 @@ import java.lang.reflect.Method
 /**
  * Libbox 兼容层 - 提供对不同版本 libbox 的兼容性支持
  *
- * 参考 NekoBox: libcore/box.go ResetAllConnections() 调用 conntrack.Close()
- *
  * 注意: 新代码应优先使用 BoxWrapperManager，本类作为回退方案
  */
 object LibboxCompat {
@@ -105,7 +103,7 @@ object LibboxCompat {
         }
     }
 
-    fun isNekoBoxLibbox(): Boolean = hasResetAllConnections
+    fun hasExtendedLibbox(): Boolean = hasResetAllConnections
 
     /**
      * 检查是否支持 KunBox 扩展 API

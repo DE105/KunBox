@@ -167,7 +167,7 @@ class VpnHealthMonitor(
 
     /**
      * 执行屏幕唤醒健康检查
-     * 2025-fix-v4: NekoBox 风格 - 只调用 wake()，不做网络重置
+     * 只调用 wake()，不做网络重置
      */
     suspend fun performScreenOnHealthCheck() {
         if (!context.isRunning) return
@@ -196,7 +196,7 @@ class VpnHealthMonitor(
                 }
             }
 
-            Log.i(TAG, "[ScreenOn] Health check passed (NekoBox-style)")
+            Log.i(TAG, "[ScreenOn] Health check passed")
             consecutiveHealthCheckFailures = 0
         } catch (e: Exception) {
             Log.e(TAG, "[ScreenOn] Health check failed", e)
@@ -206,7 +206,7 @@ class VpnHealthMonitor(
 
     /**
      * 应用返回前台时的健康检查
-     * 2025-fix-v4: NekoBox 风格 - 只调用 wake()，不做网络重置
+     * 只调用 wake()，不做网络重置
      */
     suspend fun performAppForegroundHealthCheck() {
         if (!context.isRunning) return
@@ -235,7 +235,7 @@ class VpnHealthMonitor(
                 }
             }
 
-            Log.i(TAG, "[AppForeground] Health check passed (NekoBox-style)")
+            Log.i(TAG, "[AppForeground] Health check passed")
             consecutiveHealthCheckFailures = 0
         } catch (e: Exception) {
             Log.e(TAG, "[AppForeground] Health check failed", e)
