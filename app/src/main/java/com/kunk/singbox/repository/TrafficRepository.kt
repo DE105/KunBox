@@ -101,6 +101,7 @@ class TrafficRepository private constructor(private val context: Context) {
         }
     }
 
+    @Suppress("NestedBlockDepth")
     private fun loadDailyRecords() {
         if (!dailyFile.exists()) return
         try {
@@ -275,7 +276,7 @@ class TrafficRepository private constructor(private val context: Context) {
         return TrafficSummary(totalUp, totalDown, nodeList, TrafficPeriod.TODAY)
     }
 
-    @Suppress("NestedBlockDepth")
+    @Suppress("NestedBlockDepth", "CognitiveComplexMethod")
     private fun getWeekTraffic(): TrafficSummary {
         val cal = Calendar.getInstance()
         cal.set(Calendar.DAY_OF_WEEK, cal.firstDayOfWeek)

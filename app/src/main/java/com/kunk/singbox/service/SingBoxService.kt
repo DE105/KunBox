@@ -2,10 +2,7 @@ package com.kunk.singbox.service
 
 import android.app.Notification
 import android.app.NotificationManager
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.VpnService
@@ -22,7 +19,6 @@ import com.kunk.singbox.ipc.SingBoxIpcHub
 import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.AppSettings
 import com.kunk.singbox.model.SingBoxConfig
-import com.kunk.singbox.model.VpnAppMode
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.repository.RuleSetRepository
@@ -1467,7 +1463,6 @@ class SingBoxService : VpnService() {
             lastSetUnderlyingAtMs = lastSetUnderlyingNetworksAtMs.get(),
             debounceMs = setUnderlyingNetworksDebounceMs,
             isRunning = isRunning,
-            settings = currentSettings,
             setUnderlyingNetworks = { networks -> setUnderlyingNetworks(networks) },
             updateInterfaceListener = { name, index, expensive, constrained ->
                 currentInterfaceListener?.updateDefaultInterface(name, index, expensive, constrained)
@@ -1477,10 +1472,6 @@ class SingBoxService : VpnService() {
                 defaultInterfaceName = iface
                 lastSetUnderlyingNetworksAtMs.set(now)
                 noPhysicalNetworkWarningLogged = false
-            },
-            requestCoreReset = { reason, force -> requestCoreNetworkReset(reason, force) },
-            resetConnections = { reason, skip ->
-                recoveryCoordinator.request(RecoveryCoordinator.Request.ResetConnections(reason, skip))
             }
         )
     }

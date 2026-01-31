@@ -330,12 +330,9 @@ class NetworkHelper(
         lastSetUnderlyingAtMs: Long,
         debounceMs: Long,
         isRunning: Boolean,
-        settings: AppSettings?,
         setUnderlyingNetworks: (Array<Network>) -> Unit,
         updateInterfaceListener: (String, Int, Boolean, Boolean) -> Unit,
-        updateState: (Network, String, Long) -> Unit,
-        requestCoreReset: (String, Boolean) -> Unit,
-        resetConnections: (String, Boolean) -> Unit
+        updateState: (Network, String, Long) -> Unit
     ) {
         try {
             val now = SystemClock.elapsedRealtime()
@@ -372,13 +369,11 @@ class NetworkHelper(
 
                     if (network != lastKnownNetwork || upstreamChanged) {
                         Log.i(TAG, "Switched underlying network to $network")
-                        requestCoreReset("underlyingNetworkChanged", true)
                     }
                 }
             }
 
             if (interfaceName.isNotEmpty() && interfaceName != defaultInterfaceName) {
-                val oldInterfaceName = defaultInterfaceName
                 val index = try {
                     NetworkInterface.getByName(interfaceName)?.index ?: 0
                 } catch (_: Exception) { 0 }
@@ -386,14 +381,6 @@ class NetworkHelper(
                 val isExpensive = networkCaps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
 
                 updateInterfaceListener(interfaceName, index, isExpensive, false)
-
-                if (oldInterfaceName.isNotEmpty() && isRunning) {
-                    if (settings?.networkChangeResetConnections == true) {
-                        serviceScope.launch {
-                            resetConnections("interface_change", true)
-                        }
-                    }
-                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update default interface", e)

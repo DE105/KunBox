@@ -268,10 +268,6 @@ class SettingsRepository(private val context: Context) {
         notifyRestartRequired()
     }
 
-    suspend fun setNetworkChangeResetConnections(value: Boolean) {
-        settingsStore.updateSettingsAndWait { it.copy(networkChangeResetConnections = value) }
-    }
-
     suspend fun setWakeResetConnections(value: Boolean) {
         settingsStore.updateSettingsAndWait { it.copy(wakeResetConnections = value) }
     }

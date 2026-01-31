@@ -32,7 +32,6 @@ class NetworkSwitchManager(
         // 配置参数
         private const val STARTUP_WINDOW_MS = 1000L // 启动窗口期 (从 3000ms 缩短)
         private const val EVENT_AGGREGATION_MS = 300L // 事件聚合时间
-        private const val UNDERLYING_NETWORK_DELAY_MS = 200L // underlyingNetworks 生效延迟
         private const val MIN_SWITCH_INTERVAL_MS = 500L // 最小切换间隔
     }
 
@@ -42,8 +41,6 @@ class NetworkSwitchManager(
         fun setUnderlyingNetworks(networks: Array<Network>?)
         fun setLastKnownNetwork(network: Network?)
         fun getLastKnownNetwork(): Network?
-        fun requestCoreNetworkReset(reason: String, force: Boolean)
-        fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean)
         fun updateInterfaceListener(name: String, index: Int, isExpensive: Boolean, isConstrained: Boolean)
         fun isRunning(): Boolean
     }
@@ -181,16 +178,6 @@ class NetworkSwitchManager(
             cb.setUnderlyingNetworks(arrayOf(network))
             cb.setLastKnownNetwork(network)
             Log.i(TAG, "Switched underlying network to $network (interface=$interfaceName)")
-
-            // 延迟触发网络重置，等待路由表更新
-            scope.launch {
-                delay(UNDERLYING_NETWORK_DELAY_MS)
-                cb.requestCoreNetworkReset(
-                    reason = if (typeChanged) "network_type_change_${previousType}_to_$currentType"
-                    else "underlying_network_changed",
-                    force = typeChanged
-                )
-            }
         }
 
         // 更新接口监听器
@@ -270,17 +257,12 @@ class NetworkSwitchManager(
                 if (!connected) {
                     failedSwitchCount.incrementAndGet()
                     Log.w(TAG, "Network health check failed for $network")
-                    // 可以触发恢复逻辑
                     return@launch
                 }
             }
 
-            // Only reset connections when the new network is stable (validated or connectivity verified).
-            // Avoid skipDebounce=true to reduce throughput oscillation during download sessions.
-            if (typeChanged && cb.isRunning()) {
-                mainHandler.postDelayed({
-                    cb.resetConnectionsOptimal("network_type_change_stable", skipDebounce = false)
-                }, 200L)
+            if (typeChanged) {
+                Log.i(TAG, "Network type changed and validated, relying on setUnderlyingNetworks")
             }
         }
     }

@@ -65,14 +65,6 @@ class PlatformInterfaceImpl(
 
         override fun getLastKnownNetwork(): Network? = callbacks.getLastKnownNetwork()
 
-        override fun requestCoreNetworkReset(reason: String, force: Boolean) {
-            callbacks.requestCoreNetworkReset(reason, force)
-        }
-
-        override fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean) {
-            callbacks.resetConnectionsOptimal(reason, skipDebounce)
-        }
-
         override fun updateInterfaceListener(name: String, index: Int, isExpensive: Boolean, isConstrained: Boolean) {
             currentInterfaceListener?.updateDefaultInterface(name, index, isExpensive, isConstrained)
         }

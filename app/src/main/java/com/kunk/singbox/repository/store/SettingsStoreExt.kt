@@ -165,10 +165,6 @@ fun SettingsStore.setDebugLoggingEnabled(value: Boolean) {
 
 // ==================== 连接重置设置 ====================
 
-fun SettingsStore.setNetworkChangeResetConnections(value: Boolean) {
-    updateSettings { it.copy(networkChangeResetConnections = value) }
-}
-
 fun SettingsStore.setWakeResetConnections(value: Boolean) {
     updateSettings { it.copy(wakeResetConnections = value) }
 }

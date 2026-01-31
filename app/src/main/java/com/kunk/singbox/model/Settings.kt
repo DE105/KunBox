@@ -71,7 +71,6 @@ data class AppSettings(
     @SerializedName("debugLoggingEnabled") val debugLoggingEnabled: Boolean = false,
 
     // 连接重置设置
-    @SerializedName("networkChangeResetConnections") val networkChangeResetConnections: Boolean = true,
     @SerializedName("wakeResetConnections") val wakeResetConnections: Boolean = true,
 
     // TCP Keepalive 设置 (完美方案 - 防止连接假死)

@@ -3657,6 +3657,7 @@ class ConfigRepository(private val context: Context) {
      * 根据节点名称获取NodeUi
      * 用于流量统计等需要通过 outbound tag（节点名称）查找节点的场景
      */
+    @Suppress("ReturnCount")
     fun getNodeByName(nodeName: String): NodeUi? {
         // 首先在当前配置的节点中查找
         _nodes.value.find { it.name == nodeName }?.let { return it }

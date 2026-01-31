@@ -500,8 +500,6 @@
     <!-- Connection Settings -->
     <string name="connection_settings_show_notification_speed">Show Speed in Notification</string>
     <string name="connection_settings_show_notification_speed_subtitle">Display real-time upload and download speed in notification</string>
-    <string name="connection_settings_network_change_reset">Reset Connections on Network Change</string>
-    <string name="connection_settings_network_change_reset_subtitle">Close all connections when switching between WiFi and cellular</string>
     <string name="connection_settings_wake_reset">Reset Connections on Wake</string>
     <string name="connection_settings_wake_reset_subtitle">Close all connections when device wakes from sleep</string>
 
