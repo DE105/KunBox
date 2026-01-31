@@ -2,7 +2,6 @@ package com.kunk.singbox.service.manager
 
 import android.os.SystemClock
 import android.util.Log
-import com.kunk.singbox.core.BoxWrapperManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,14 +42,6 @@ class BackgroundPowerManager(
 
         /** 最大阈值: 2 小时 */
         const val MAX_THRESHOLD_MS = 2 * 60 * 60 * 1000L
-
-        const val BACKGROUND_BUMP_THRESHOLD_MS = 0L
-        const val BACKGROUND_QUIC_RECOVERY_THRESHOLD_MS = 10 * 1000L
-        const val BACKGROUND_FULL_RECOVERY_THRESHOLD_MS = 5 * 60 * 1000L
-
-        /** 前台恢复防抖时间 (改为 2 秒，更快响应) */
-        // 2025-fix-v17: 从 5 秒缩短到 2 秒，加快恢复速度
-        const val FOREGROUND_RECOVERY_DEBOUNCE_MS = 2_000L
     }
 
     /**
@@ -75,15 +66,6 @@ class BackgroundPowerManager(
 
         /** 恢复非核心进程 (退出省电模式) */
         fun resumeNonEssentialProcesses()
-
-        /** 触发 NetworkBump (短暂改变底层网络，强制应用重建连接) */
-        fun triggerNetworkBump(reason: String)
-
-        /** 触发完整网络恢复 */
-        fun triggerFullRecovery(reason: String)
-
-        /** 触发 QUIC 专用恢复 (Hysteria2/TUIC) */
-        fun triggerQUICRecovery(reason: String)
     }
 
     private var callbacks: Callbacks? = null
@@ -104,8 +86,6 @@ class BackgroundPowerManager(
 
     @Volatile
     private var backgroundStartTimeMs: Long = 0L
-    @Volatile
-    private var lastForegroundRecoveryAtMs: Long = 0L
 
     /**
      * 当前省电模式
@@ -220,63 +200,10 @@ class BackgroundPowerManager(
         evaluateUserPresence()
     }
 
+    @Suppress("UnusedParameter")
     private fun triggerForegroundRecoveryIfNeeded(backgroundDurationMs: Long, source: String) {
-        if (callbacks?.isVpnRunning != true) {
-            Log.d(TAG, "[$source] VPN not running, skip recovery")
-            return
-        }
-
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastForegroundRecoveryAtMs < FOREGROUND_RECOVERY_DEBOUNCE_MS) {
-            Log.d(TAG, "[$source] Recovery skipped (debounce)")
-            return
-        }
-
-        val isQUIC = BoxWrapperManager.isCurrentOutboundQUICBased()
-
-        when {
-            backgroundDurationMs > BACKGROUND_FULL_RECOVERY_THRESHOLD_MS -> {
-                Log.i(
-                    TAG,
-                    "[$source] Long background (${backgroundDurationMs / 1000}s > 5min), " +
-                        "triggering full recovery (isQUIC=$isQUIC)"
-                )
-                lastForegroundRecoveryAtMs = now
-                if (isQUIC) {
-                    callbacks?.triggerQUICRecovery("${source}_${backgroundDurationMs / 1000}s")
-                } else {
-                    callbacks?.triggerFullRecovery("${source}_${backgroundDurationMs / 1000}s")
-                }
-            }
-            // 2025-fix-v28: QUIC 协议使用单独的阈值 (30秒)
-            // 短时间后台不触发 QUIC Recovery，避免破坏正常连接
-            isQUIC && backgroundDurationMs > BACKGROUND_QUIC_RECOVERY_THRESHOLD_MS -> {
-                Log.i(
-                    TAG,
-                    "[$source] QUIC background (${backgroundDurationMs / 1000}s > 30s), " +
-                        "triggering QUIC recovery"
-                )
-                lastForegroundRecoveryAtMs = now
-                callbacks?.triggerQUICRecovery("${source}_${backgroundDurationMs / 1000}s")
-            }
-            // TCP 协议使用 0 阈值，任何后台都触发温和的 NetworkBump
-            !isQUIC && backgroundDurationMs > BACKGROUND_BUMP_THRESHOLD_MS -> {
-                Log.i(
-                    TAG,
-                    "[$source] TCP background (${backgroundDurationMs / 1000}s), " +
-                        "triggering network bump"
-                )
-                lastForegroundRecoveryAtMs = now
-                callbacks?.triggerNetworkBump("${source}_${backgroundDurationMs / 1000}s")
-            }
-            else -> {
-                Log.d(
-                    TAG,
-                    "[$source] Short background (${backgroundDurationMs / 1000}s), " +
-                        "no recovery needed (isQUIC=$isQUIC)"
-                )
-            }
-        }
+        // 不做任何网络恢复，完全依赖内核和应用自身的重连机制
+        Log.d(TAG, "[$source] Returned after ${backgroundDurationMs / 1000}s")
     }
 
     // ==================== 统一判断逻辑 ====================
@@ -400,7 +327,6 @@ class BackgroundPowerManager(
         isScreenOff = false
         userAwayAtMs = 0L
         backgroundStartTimeMs = 0L
-        lastForegroundRecoveryAtMs = 0L
         callbacks = null
         Log.i(TAG, "BackgroundPowerManager cleaned up")
     }

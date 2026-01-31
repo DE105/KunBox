@@ -11,7 +11,6 @@ import android.os.SystemClock
 import android.util.Log
 import com.kunk.singbox.core.BoxWrapperManager
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -25,47 +24,20 @@ class ScreenStateManager(
 ) {
     companion object {
         private const val TAG = "ScreenStateManager"
-        private const val SCREEN_ON_CHECK_DEBOUNCE_MS = 3000L
         private const val DOZE_EXIT_RECOVERY_DEBOUNCE_MS = 5_000L
-
-        // Recovery modes (must match Go side constants)
-        const val RECOVERY_MODE_AUTO = 0
-        const val RECOVERY_MODE_QUICK = 1
-        const val RECOVERY_MODE_FULL = 2
-        const val RECOVERY_MODE_DEEP = 3
-        const val RECOVERY_MODE_PROACTIVE = 4 // New: includes network probe
     }
 
     interface Callbacks {
         val isRunning: Boolean
-        suspend fun performScreenOnCheck()
-        suspend fun performAppForegroundCheck()
-        suspend fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean)
+
         /**
          * 通知远程 UI 强制刷新状态
          * 用于 Doze 唤醒后确保 IPC 状态同步
          */
         fun notifyRemoteStateUpdate(force: Boolean)
-        /**
-         * 执行网络恢复
-         * mode: 0=自动, 1=快速, 2=完整, 3=深度
-         */
-        suspend fun performNetworkRecovery(mode: Int, reason: String)
-
-        /**
-         * 设备进入 Doze 时的内核降频/暂停处理。
-         * 必须走串行协调器，避免与恢复/重置并发。
-         */
-        suspend fun enterDeviceIdle(reason: String)
-
-        /**
-         * 执行网络闪断，触发应用重建连接
-         */
-        suspend fun performNetworkBump(reason: String)
 
         /**
          * 显式唤醒 sing-box 内核
-         * 2025-fix-v21: 在 Doze 唤醒时确保内核完全活跃
          */
         suspend fun wakeCore(reason: String): Boolean
     }
@@ -75,15 +47,12 @@ class ScreenStateManager(
     private var activityLifecycleCallbacks: Application.ActivityLifecycleCallbacks? = null
     private var powerManager: BackgroundPowerManager? = null
 
-    @Volatile private var lastScreenOnCheckMs: Long = 0L
     @Volatile private var lastDozeExitRecoveryAtMs: Long = 0L
 
     @Volatile var isScreenOn: Boolean = true
         private set
     @Volatile var isAppInForeground: Boolean = true
         private set
-    @Suppress("UnusedPrivateProperty")
-    @Volatile private var lastAppBackgroundAtMs: Long = 0L
 
     fun init(callbacks: Callbacks) {
         this.callbacks = callbacks
@@ -127,16 +96,7 @@ class ScreenStateManager(
                 }
 
                 private fun handleUserPresent() {
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastScreenOnCheckMs < SCREEN_ON_CHECK_DEBOUNCE_MS) return
-
-                    lastScreenOnCheckMs = now
                     Log.i(TAG, "[Unlock] User unlocked device")
-
-                    serviceScope.launch {
-                        delay(500)
-                        callbacks?.performScreenOnCheck()
-                    }
                 }
 
                 private fun handleDeviceIdleModeChanged(ctx: Context) {
@@ -200,17 +160,7 @@ class ScreenStateManager(
                     if (!isAppInForeground) {
                         Log.i(TAG, "App returned to FOREGROUND (${activity.localClassName})")
                         isAppInForeground = true
-
-                        serviceScope.launch {
-                            delay(300) // Reduced from 500ms for faster response
-                            callbacks?.performAppForegroundCheck()
-                            callbacks?.notifyRemoteStateUpdate(true)
-
-                            // Only update UI state, do NOT reset network connections
-                            if (callbacks?.isRunning == true) {
-                                Log.i(TAG, "[Foreground] App returned to foreground, updating UI state only")
-                            }
-                        }
+                        callbacks?.notifyRemoteStateUpdate(true)
                     }
                 }
 
@@ -250,7 +200,6 @@ class ScreenStateManager(
     fun onAppBackground() {
         Log.i(TAG, "App moved to BACKGROUND")
         isAppInForeground = false
-        lastAppBackgroundAtMs = SystemClock.elapsedRealtime()
     }
 
     /**
@@ -260,7 +209,9 @@ class ScreenStateManager(
         if (callbacks?.isRunning != true) return
 
         try {
-            callbacks?.enterDeviceIdle("doze_enter")
+            Log.i(TAG, "[Doze] Device entering idle mode")
+            // 只暂停内核，不做额外操作
+            BoxWrapperManager.pause()
         } catch (e: Exception) {
             Log.e(TAG, "[Doze] handleDeviceIdle failed", e)
         }

@@ -30,7 +30,6 @@ import com.kunk.singbox.service.network.NetworkManager
 import com.kunk.singbox.service.network.TrafficMonitor
 import com.kunk.singbox.service.notification.VpnNotificationManager
 import com.kunk.singbox.service.manager.ConnectManager
-import com.kunk.singbox.service.manager.HealthMonitor
 import com.kunk.singbox.service.manager.SelectorManager as ServiceSelectorManager
 import com.kunk.singbox.service.manager.CommandManager
 import com.kunk.singbox.service.manager.CoreManager
@@ -43,7 +42,6 @@ import com.kunk.singbox.service.manager.ForeignVpnMonitor
 import com.kunk.singbox.service.manager.CoreNetworkResetManager
 import com.kunk.singbox.service.manager.NodeSwitchManager
 import com.kunk.singbox.service.manager.BackgroundPowerManager
-import com.kunk.singbox.service.manager.RecoveryCoordinator
 import com.kunk.singbox.service.manager.ServiceStateHolder
 import com.kunk.singbox.model.BackgroundPowerSavingDelay
 import com.kunk.singbox.utils.L
@@ -82,11 +80,6 @@ class SingBoxService : VpnService() {
     // 路由组自动选择管理器
     private val routeGroupSelector: RouteGroupSelector by lazy {
         RouteGroupSelector(this, serviceScope)
-    }
-
-    // 健康监控管理器包装器
-    private val healthMonitorWrapper: HealthMonitor by lazy {
-        HealthMonitor(serviceScope)
     }
 
     // Command 管理器 (Server/Client 交互)
@@ -134,11 +127,6 @@ class SingBoxService : VpnService() {
         CoreNetworkResetManager(serviceScope)
     }
 
-    // Single entry point to serialize recovery/reset/restart operations.
-    private val recoveryCoordinator: RecoveryCoordinator by lazy {
-        RecoveryCoordinator(serviceScope)
-    }
-
     // 节点切换管理器
     private val nodeSwitchManager: NodeSwitchManager by lazy {
         NodeSwitchManager(this, serviceScope)
@@ -184,7 +172,10 @@ class SingBoxService : VpnService() {
             this@SingBoxService.requestCoreNetworkReset(reason, force)
         }
         override fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean) {
-            recoveryCoordinator.request(RecoveryCoordinator.Request.ResetConnections(reason, skipDebounce))
+            serviceScope.launch {
+                BoxWrapperManager.resetAllConnections(true)
+                Log.i(TAG, "resetConnectionsOptimal: $reason")
+            }
         }
         override fun setUnderlyingNetworks(networks: Array<Network>?) {
             this@SingBoxService.setUnderlyingNetworks(networks)
@@ -306,8 +297,6 @@ class SingBoxService : VpnService() {
         initConnectManager()
         initServiceSelectorManager()
         initCommandManager()
-        initHealthMonitorWrapper()
-        initRecoveryCoordinator()
         initSecondaryManagers()
 
         Log.i(TAG, "All managers initialized")
@@ -361,259 +350,14 @@ class SingBoxService : VpnService() {
         Log.i(TAG, "CommandManager initialized")
     }
 
-    private fun initHealthMonitorWrapper() {
-        healthMonitorWrapper.init {
-            object : HealthMonitor.HealthContext {
-                override val isRunning: Boolean
-                    get() = SingBoxService.isRunning
-                override val isStopping: Boolean
-                    get() = coreManager.isStopping
-
-                override fun isBoxServiceValid(): Boolean = coreManager.isServiceRunning()
-                override fun isVpnInterfaceValid(): Boolean = coreManager.isVpnInterfaceValid()
-
-                override suspend fun wakeBoxService() {
-                    coreManager.wakeService()
-                }
-
-                override fun restartVpnService(reason: String) {
-                    recoveryCoordinator.request(RecoveryCoordinator.Request.Restart("health:$reason"))
-                }
-
-                override fun addLog(message: String) {
-                    runCatching { LogRepository.getInstance().addLog(message) }
-                }
-
-                override suspend fun verifyDataPlaneConnectivity(): Int {
-                    return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        try {
-                            val selected = BoxWrapperManager.getSelectedOutbound()
-                            if (selected.isNullOrBlank()) return@withContext -1
-                            BoxWrapperManager.urlTestOutbound(
-                                selected,
-                                "https://www.gstatic.com/generate_204",
-                                5000
-                            )
-                        } catch (_: Exception) {
-                            -1
-                        }
-                    }
-                }
-
-                override fun triggerNetworkRecovery(reason: String) {
-                    recoveryCoordinator.request(
-                        RecoveryCoordinator.Request.Recover(
-                            ScreenStateManager.RECOVERY_MODE_FULL,
-                            reason
-                        )
-                    )
-                }
-            }
-        }
-        Log.i(TAG, "HealthMonitorWrapper initialized")
-    }
-
-    @Suppress("CognitiveComplexMethod")
-    private fun initRecoveryCoordinator() {
-        recoveryCoordinator.init(object : RecoveryCoordinator.Callbacks {
-            override val isRunning: Boolean get() = SingBoxService.isRunning
-            override val isStopping: Boolean get() = coreManager.isStopping
-
-            override suspend fun recoverNetwork(mode: Int, reason: String): Boolean {
-                val ok = when (mode) {
-                    ScreenStateManager.RECOVERY_MODE_QUICK -> BoxWrapperManager.recoverNetworkQuick()
-                    ScreenStateManager.RECOVERY_MODE_FULL -> BoxWrapperManager.recoverNetworkFull()
-                    ScreenStateManager.RECOVERY_MODE_DEEP -> BoxWrapperManager.recoverNetworkDeep()
-                    ScreenStateManager.RECOVERY_MODE_PROACTIVE -> BoxWrapperManager.recoverNetworkProactive()
-                    else -> BoxWrapperManager.recoverNetworkAuto()
-                }
-
-                if (mode == ScreenStateManager.RECOVERY_MODE_AUTO && reason.contains("app_foreground")) {
-                    runCatching {
-                        val closed = BoxWrapperManager.closeIdleConnections(60)
-                        if (closed > 0) {
-                            Log.i(TAG, "[Foreground] closed $closed idle connections")
-                            runCatching { LogRepository.getInstance().addLog("INFO [Foreground] closed=$closed") }
-                        }
-                    }
-                }
-                Log.i(TAG, "recoverNetwork mode=$mode ok=$ok reason=$reason")
-                return ok
-            }
-
-            override suspend fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean) {
-                BoxWrapperManager.resetAllConnections(true)
-            }
-
-            override suspend fun resetCoreNetwork(reason: String, force: Boolean) {
-                if (force) {
-                    BoxWrapperManager.resetAllConnections(true)
-                    delay(150)
-                }
-                BoxWrapperManager.resetNetwork()
-            }
-
-            override suspend fun closeIdleConnections(maxIdleSeconds: Int, reason: String): Int {
-                return BoxWrapperManager.closeIdleConnections(maxIdleSeconds)
-            }
-
-            override suspend fun enterDeviceIdle(reason: String): Boolean {
-                return BoxWrapperManager.pause()
-            }
-
-            override suspend fun restartVpnService(reason: String) {
-                Log.i(TAG, "Restarting VPN service (reason=$reason)")
-                stopVpn(stopService = false)
-                delay(500)
-                lastConfigPath?.let { startVpn(it) }
-            }
-
-            @Suppress("ReturnCount")
-            override suspend fun performNetworkBump(reason: String): Boolean {
-                // 2025-fix-v23: 渐进式网络恢复，移除 setUnderlyingNetworks(null) 核弹操作
-                // 问题：setUnderlyingNetworks(null) 会中断所有正在进行的 HTTP 请求
-                // 解决：先探测后恢复，只关闭陈旧连接，保护活跃连接
-                val isWakeScenario = reason.contains("doze_exit", true) ||
-                    reason.contains("screen_on", true) ||
-                    reason.contains("app_foreground", true)
-
-                // Step 0: 确保内核已唤醒
-                if (isWakeScenario && BoxWrapperManager.isPausedNow()) {
-                    Log.i(TAG, "[NetworkBump] Waking core before recovery")
-                    BoxWrapperManager.wake()
-                    delay(50)
-                }
-
-                // Step 1: 快速连通性探测 - 如果网络正常，无需任何操作
-                val probeLatency = quickConnectivityProbe()
-                if (probeLatency >= 0) {
-                    Log.i(TAG, "[NetworkBump] Probe OK (${probeLatency}ms), no recovery needed for: $reason")
-                    return true
-                }
-                Log.i(TAG, "[NetworkBump] Probe failed, starting progressive recovery for: $reason")
-
-                // Step 2: 温和恢复 - 只关闭空闲连接（不影响活跃请求）
-                val idleClosed = BoxWrapperManager.closeIdleConnections(30)
-                if (idleClosed > 0) {
-                    Log.i(TAG, "[NetworkBump] Soft: closed $idleClosed idle connections")
-                    delay(100)
-                    val probeAfterSoft = quickConnectivityProbe()
-                    if (probeAfterSoft >= 0) {
-                        Log.i(TAG, "[NetworkBump] Soft recovery OK (${probeAfterSoft}ms)")
-                        return true
-                    }
-                }
-
-                // Step 3: 中等恢复 - 快速网络恢复（关闭追踪连接）
-                val quickOk = BoxWrapperManager.recoverNetworkQuick()
-                if (quickOk) {
-                    delay(100)
-                    val probeAfterQuick = quickConnectivityProbe()
-                    if (probeAfterQuick >= 0) {
-                        Log.i(TAG, "[NetworkBump] Quick recovery OK (${probeAfterQuick}ms)")
-                        return true
-                    }
-                }
-
-                // Step 4: 强恢复 - 完整恢复流程（唤醒+清理+重置网络栈）
-                val needHardRecovery = reason.contains("doze_exit", true) ||
-                    BoxWrapperManager.wasPausedRecently(30_000L)
-                if (needHardRecovery) {
-                    Log.i(TAG, "[NetworkBump] Attempting full recovery")
-                    BoxWrapperManager.recoverNetworkFull()
-                    delay(200)
-                    val probeAfterFull = quickConnectivityProbe()
-                    if (probeAfterFull >= 0) {
-                        Log.i(TAG, "[NetworkBump] Full recovery OK (${probeAfterFull}ms)")
-                        return true
-                    }
-                }
-
-                // Step 5: 最后手段 - 仅刷新底层网络（不断开，只更新）
-                val network = connectManager.getCurrentNetwork()
-                if (network != null) {
-                    Log.i(TAG, "[NetworkBump] Refreshing underlying network (no disconnect)")
-                    setUnderlyingNetworks(arrayOf(network))
-                    // 关闭所有追踪连接，让应用重建
-                    val closed = BoxWrapperManager.closeAllTrackedConnections()
-                    Log.i(TAG, "[NetworkBump] Refresh completed, closed $closed tracked connections")
-                }
-
-                Log.i(TAG, "[NetworkBump] Progressive recovery completed for: $reason")
-                return true
-            }
-
-            /**
-             * 快速连通性探测
-             * 使用 generate_204 进行轻量级测试
-             * @return 延迟毫秒数，-1 表示失败
-             */
-            private suspend fun quickConnectivityProbe(): Int {
-                return withContext(Dispatchers.IO) {
-                    try {
-                        val selected = BoxWrapperManager.getSelectedOutbound()
-                        if (selected.isNullOrBlank()) return@withContext -1
-                        BoxWrapperManager.urlTestOutbound(
-                            selected,
-                            "https://www.gstatic.com/generate_204",
-                            3000
-                        )
-                    } catch (_: Exception) {
-                        -1
-                    }
-                }
-            }
-
-            override suspend fun verifyDataPlaneConnectivity(url: String, timeoutMs: Int): Int {
-                return withContext(Dispatchers.IO) {
-                    try {
-                        val selected = BoxWrapperManager.getSelectedOutbound()
-                        if (selected.isNullOrBlank()) {
-                            Log.w(TAG, "[Verify] No selected outbound, using direct test")
-                            return@withContext -1
-                        }
-                        BoxWrapperManager.urlTestOutbound(selected, url, timeoutMs)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "[Verify] Connectivity test failed", e)
-                        -1
-                    }
-                }
-            }
-
-            override fun addLog(message: String) {
-                runCatching { LogRepository.getInstance().addLog(message) }
-            }
-        })
-        Log.i(TAG, "RecoveryCoordinator initialized")
-    }
-
     private fun initSecondaryManagers() {
-        // 7. 初始化屏幕状态管理器
+        // 初始化屏幕状态管理器
         screenStateManager.init(object : ScreenStateManager.Callbacks {
             override val isRunning: Boolean
                 get() = SingBoxService.isRunning
-            override suspend fun performScreenOnCheck() {
-                healthMonitorWrapper.performScreenOnCheck()
-            }
-            override suspend fun performAppForegroundCheck() {
-                healthMonitorWrapper.performAppForegroundCheck()
-            }
-            override suspend fun resetConnectionsOptimal(reason: String, skipDebounce: Boolean) {
-                recoveryCoordinator.request(RecoveryCoordinator.Request.ResetConnections(reason, skipDebounce))
-            }
+
             override fun notifyRemoteStateUpdate(force: Boolean) {
                 this@SingBoxService.requestRemoteStateUpdate(force)
-            }
-            override suspend fun performNetworkRecovery(mode: Int, reason: String) {
-                recoveryCoordinator.request(RecoveryCoordinator.Request.Recover(mode, reason))
-            }
-
-            override suspend fun enterDeviceIdle(reason: String) {
-                recoveryCoordinator.request(RecoveryCoordinator.Request.EnterDeviceIdle(reason))
-            }
-
-            override suspend fun performNetworkBump(reason: String) {
-                recoveryCoordinator.request(RecoveryCoordinator.Request.NetworkBump(reason))
             }
 
             override suspend fun wakeCore(reason: String): Boolean {
@@ -628,7 +372,7 @@ class SingBoxService : VpnService() {
         })
         Log.i(TAG, "ScreenStateManager initialized")
 
-        // 8. 初始化路由组自动选择管理器
+        // 初始化路由组自动选择管理器
         routeGroupSelector.init(object : RouteGroupSelector.Callbacks {
             override val isRunning: Boolean
                 get() = SingBoxService.isRunning
@@ -654,7 +398,10 @@ class SingBoxService : VpnService() {
         coreNetworkResetManager.init(object : CoreNetworkResetManager.Callbacks {
             override fun isServiceRunning() = coreManager.isServiceRunning()
             override suspend fun restartVpnService(reason: String) {
-                recoveryCoordinator.request(RecoveryCoordinator.Request.Restart("core_reset:$reason"))
+                Log.i(TAG, "Restarting VPN service (reason=core_reset:$reason)")
+                stopVpn(stopService = false)
+                delay(500)
+                lastConfigPath?.let { startVpn(it) }
             }
         })
         coreNetworkResetManager.debounceMs = coreResetDebounceMs
@@ -708,7 +455,6 @@ class SingBoxService : VpnService() {
 
                     commandManager.suspendNonEssential()
                     trafficMonitor.pause()
-                    healthMonitorWrapper.enterPowerSavingMode()
                     runCatching {
                         coreManager.enterPowerSavingMode()
                     }.onFailure { e ->
@@ -723,64 +469,12 @@ class SingBoxService : VpnService() {
                     Log.i(TAG, "[PowerSaving] Resuming all processes...")
                     commandManager.resumeNonEssential()
                     trafficMonitor.resume()
-                    healthMonitorWrapper.exitPowerSavingMode()
                     runCatching {
                         coreManager.exitPowerSavingMode()
                     }.onFailure { e ->
                         Log.w(TAG, "[PowerSaving] Failed to restore WifiLock", e)
                     }
                     LogRepository.getInstance().addLog("INFO: Exited power saving mode (user returned)")
-                }
-
-                override fun triggerNetworkBump(reason: String) {
-                    Log.i(TAG, "[BackgroundRecovery] Triggering NetworkBump: $reason")
-                    recoveryCoordinator.request(
-                        RecoveryCoordinator.Request.NetworkBump(reason)
-                    )
-                }
-
-                override fun triggerFullRecovery(reason: String) {
-                    Log.i(TAG, "[BackgroundRecovery] Triggering Full Recovery: $reason")
-                    recoveryCoordinator.request(
-                        RecoveryCoordinator.Request.NetworkBump(reason)
-                    )
-                    recoveryCoordinator.request(
-                        RecoveryCoordinator.Request.Recover(
-                            ScreenStateManager.RECOVERY_MODE_FULL,
-                            reason
-                        )
-                    )
-                }
-
-                override fun triggerQUICRecovery(reason: String) {
-                    Log.i(TAG, "[BackgroundRecovery] Triggering QUIC Recovery: $reason")
-                    serviceScope.launch(Dispatchers.IO) {
-                        // Step 1: 重置 VPN 内核的 QUIC 出站连接
-                        BoxWrapperManager.recoverNetworkForQUIC()
-
-                        // Step 2: 强制网络重置，触发应用感知网络变化
-                        // 2025-fix-v27: 使用 "null bounce" 技术强制应用重建连接
-                        // 原因：单纯设置 setUnderlyingNetworks(network) 不足以让应用感知变化
-                        // 解决：先设为 null (断开)，再设回正常网络 (重连)
-                        val network = connectManager.getCurrentNetwork()
-                        if (network != null) {
-                            Log.i(TAG, "[QUICRecovery] Null-bouncing underlying network to force app reconnect")
-                            withContext(Dispatchers.Main) {
-                                // Step 2a: 短暂设置为 null，模拟网络断开
-                                setUnderlyingNetworks(null)
-                            }
-                            // Step 2b: 等待一小段时间让系统处理
-                            delay(50)
-                            withContext(Dispatchers.Main) {
-                                // Step 2c: 设置回正常网络，触发重连
-                                setUnderlyingNetworks(arrayOf(network))
-                            }
-                        }
-
-                        // Step 3: 关闭所有追踪的应用连接，强制它们重新建立
-                        val closed = BoxWrapperManager.closeAllTrackedConnections()
-                        Log.i(TAG, "[QUICRecovery] Closed $closed tracked connections, apps will reconnect")
-                    }
                 }
             },
             thresholdMs = initialThresholdMs
@@ -914,8 +608,8 @@ class SingBoxService : VpnService() {
         }
 
         override fun startHealthMonitor() {
-            healthMonitorWrapper.start()
-            Log.i(TAG, "Periodic health check started")
+            // 健康监控已移除，保留空实现
+            Log.i(TAG, "Health monitor disabled (simplified mode)")
         }
 
         override fun scheduleKeepaliveWorker() {
@@ -1295,9 +989,10 @@ class SingBoxService : VpnService() {
                 )
                 stallRefreshAttempts = 0
                 trafficMonitor.resetStallCounter()
-                recoveryCoordinator.request(
-                    RecoveryCoordinator.Request.CloseIdleConnections(30, "traffic_stall_persistent")
-                )
+                serviceScope.launch {
+                    val closed = BoxWrapperManager.closeIdleConnections(30)
+                    Log.i(TAG, "Closed $closed idle connections for traffic stall")
+                }
             } else {
                 serviceScope.launch {
                     try {
@@ -1337,12 +1032,9 @@ class SingBoxService : VpnService() {
                 TAG,
                 "Proxy idle ($idleSeconds s), reset conn (cnt=$connCount need=$needRecovery)"
             )
-            recoveryCoordinator.request(
-                RecoveryCoordinator.Request.ResetConnections(
-                    reason = "proxy_idle_${idleSeconds}s",
-                    skipDebounce = false
-                )
-            )
+            serviceScope.launch {
+                BoxWrapperManager.resetAllConnections(true)
+            }
         }
     }
 
@@ -1369,7 +1061,14 @@ class SingBoxService : VpnService() {
     }
 
     private fun requestCoreNetworkReset(reason: String, force: Boolean = false) {
-        recoveryCoordinator.request(RecoveryCoordinator.Request.ResetCoreNetwork(reason, force))
+        serviceScope.launch {
+            if (force) {
+                BoxWrapperManager.resetAllConnections(true)
+                delay(150)
+            }
+            BoxWrapperManager.resetNetwork()
+            Log.i(TAG, "Core network reset: $reason (force=$force)")
+        }
     }
 
 /**
@@ -1715,9 +1414,7 @@ class SingBoxService : VpnService() {
                 Log.i(TAG, "Received ACTION_RESET_CONNECTIONS -> user requested connection reset")
                 if (isRunning) {
                     serviceScope.launch {
-                        recoveryCoordinator.request(
-                            RecoveryCoordinator.Request.NetworkBump("user_manual_reset")
-                        )
+                        BoxWrapperManager.resetAllConnections(true)
                         runCatching {
                             LogRepository.getInstance().addLog("INFO: User triggered connection reset via notification")
                         }
@@ -1728,9 +1425,7 @@ class SingBoxService : VpnService() {
                 Log.i(TAG, "Received ACTION_NETWORK_BUMP -> triggering network bump")
                 if (isRunning) {
                     serviceScope.launch {
-                        recoveryCoordinator.request(
-                            RecoveryCoordinator.Request.NetworkBump("precision_recovery")
-                        )
+                        BoxWrapperManager.closeIdleConnections(30)
                     }
                 }
             }
@@ -2071,7 +1766,6 @@ class SingBoxService : VpnService() {
             ),
             coreManager = coreManager,
             commandManager = commandManager,
-            healthMonitor = healthMonitorWrapper,
             trafficMonitor = trafficMonitor,
             networkManager = networkManager,
             notificationManager = notificationManager,
@@ -2125,8 +1819,6 @@ class SingBoxService : VpnService() {
         SingBoxIpcHub.setForegroundRecoveryHandler(null)
         screenStateManager.setPowerManager(null)
         backgroundPowerManager.cleanup()
-
-        recoveryCoordinator.cleanup()
 
         screenStateManager.unregisterActivityLifecycleCallbacks(application)
 

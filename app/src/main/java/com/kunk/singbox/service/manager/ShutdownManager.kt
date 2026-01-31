@@ -97,11 +97,11 @@ class ShutdownManager(
     /**
      * 执行完整的 VPN 关闭流程
      */
+    @Suppress("LongParameterList", "LongMethod", "CognitiveComplexMethod")
     fun stopVpn(
         options: ShutdownOptions,
         coreManager: CoreManager,
         commandManager: CommandManager,
-        healthMonitor: HealthMonitor,
         trafficMonitor: TrafficMonitor,
         networkManager: NetworkManager?,
         notificationManager: VpnNotificationManager,
@@ -118,10 +118,7 @@ class ShutdownManager(
         callbacks.cancelRemoteStateUpdateJob()
         callbacks.cancelRouteGroupAutoSelectJob()
 
-        // 2. 停止健康监控
-        healthMonitor.cleanup()
-
-        // 3. 取消 WorkManager 保活任务
+        // 2. 取消 WorkManager 保活任务
         VpnKeepaliveWorker.cancel(context)
         Log.i(TAG, "VPN keepalive worker cancelled")
 
