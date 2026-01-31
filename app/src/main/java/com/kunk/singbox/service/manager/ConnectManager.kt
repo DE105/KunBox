@@ -269,15 +269,11 @@ class ConnectManager(
         setUnderlyingNetworksFn?.invoke(arrayOf(network))
         onNetworkChanged?.invoke(network)
 
-        // 2025-fix-v32: 优化网络切换时的连接重置策略
-        // 改用 closeIdleConnections 替代 closeAllTrackedConnections
-        // 只关闭空闲连接，保留活跃连接，减少分流切换时的性能损失
+        // 网络切换时重置所有连接
         if (previousNetwork != null && previousNetwork != network) {
             serviceScope.launch(Dispatchers.IO) {
-                val idleClosed = BoxWrapperManager.closeIdleConnections(5)
-                if (idleClosed > 0) {
-                    Log.i(TAG, "[NetworkSwitch] Closed $idleClosed idle connections")
-                }
+                Log.i(TAG, "[NetworkSwitch] Resetting all connections")
+                BoxWrapperManager.resetAllConnections(true)
             }
         }
     }
@@ -303,10 +299,8 @@ class ConnectManager(
 
             if (previousNetwork != null) {
                 serviceScope.launch(Dispatchers.IO) {
-                    val idleClosed = BoxWrapperManager.closeIdleConnections(10)
-                    if (idleClosed > 0) {
-                        Log.i(TAG, "[CapChange] Closed $idleClosed idle connections")
-                    }
+                    Log.i(TAG, "[CapChange] Resetting all connections")
+                    BoxWrapperManager.resetAllConnections(true)
                 }
             }
         }

@@ -207,14 +207,8 @@ class ScreenStateManager(
      */
     private suspend fun handleDeviceIdle() {
         if (callbacks?.isRunning != true) return
-
-        try {
-            Log.i(TAG, "[Doze] Device entering idle mode")
-            // 只暂停内核，不做额外操作
-            BoxWrapperManager.pause()
-        } catch (e: Exception) {
-            Log.e(TAG, "[Doze] handleDeviceIdle failed", e)
-        }
+        Log.i(TAG, "[Doze] Device idle, sleeping core")
+        BoxWrapperManager.sleep()
     }
 
     /**
@@ -227,21 +221,16 @@ class ScreenStateManager(
             val now = SystemClock.elapsedRealtime()
             val elapsed = now - lastDozeExitRecoveryAtMs
             if (elapsed < DOZE_EXIT_RECOVERY_DEBOUNCE_MS) {
-                Log.d(TAG, "[Doze] Wake recovery skipped (debounce, elapsed=${elapsed}ms)")
+                Log.d(TAG, "[Doze] Wake recovery skipped (debounce)")
                 callbacks?.notifyRemoteStateUpdate(true)
                 return
             }
 
             lastDozeExitRecoveryAtMs = now
 
-            Log.i(TAG, "[Doze] Device wake - waking core")
-            val wakeOk = runCatching { callbacks?.wakeCore("doze_exit") }.getOrNull() == true
-            if (!wakeOk) {
-                Log.w(TAG, "[Doze] wakeCore failed, but continuing")
-            }
-
-            val closedCount = BoxWrapperManager.closeIdleConnections(30)
-            Log.i(TAG, "[Doze] Closed $closedCount idle connections")
+            Log.i(TAG, "[Doze] Device wake, resetting connections")
+            BoxWrapperManager.wake()
+            BoxWrapperManager.resetAllConnections(true)
 
             callbacks?.notifyRemoteStateUpdate(true)
         } catch (e: Exception) {

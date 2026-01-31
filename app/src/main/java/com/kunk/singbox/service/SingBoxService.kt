@@ -476,11 +476,6 @@ class SingBoxService : VpnService() {
 
         // 设置 IPC Hub 的 PowerManager 引用，用于接收主进程的生命周期通知
         SingBoxIpcHub.setPowerManager(backgroundPowerManager)
-        // 直接调用 BoxWrapperManager
-        SingBoxIpcHub.setForegroundRecoveryHandler {
-            Log.i(TAG, "[IPC] ForegroundRecovery: direct resetAllConnections")
-            BoxWrapperManager.resetAllConnections(true)
-        }
         // 设置 ScreenStateManager 的 PowerManager 引用，用于接收屏幕状态通知
         screenStateManager.setPowerManager(backgroundPowerManager)
     }
@@ -1765,7 +1760,6 @@ class SingBoxService : VpnService() {
 
         // 清理省电管理器引用
         SingBoxIpcHub.setPowerManager(null)
-        SingBoxIpcHub.setForegroundRecoveryHandler(null)
         screenStateManager.setPowerManager(null)
         backgroundPowerManager.cleanup()
 

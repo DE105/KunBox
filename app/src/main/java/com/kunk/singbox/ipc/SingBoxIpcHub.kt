@@ -50,21 +50,16 @@ object SingBoxIpcHub {
     @Volatile
     private var powerManager: BackgroundPowerManager? = null
 
-    // Foreground recovery handler (set by SingBoxService) to avoid calling libbox concurrently.
-    @Volatile
-    private var foregroundRecoveryHandler: (() -> Unit)? = null
-
-    // 2025-fix-v6: 状态更新时间戳，用于检测回调通道是否正常
+    // 状态更新时间戳，用于检测回调通道是否正常
     private val lastStateUpdateAtMs = AtomicLong(0L)
 
-    // 2025-fix-v7: 上次应用返回前台的时间戳，用于防抖
+    // 上次应用返回前台的时间戳，用于防抖
     private val lastForegroundAtMs = AtomicLong(0L)
 
-    // 2025-fix-v11: 上次应用进入后台的时间戳，用于计算后台时长
+    // 上次应用进入后台的时间戳，用于计算后台时长
     private val lastBackgroundAtMs = AtomicLong(0L)
 
-    // 2025-fix-v32: 前台恢复需要更长的后台时长阈值
-    // 30秒后台时间才触发恢复，避免应用切换时频繁恢复
+    // 前台恢复阈值
     private const val FOREGROUND_RESET_DEBOUNCE_MS = 2_000L
     private const val FOREGROUND_RECOVERY_MIN_BACKGROUND_MS = 30_000L
 
@@ -73,18 +68,9 @@ object SingBoxIpcHub {
         Log.d(TAG, "PowerManager ${if (manager != null) "set" else "cleared"}")
     }
 
-    fun setForegroundRecoveryHandler(handler: (() -> Unit)?) {
-        foregroundRecoveryHandler = handler
-        Log.d(TAG, "ForegroundRecoveryHandler ${if (handler != null) "set" else "cleared"}")
-    }
-
     /**
      * 接收主进程的 App 生命周期通知
-     *
-     * 2025-fix-v14: 使用 NetworkBump 统一恢复方案
-     * 通过短暂改变底层网络设置触发应用重建连接，解决 TG 等应用卡住问题
      */
-    @Suppress("CognitiveComplexMethod", "NestedBlockDepth")
     fun onAppLifecycle(isForeground: Boolean) {
         val vpnState = ServiceState.values().getOrNull(stateOrdinal)?.name ?: "UNKNOWN"
         log("onAppLifecycle: isForeground=$isForeground, vpnState=$vpnState")
@@ -98,35 +84,22 @@ object SingBoxIpcHub {
         }
     }
 
-    @Suppress("CognitiveComplexMethod", "NestedBlockDepth", "ReturnCount")
+    @Suppress("ReturnCount")
     private fun performForegroundRecovery() {
         val isVpnRunning = stateOrdinal == ServiceState.RUNNING.ordinal
-        if (!isVpnRunning) {
-            return
-        }
+        if (!isVpnRunning) return
 
         val now = SystemClock.elapsedRealtime()
-        val lastForeground = lastForegroundAtMs.get()
-        val timeSinceLastForeground = now - lastForeground
-
-        if (timeSinceLastForeground < FOREGROUND_RESET_DEBOUNCE_MS) {
-            Log.d(TAG, "[Foreground] skipped (debounce, elapsed=${timeSinceLastForeground}ms)")
-            return
-        }
+        if (now - lastForegroundAtMs.get() < FOREGROUND_RESET_DEBOUNCE_MS) return
 
         val backgroundDuration = now - lastBackgroundAtMs.get()
-
         if (lastBackgroundAtMs.get() == 0L || backgroundDuration < FOREGROUND_RECOVERY_MIN_BACKGROUND_MS) {
-            val minMs = FOREGROUND_RECOVERY_MIN_BACKGROUND_MS
-            Log.d(TAG, "[Foreground] skipped (background too short: ${backgroundDuration}ms < ${minMs}ms)")
             return
         }
 
-        log("[Foreground] VPN running, background=${backgroundDuration}ms, performing gentle recovery")
-
-        val closedCount = BoxWrapperManager.closeIdleConnections(60)
         lastForegroundAtMs.set(now)
-        log("[Foreground] Closed $closedCount idle connections")
+        log("[Foreground] Long background (${backgroundDuration / 1000}s), resetting connections")
+        BoxWrapperManager.resetAllConnections(true)
     }
 
     fun getStateOrdinal(): Int = stateOrdinal
@@ -138,7 +111,7 @@ object SingBoxIpcHub {
     fun isManuallyStopped(): Boolean = manuallyStopped
 
     /**
-     * 2025-fix-v6: 获取上次状态更新时间戳
+     * 获取上次状态更新时间戳
      */
     fun getLastStateUpdateTime(): Long = lastStateUpdateAtMs.get()
 
@@ -155,13 +128,10 @@ object SingBoxIpcHub {
                 val oldState = ServiceState.values().getOrNull(stateOrdinal)?.name ?: "UNKNOWN"
                 stateOrdinal = it.ordinal
                 log("state update: $oldState -> ${it.name}")
-                // 2025-fix-v6: 同步状态到 VpnStateStore (跨进程持久化)
-                // 这确保主进程恢复时可以直接读取真实状态，不依赖回调
                 VpnStateStore.setActive(it == ServiceState.RUNNING)
             }
             activeLabel?.let {
                 this.activeLabel = it
-                // 2025-fix-v6: 同步 activeLabel 到 VpnStateStore
                 VpnStateStore.setActiveLabel(it)
             }
             lastError?.let {
