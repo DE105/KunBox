@@ -4,17 +4,20 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.kunk.singbox.ipc.VpnStateStore
 import java.io.File
 import java.util.Calendar
 import java.util.concurrent.ConcurrentHashMap
 
 data class NodeTrafficStats(
-    val nodeId: String,
+    val nodeId: String? = null,
     var upload: Long = 0,
     var download: Long = 0,
     var lastUpdated: Long = 0,
     var nodeName: String? = null
-)
+) {
+    fun isValid(): Boolean = !nodeId.isNullOrBlank()
+}
 
 data class DailyTrafficRecord(
     val dateKey: String,
@@ -73,8 +76,10 @@ class TrafficRepository private constructor(private val context: Context) {
     private val statsFile: File get() = File(context.filesDir, FILE_NAME)
     private val dailyFile: File get() = File(context.filesDir, DAILY_FILE_NAME)
     private var lastSaveTime = 0L
+    private var lastKnownClearTimestamp = 0L
 
     init {
+        lastKnownClearTimestamp = VpnStateStore.getTrafficClearTimestamp()
         loadStats()
         loadDailyRecords()
         checkMonthlyReset()
@@ -87,7 +92,9 @@ class TrafficRepository private constructor(private val context: Context) {
             val json = statsFile.readText()
             val loaded: Map<String, NodeTrafficStats>? = gson.fromJson(json, TRAFFIC_STATS_MAP_TYPE)
             if (loaded != null) {
-                trafficMap.putAll(loaded)
+                loaded.filterValues { it.isValid() }.forEach { (key, value) ->
+                    trafficMap[key] = value
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load traffic stats", e)
@@ -100,7 +107,14 @@ class TrafficRepository private constructor(private val context: Context) {
             val json = dailyFile.readText()
             val loaded: Map<String, DailyTrafficRecord>? = gson.fromJson(json, DAILY_RECORDS_TYPE)
             if (loaded != null) {
-                dailyRecords.putAll(loaded)
+                loaded.forEach { (dateKey, record) ->
+                    val validStats = record.nodeStats.filterValues { it.isValid() }
+                    if (validStats.isNotEmpty()) {
+                        val cleanRecord = DailyTrafficRecord(dateKey)
+                        cleanRecord.nodeStats.putAll(validStats)
+                        dailyRecords[dateKey] = cleanRecord
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load daily records", e)
@@ -177,6 +191,8 @@ class TrafficRepository private constructor(private val context: Context) {
     fun addTraffic(nodeId: String, uploadDiff: Long, downloadDiff: Long, nodeName: String? = null) {
         if (uploadDiff <= 0 && downloadDiff <= 0) return
 
+        checkCrossProcessClear()
+
         val stats = trafficMap.getOrPut(nodeId) { NodeTrafficStats(nodeId) }
         stats.upload += uploadDiff
         stats.download += downloadDiff
@@ -195,8 +211,17 @@ class TrafficRepository private constructor(private val context: Context) {
             dailyStats.nodeName = nodeName
         }
 
-        // 自动保存（有节流）
         saveStats()
+    }
+
+    private fun checkCrossProcessClear() {
+        val currentClearTs = VpnStateStore.getTrafficClearTimestamp()
+        if (currentClearTs > lastKnownClearTimestamp) {
+            Log.i(TAG, "Cross-process clear detected, clearing local data")
+            trafficMap.clear()
+            dailyRecords.clear()
+            lastKnownClearTimestamp = currentClearTs
+        }
     }
 
     fun getStats(nodeId: String): NodeTrafficStats? {
@@ -335,9 +360,30 @@ class TrafficRepository private constructor(private val context: Context) {
     }
 
     fun getTopNodes(period: TrafficPeriod, limit: Int = 10): List<NodeTrafficStats> {
-        return getTrafficSummary(period).nodeStats
+        return mergeByNodeName(getTrafficSummary(period).nodeStats)
             .filter { it.upload + it.download > 0 }
+            .sortedByDescending { it.upload + it.download }
             .take(limit)
+    }
+
+    private fun mergeByNodeName(stats: List<NodeTrafficStats>): List<NodeTrafficStats> {
+        val byName = mutableMapOf<String, NodeTrafficStats>()
+        stats.filter { it.isValid() }.forEach { stat ->
+            val key = stat.nodeName ?: stat.nodeId ?: return@forEach
+            val existing = byName[key]
+            if (existing == null) {
+                byName[key] = NodeTrafficStats(
+                    stat.nodeId, stat.upload, stat.download, stat.lastUpdated, stat.nodeName
+                )
+            } else {
+                existing.upload += stat.upload
+                existing.download += stat.download
+                if (stat.lastUpdated > existing.lastUpdated) {
+                    existing.lastUpdated = stat.lastUpdated
+                }
+            }
+        }
+        return byName.values.toList()
     }
 
     fun getNodeTrafficPercentages(period: TrafficPeriod): List<Pair<NodeTrafficStats, Float>> {
@@ -345,8 +391,9 @@ class TrafficRepository private constructor(private val context: Context) {
         val total = summary.totalUpload + summary.totalDownload
         if (total == 0L) return emptyList()
 
-        return summary.nodeStats
+        return mergeByNodeName(summary.nodeStats)
             .filter { it.upload + it.download > 0 }
+            .sortedByDescending { it.upload + it.download }
             .map { stats ->
                 val nodeTotal = stats.upload + stats.download
                 val percentage = (nodeTotal.toFloat() / total.toFloat()) * 100f
@@ -374,7 +421,10 @@ class TrafficRepository private constructor(private val context: Context) {
     fun clearAllStats() {
         trafficMap.clear()
         dailyRecords.clear()
+        val clearTs = System.currentTimeMillis()
+        lastKnownClearTimestamp = clearTs
+        VpnStateStore.setTrafficClearTimestamp(clearTs)
         forceSave()
-        Log.i(TAG, "All traffic stats cleared")
+        Log.i(TAG, "All traffic stats cleared, timestamp=$clearTs")
     }
 }

@@ -383,7 +383,7 @@ private fun TrafficDistributionCard(
             nodePercentages.forEachIndexed { index, (stats, percentage) ->
                 ChartLegendItem(
                     color = chartColors[index % chartColors.size],
-                    label = nodeNames[stats.nodeId] ?: stats.nodeId,
+                    label = stats.nodeId?.let { nodeNames[it] } ?: stats.nodeName ?: "Unknown",
                     percentage = percentage,
                     traffic = formatBytes(stats.upload + stats.download)
                 )
@@ -497,7 +497,7 @@ private fun NodeRankingCard(
                     stats = stats,
                     totalTraffic = totalTraffic,
                     color = chartColors[index % chartColors.size],
-                    displayName = nodeNames[stats.nodeId] ?: stats.nodeId
+                    displayName = stats.nodeId?.let { nodeNames[it] } ?: stats.nodeName ?: "Unknown"
                 )
                 if (index < nodes.size - 1) {
                     Spacer(modifier = Modifier.height(12.dp))

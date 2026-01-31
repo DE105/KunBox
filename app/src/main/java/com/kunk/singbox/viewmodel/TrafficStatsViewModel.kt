@@ -57,8 +57,8 @@ class TrafficStatsViewModel(application: Application) : AndroidViewModel(applica
 
             val nodeNames = mutableMapOf<String, String>()
             val allNodeIds = mutableSetOf<String>()
-            topNodes.forEach { allNodeIds.add(it.nodeId) }
-            percentages.forEach { allNodeIds.add(it.first.nodeId) }
+            topNodes.forEach { it.nodeId?.let { id -> allNodeIds.add(id) } }
+            percentages.forEach { it.first.nodeId?.let { id -> allNodeIds.add(id) } }
 
             allNodeIds.forEach { nodeId ->
                 val storedName = topNodes.find { it.nodeId == nodeId }?.nodeName

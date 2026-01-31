@@ -359,9 +359,11 @@ class CommandManager(
 
                                 if (allocUp > 0 || allocDown > 0) {
                                     val node = configRepo.getNodeByName(nodeTag)
-                                    val nodeId = node?.id ?: nodeTag
-                                    val nodeName = node?.name ?: nodeTag
-                                    trafficRepo.addTraffic(nodeId, allocUp, allocDown, nodeName)
+                                    if (node != null) {
+                                        trafficRepo.addTraffic(node.id, allocUp, allocDown, node.name)
+                                    } else {
+                                        trafficRepo.addTraffic(nodeTag, allocUp, allocDown, nodeTag)
+                                    }
                                 }
                             }
                         }

@@ -2558,7 +2558,6 @@ class ConfigRepository(private val context: Context) {
                     else -> null
                 }
             }
-        Log.d(TAG, "buildCustomDomainRules: generated ${rules.size} rules")
         return rules
     }
 
