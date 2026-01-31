@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.7.0](https://github.com/roseforljh/KunBox/compare/v2.6.8...v2.7.0) (2026-01-31)
+
+
+### Features
+
+* **traffic:** 新增流量统计页面，修复分流节点流量记录问题 ([9f687e1](https://github.com/roseforljh/KunBox/commit/9f687e18c38212bc165fe7e5f2407d8b306a82ab))
+* **traffic:** 添加刷新按钮，支持手动刷新流量数据 ([96c4f0a](https://github.com/roseforljh/KunBox/commit/96c4f0a05ba579dcfd58eec4fb4f79d67d44e446))
+
+
+### Bug Fixes
+
+* . ([f7942af](https://github.com/roseforljh/KunBox/commit/f7942aff183801fe79583093a672cfc238ee5105))
+* **traffic:** 修复分流流量统计记录错误的问题 ([d8545df](https://github.com/roseforljh/KunBox/commit/d8545df1aa1f6ba48b60dfe050760a97fa5378b4))
+* **traffic:** 完善流量统计功能 ([1c2e73e](https://github.com/roseforljh/KunBox/commit/1c2e73e59f146d0586012c45cf0d1049c2e2af29))
+* **vpn:** 启动前检测并处理外部 VPN，确保顺利接管 ([fa34d3b](https://github.com/roseforljh/KunBox/commit/fa34d3bedd62ea7660214d493d21acecda7b6c9b))
+* 刷新 ([12c2a06](https://github.com/roseforljh/KunBox/commit/12c2a061456bea16b5fdaa45aadff3dfc820cbbb))
+
 ## [2.6.8](https://github.com/roseforljh/KunBox/compare/v2.6.7...v2.6.8) (2026-01-30)
 
 
