@@ -9,7 +9,6 @@ import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.service.ServiceState
 import com.kunk.singbox.service.manager.BackgroundPowerManager
 import com.kunk.singbox.service.manager.ServiceStateHolder
-import com.kunk.singbox.service.manager.SmartRecoveryEngine
 import java.util.concurrent.atomic.AtomicLong
 
 object SingBoxIpcHub {
@@ -90,19 +89,12 @@ object SingBoxIpcHub {
         val vpnState = ServiceState.values().getOrNull(stateOrdinal)?.name ?: "UNKNOWN"
         log("onAppLifecycle: isForeground=$isForeground, vpnState=$vpnState")
 
-        // 2025-fix-v29: 通知 SmartRecoveryEngine 启动/停止 QUIC 主动探测
-        val recoveryEngine = ServiceStateHolder.instance?.let {
-            SmartRecoveryEngine.getInstance(it)
-        }
-
         if (isForeground) {
-            recoveryEngine?.onAppForeground()
             powerManager?.onAppForeground()
             performForegroundRecovery()
         } else {
             lastBackgroundAtMs.set(SystemClock.elapsedRealtime())
             powerManager?.onAppBackground()
-            recoveryEngine?.onAppBackground()
         }
     }
 

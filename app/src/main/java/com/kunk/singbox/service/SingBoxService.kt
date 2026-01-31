@@ -495,40 +495,13 @@ class SingBoxService : VpnService() {
 
         // 设置 IPC Hub 的 PowerManager 引用，用于接收主进程的生命周期通知
         SingBoxIpcHub.setPowerManager(backgroundPowerManager)
-        // 2025-fix-v31: 直接调用 BoxWrapperManager，绕过 RecoveryCoordinator 异步队列
+        // 直接调用 BoxWrapperManager
         SingBoxIpcHub.setForegroundRecoveryHandler {
             Log.i(TAG, "[IPC] ForegroundRecovery: direct resetAllConnections")
             BoxWrapperManager.resetAllConnections(true)
         }
         // 设置 ScreenStateManager 的 PowerManager 引用，用于接收屏幕状态通知
         screenStateManager.setPowerManager(backgroundPowerManager)
-
-        // ⭐ 完美方案：�连接健康监控、精准恢复和智能决策引擎
-        initPerfectTcpFixManagers()
-    }
-
-    /**
-     * 初始化完美 TCP 修复方案的管理器
-     * 包括：连接健康监控、精准恢复、智能决策引擎
-     */
-    private fun initPerfectTcpFixManagers() {
-        try {
-            // 初始化连接健康监控器
-            com.kunk.singbox.service.manager.ConnectionHealthMonitor.getInstance(applicationContext).initialize()
-            Log.i(TAG, "ConnectionHealthMonitor initialized")
-
-            // 初始化精准恢复管理器
-            com.kunk.singbox.service.manager.PrecisionRecoveryManager.getInstance(applicationContext).initialize()
-            Log.i(TAG, "PrecisionRecoveryManager initialized")
-
-            // 初始化智能决策引擎
-            com.kunk.singbox.service.manager.SmartRecoveryEngine.getInstance(applicationContext).initialize()
-            Log.i(TAG, "SmartRecoveryEngine initialized")
-
-            Log.i(TAG, "Perfect TCP Fix managers initialized successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize Perfect TCP Fix managers", e)
-        }
     }
 
     /**

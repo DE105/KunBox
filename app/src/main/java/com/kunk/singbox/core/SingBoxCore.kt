@@ -1115,41 +1115,10 @@ class SingBoxCore private constructor(private val context: Context) {
 
     /**
      * 获取活跃连接列表
-     * 用于连接健康监控
-     * 注意：当前 libbox 不支持此 API，始终返回空列表
+     * 注意：已简化，始终返回空列表
      */
-    fun getActiveConnections(): List<ActiveConnection> {
-        if (!libboxAvailable) return emptyList()
-
-        return try {
-            val iterator = Libbox.getActiveConnectionStates() ?: return emptyList()
-            val result = mutableListOf<ActiveConnection>()
-
-            while (iterator.hasNext()) {
-                val state = iterator.next() ?: continue
-                result.add(
-                    ActiveConnection(
-                        packageName = state.packageName,
-                        uid = 0,
-                        network = "tcp",
-                        remoteAddr = "",
-                        remotePort = 0,
-                        state = if (state.hasRecentData) "active" else "stale",
-                        connectionCount = state.connectionCount,
-                        totalUpload = state.totalUpload,
-                        totalDownload = state.totalDownload,
-                        oldestConnMs = state.oldestConnMs,
-                        newestConnMs = state.newestConnMs,
-                        hasRecentData = state.hasRecentData
-                    )
-                )
-            }
-            result
-        } catch (e: Exception) {
-            Log.w(TAG, "getActiveConnections failed: ${e.message}")
-            emptyList()
-        }
-    }
+    @Suppress("FunctionOnlyReturningConstant")
+    fun getActiveConnections(): List<ActiveConnection> = emptyList()
 
     fun closeConnectionsForApp(packageName: String): Int {
         if (!libboxAvailable) return 0
