@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.7.1](https://github.com/roseforljh/KunBox/compare/v2.7.0...v2.7.1) (2026-01-31)
+
+
+### Bug Fixes
+
+* . ([46ae75e](https://github.com/roseforljh/KunBox/commit/46ae75e79e52c8a39f6e897403d234a57115973e))
+* 同步官方最新内核 ([f9b112c](https://github.com/roseforljh/KunBox/commit/f9b112c9baf7dc54ee3e9c57a652da323bc97e5a))
+
 ## [2.7.0](https://github.com/roseforljh/KunBox/compare/v2.6.8...v2.7.0) (2026-01-31)
 
 
