@@ -56,7 +56,6 @@ class ShutdownManager(
 
         // 资源清理
         fun stopForeignVpnMonitor()
-        fun stopForegroundAppMonitor()
         fun tryClearRunningServiceForLibbox()
         fun unregisterScreenStateReceiver()
         fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?)
@@ -137,9 +136,6 @@ class ShutdownManager(
 
         // 7. 停止外部 VPN 监控
         callbacks.stopForeignVpnMonitor()
-
-        // 7.1 停止前台应用监控
-        callbacks.stopForegroundAppMonitor()
 
         // 8. 重置关键网络状态
         callbacks.setVpnLinkValidated(false)

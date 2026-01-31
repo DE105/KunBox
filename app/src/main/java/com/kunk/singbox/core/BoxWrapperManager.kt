@@ -405,7 +405,7 @@ object BoxWrapperManager {
     }
 
     /**
-     * Proactive network recovery (RECOMMENDED for foreground resume)
+     * Proactive network recovery (RECOMMENDED for screen wake)
      * Includes network probe to ensure network is actually available
      * This "prewarms" the connection path and DNS cache
      */

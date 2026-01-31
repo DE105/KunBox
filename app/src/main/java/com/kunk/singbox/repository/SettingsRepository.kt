@@ -276,11 +276,6 @@ class SettingsRepository(private val context: Context) {
         settingsStore.updateSettingsAndWait { it.copy(wakeResetConnections = value) }
     }
 
-    suspend fun setForegroundAppMonitorEnabled(value: Boolean) {
-        settingsStore.updateSettingsAndWait { it.copy(foregroundAppMonitorEnabled = value) }
-        notifyRestartRequired()
-    }
-
     suspend fun setGhProxyMirror(value: GhProxyMirror) {
         settingsStore.updateSettingsAndWait { it.copy(ghProxyMirror = value) }
         notifyRestartRequired()

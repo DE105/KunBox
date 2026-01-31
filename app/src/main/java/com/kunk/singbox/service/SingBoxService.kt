@@ -48,7 +48,6 @@ import com.kunk.singbox.service.manager.CoreNetworkResetManager
 import com.kunk.singbox.service.manager.NodeSwitchManager
 import com.kunk.singbox.service.manager.BackgroundPowerManager
 import com.kunk.singbox.service.manager.RecoveryCoordinator
-import com.kunk.singbox.service.manager.ForegroundAppMonitor
 import com.kunk.singbox.service.manager.ServiceStateHolder
 import com.kunk.singbox.model.BackgroundPowerSavingDelay
 import com.kunk.singbox.utils.L
@@ -152,14 +151,6 @@ class SingBoxService : VpnService() {
     private val backgroundPowerManager: BackgroundPowerManager by lazy {
         BackgroundPowerManager(serviceScope)
     }
-
-    // 前台应用网络监控器 - 检测应用网络卡顿并自动恢复
-    private val foregroundAppMonitor: ForegroundAppMonitor by lazy {
-        ForegroundAppMonitor(this, serviceScope)
-    }
-
-    // 无障碍服务广播接收器 - 接收前台应用变化通知
-    private var foregroundAppReceiver: BroadcastReceiver? = null
 
     @Volatile
     private var backgroundPowerSavingThresholdMs: Long = BackgroundPowerSavingDelay.MINUTES_30.delayMs
@@ -939,7 +930,6 @@ class SingBoxService : VpnService() {
         override fun startTrafficMonitor() {
             trafficMonitor.start(Process.myUid(), trafficListener)
             networkManager = NetworkManager(this@SingBoxService, this@SingBoxService)
-            startForegroundAppMonitor()
         }
 
         // 状态管理
@@ -1033,10 +1023,6 @@ class SingBoxService : VpnService() {
 
         // 资源清理
         override fun stopForeignVpnMonitor() { foreignVpnMonitor.stop() }
-        override fun stopForegroundAppMonitor() {
-            foregroundAppMonitor.stop()
-            unregisterForegroundAppReceiver()
-        }
         override fun tryClearRunningServiceForLibbox() {
             this@SingBoxService.tryClearRunningServiceForLibbox()
         }
@@ -1388,87 +1374,6 @@ class SingBoxService : VpnService() {
 
     private fun requestCoreNetworkReset(reason: String, force: Boolean = false) {
         recoveryCoordinator.request(RecoveryCoordinator.Request.ResetCoreNetwork(reason, force))
-    }
-
-    private fun startForegroundAppMonitor() {
-        val settings = coreManager.currentSettings ?: return
-        if (!settings.foregroundAppMonitorEnabled) {
-            Log.i(TAG, "Foreground app monitor disabled by settings")
-            return
-        }
-
-        val isAppInWhitelist: (String) -> Boolean = { packageName ->
-            when (settings.vpnAppMode) {
-                VpnAppMode.ALL -> true
-                VpnAppMode.ALLOWLIST -> {
-                    val allowlist = settings.vpnAllowlist
-                        .split(",", "\n")
-                        .map { it.trim() }
-                        .filter { it.isNotEmpty() }
-                    allowlist.contains(packageName)
-                }
-            }
-        }
-
-        if (ForegroundAccessibilityService.isRunning) {
-            registerForegroundAppReceiver(isAppInWhitelist)
-            Log.i(TAG, "Foreground app monitor started (AccessibilityService mode)")
-        } else {
-            foregroundAppMonitor.init(object : ForegroundAppMonitor.Callbacks {
-                override fun isVpnRunning(): Boolean = isRunning
-                override fun isCoreReady(): Boolean = coreManager.isServiceRunning()
-                override fun isAppInVpnWhitelist(packageName: String): Boolean = isAppInWhitelist(packageName)
-            })
-            foregroundAppMonitor.start()
-            Log.i(TAG, "Foreground app monitor started (UsageStats fallback mode)")
-        }
-    }
-
-    @Suppress("UnspecifiedRegisterReceiverFlag", "CognitiveComplexMethod")
-    private fun registerForegroundAppReceiver(isAppInWhitelist: (String) -> Boolean) {
-        unregisterForegroundAppReceiver()
-
-        foregroundAppReceiver = object : BroadcastReceiver() {
-            private var lastPackageName: String = ""
-
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action != ForegroundAccessibilityService.ACTION_FOREGROUND_APP_CHANGED) return
-                if (!isRunning || !coreManager.isServiceRunning()) return
-
-                val packageName = intent.getStringExtra(ForegroundAccessibilityService.EXTRA_PACKAGE_NAME)
-                    ?: return
-                if (packageName == lastPackageName) return
-                lastPackageName = packageName
-
-                if (!isAppInWhitelist(packageName)) return
-
-                val closedCount = try {
-                    BoxWrapperManager.closeConnectionsForApp(packageName)
-                } catch (_: Exception) {
-                    0
-                }
-                if (closedCount > 0) {
-                    Log.i(TAG, "$packageName: reset $closedCount connections")
-                }
-            }
-        }
-
-        val filter = IntentFilter(ForegroundAccessibilityService.ACTION_FOREGROUND_APP_CHANGED)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(foregroundAppReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(foregroundAppReceiver, filter)
-        }
-    }
-
-    private fun unregisterForegroundAppReceiver() {
-        foregroundAppReceiver?.let {
-            try {
-                unregisterReceiver(it)
-            } catch (_: Exception) {
-            }
-        }
-        foregroundAppReceiver = null
     }
 
 /**
