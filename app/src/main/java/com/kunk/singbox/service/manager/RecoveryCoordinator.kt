@@ -34,9 +34,10 @@ class RecoveryCoordinator(
 
         private const val MAX_REASON_LEN = 240
 
-        // 2025-fix-v32: 减少冷却期豁免关键词
-        // 只有 doze_exit 才是真正需要立即恢复的场景
-        private val COOLDOWN_EXEMPT_KEYWORDS = listOf("doze_exit")
+        // 2025-fix-v32: 冷却期豁免关键词
+        // doze_exit: 退出休眠需要立即恢复
+        // user_manual: 用户手动操作应立即生效
+        private val COOLDOWN_EXEMPT_KEYWORDS = listOf("doze_exit", "user_manual")
 
         // 2025-fix-v19: 连通性验证配置
         private const val CONNECTIVITY_PROBE_URL = "https://www.gstatic.com/generate_204"

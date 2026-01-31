@@ -20,9 +20,8 @@ class ForegroundAppMonitor(
 ) {
     companion object {
         private const val TAG = "ForegroundAppMonitor"
-        private const val CHECK_INTERVAL_MS = 300L
-        private const val STARTUP_DELAY_MS = 2000L
-        private const val COOLDOWN_MS = 3000L
+        private const val CHECK_INTERVAL_MS = 200L
+        private const val STARTUP_DELAY_MS = 1500L
     }
 
     interface Callbacks {
@@ -42,7 +41,6 @@ class ForegroundAppMonitor(
     private var hasUsageStatsPermission: Boolean = false
 
     private var lastForegroundPackage: String = ""
-    private val lastResetTimeMap = mutableMapOf<String, Long>()
 
     fun init(callbacks: Callbacks) {
         this.callbacks = callbacks
@@ -72,7 +70,6 @@ class ForegroundAppMonitor(
         monitorJob?.cancel()
         monitorJob = null
         lastForegroundPackage = ""
-        lastResetTimeMap.clear()
     }
 
     private fun checkForegroundApp() {
@@ -83,15 +80,9 @@ class ForegroundAppMonitor(
 
         if (foregroundPackage == lastForegroundPackage) return
 
-        val previousPackage = lastForegroundPackage
         lastForegroundPackage = foregroundPackage
 
         if (!cb.isAppInVpnWhitelist(foregroundPackage)) return
-        if (previousPackage.isEmpty()) return
-
-        val now = System.currentTimeMillis()
-        val lastResetTime = lastResetTimeMap[foregroundPackage] ?: 0L
-        if (now - lastResetTime < COOLDOWN_MS) return
 
         val closedCount = try {
             BoxWrapperManager.closeConnectionsForApp(foregroundPackage)
@@ -100,8 +91,7 @@ class ForegroundAppMonitor(
         }
 
         if (closedCount > 0) {
-            lastResetTimeMap[foregroundPackage] = now
-            Log.i(TAG, "Switched to $foregroundPackage, reset $closedCount connections")
+            Log.i(TAG, "$foregroundPackage: reset $closedCount connections")
         }
     }
 
@@ -109,7 +99,7 @@ class ForegroundAppMonitor(
     private fun getForegroundPackage(): String? {
         val usm = usageStatsManager ?: return null
         val endTime = System.currentTimeMillis()
-        val beginTime = endTime - 5000
+        val beginTime = endTime - 300_000
 
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

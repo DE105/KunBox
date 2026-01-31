@@ -59,12 +59,22 @@ fun ConnectionSettingsScreen(
     var hasUsageStatsPermission by remember {
         mutableStateOf(PermissionUtils.hasUsageStatsPermission(context))
     }
+    var isAccessibilityServiceEnabled by remember {
+        mutableStateOf(PermissionUtils.isAccessibilityServiceEnabled(
+            context,
+            com.kunk.singbox.service.ForegroundAccessibilityService::class.java
+        ))
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasUsageStatsPermission = PermissionUtils.hasUsageStatsPermission(context)
+                isAccessibilityServiceEnabled = PermissionUtils.isAccessibilityServiceEnabled(
+                    context,
+                    com.kunk.singbox.service.ForegroundAccessibilityService::class.java
+                )
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -146,6 +156,18 @@ fun ConnectionSettingsScreen(
                     subtitle = stringResource(R.string.connection_settings_power_saving_subtitle),
                     value = stringResource(settings.backgroundPowerSavingDelay.displayNameRes),
                     onClick = { showPowerSavingDelayDialog = true }
+                )
+                SettingItem(
+                    title = stringResource(R.string.connection_settings_accessibility_service),
+                    subtitle = if (isAccessibilityServiceEnabled) {
+                        stringResource(R.string.connection_settings_accessibility_service_enabled)
+                    } else {
+                        stringResource(R.string.connection_settings_accessibility_service_disabled)
+                    },
+                    value = if (isAccessibilityServiceEnabled) "ON" else "OFF",
+                    onClick = {
+                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }
                 )
                 SettingSwitchItem(
                     title = stringResource(R.string.connection_settings_foreground_monitor),
