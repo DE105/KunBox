@@ -39,7 +39,6 @@ import com.kunk.singbox.service.manager.ShutdownManager
 import com.kunk.singbox.service.manager.ScreenStateManager
 import com.kunk.singbox.service.manager.RouteGroupSelector
 import com.kunk.singbox.service.manager.ForeignVpnMonitor
-import com.kunk.singbox.service.manager.CoreNetworkResetManager
 import com.kunk.singbox.service.manager.NodeSwitchManager
 import com.kunk.singbox.service.manager.BackgroundPowerManager
 import com.kunk.singbox.service.manager.ServiceStateHolder
@@ -120,11 +119,6 @@ class SingBoxService : VpnService() {
     // 外部 VPN 监控器
     private val foreignVpnMonitor: ForeignVpnMonitor by lazy {
         ForeignVpnMonitor(this)
-    }
-
-    // 核心网络重置管理器
-    private val coreNetworkResetManager: CoreNetworkResetManager by lazy {
-        CoreNetworkResetManager(serviceScope)
     }
 
     // 节点切换管理器
@@ -394,20 +388,7 @@ class SingBoxService : VpnService() {
         })
         Log.i(TAG, "ForeignVpnMonitor initialized")
 
-        // 10. 初始化核心网络重置管理器
-        coreNetworkResetManager.init(object : CoreNetworkResetManager.Callbacks {
-            override fun isServiceRunning() = coreManager.isServiceRunning()
-            override suspend fun restartVpnService(reason: String) {
-                Log.i(TAG, "Restarting VPN service (reason=core_reset:$reason)")
-                stopVpn(stopService = false)
-                delay(500)
-                lastConfigPath?.let { startVpn(it) }
-            }
-        })
-        coreNetworkResetManager.debounceMs = coreResetDebounceMs
-        Log.i(TAG, "CoreNetworkResetManager initialized")
-
-        // 11. 初始化节点切换管理器
+        // 10. 初始化节点切换管理器
         nodeSwitchManager.init(object : NodeSwitchManager.Callbacks {
             override val isRunning: Boolean
                 get() = SingBoxService.isRunning
@@ -672,9 +653,6 @@ class SingBoxService : VpnService() {
         override fun cancelVpnHealthJob() {
             vpnHealthJob?.cancel()
             vpnHealthJob = null
-        }
-        override fun cancelCoreNetworkResetJob() {
-            coreNetworkResetManager.cancelPendingReset()
         }
         override fun cancelRemoteStateUpdateJob() {
             remoteStateUpdateJob?.cancel()
@@ -1016,8 +994,6 @@ class SingBoxService : VpnService() {
 
 // NetworkManager 实例 - 统一管理网络状态和底层网络切换
     private var networkManager: NetworkManager? = null
-
-    private val coreResetDebounceMs: Long = 2500L
 
     @Volatile private var lastRuleSetCheckMs: Long = 0L
     private val ruleSetCheckIntervalMs: Long = 6 * 60 * 60 * 1000L

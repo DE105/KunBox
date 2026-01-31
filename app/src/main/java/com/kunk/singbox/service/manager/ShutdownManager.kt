@@ -50,7 +50,6 @@ class ShutdownManager(
         // 组件管理
         fun cancelStartVpnJob(): Job?
         fun cancelVpnHealthJob()
-        fun cancelCoreNetworkResetJob()
         fun cancelRemoteStateUpdateJob()
         fun cancelRouteGroupAutoSelectJob()
 
@@ -114,7 +113,6 @@ class ShutdownManager(
         // 1. 取消进行中的任务
         val jobToJoin = callbacks.cancelStartVpnJob()
         callbacks.cancelVpnHealthJob()
-        callbacks.cancelCoreNetworkResetJob()
         callbacks.cancelRemoteStateUpdateJob()
         callbacks.cancelRouteGroupAutoSelectJob()
 
