@@ -44,11 +44,11 @@ class BackgroundPowerManager(
         /** 最大阈值: 2 小时 */
         const val MAX_THRESHOLD_MS = 2 * 60 * 60 * 1000L
 
-        /** 触发网络恢复的最小离开时长: 5 秒 */
-        private const val NETWORK_RECOVERY_MIN_AWAY_MS = 5_000L
+        /** 触发网络恢复的最小离开时长: 3 秒 (2025-fix-v26: 从 5 秒降低到 3 秒) */
+        private const val NETWORK_RECOVERY_MIN_AWAY_MS = 3_000L
 
-        /** 网络恢复防抖时间: 2 秒 */
-        private const val NETWORK_RECOVERY_DEBOUNCE_MS = 2_000L
+        /** 网络恢复防抖时间: 500 毫秒 (2025-fix-v26: 从 2 秒降低到 500 毫秒) */
+        private const val NETWORK_RECOVERY_DEBOUNCE_MS = 500L
     }
 
     /**

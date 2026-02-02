@@ -38,9 +38,10 @@ object BoxWrapperManager {
     private var lastResumeTimestamp: Long = 0L
 
     // 2025-fix-v18: resetNetwork 防抖，防止多个恢复触发点同时调用
+    // 2025-fix-v26: 降低防抖时间从 2 秒到 500 毫秒，避免正常恢复被跳过
     @Volatile
     private var lastResetNetworkTimestamp: Long = 0L
-    private const val RESET_NETWORK_DEBOUNCE_MS = 2_000L
+    private const val RESET_NETWORK_DEBOUNCE_MS = 500L
 
     /**
      * 初始化 - 绑定 CommandServer
@@ -233,22 +234,17 @@ object BoxWrapperManager {
 
     /**
      * 2025-fix-v19: 完整网络恢复 - 统一入口点
-     * 
-     * 调用内核层 RecoverNetworkAuto()，它会执行:
-     * 1. DeviceWake() - 解除暂停状态
-     * 2. CloseAllTrackedConnections() - 发送 RST 强制关闭所有连接
-     * 3. Router().ResetNetwork() - 重置网络栈 + conntrack.Close()
-     * 
-     * 内置防抖 (2秒)，防止多个恢复触发点同时调用
+     * 2025-fix-v26: 添加 force 参数，允许绕过防抖强制执行
      * 
      * @param source 调用来源，用于日志追踪
+     * @param force 是否强制执行（绕过防抖），用于关键恢复场景如 Activity Resume
      * @return true 如果成功执行
      */
-    fun wakeAndResetNetwork(source: String): Boolean {
+    fun wakeAndResetNetwork(source: String, force: Boolean = false): Boolean {
         val now = System.currentTimeMillis()
         val elapsed = now - lastResetNetworkTimestamp
         
-        if (elapsed < RESET_NETWORK_DEBOUNCE_MS) {
+        if (!force && elapsed < RESET_NETWORK_DEBOUNCE_MS) {
             Log.d(TAG, "[$source] wakeAndResetNetwork skipped (debounce: ${elapsed}ms)")
             return true
         }
@@ -257,12 +253,13 @@ object BoxWrapperManager {
         _isPaused.value = false
         lastResumeTimestamp = now
         
+        val forceTag = if (force) " [FORCE]" else ""
         return try {
             val result = Libbox.recoverNetworkAuto()
-            Log.i(TAG, "[$source] recoverNetworkAuto completed: $result")
+            Log.i(TAG, "[$source]$forceTag recoverNetworkAuto completed: $result")
             result
         } catch (e: Exception) {
-            Log.w(TAG, "[$source] recoverNetworkAuto failed, fallback to manual", e)
+            Log.w(TAG, "[$source]$forceTag recoverNetworkAuto failed, fallback to manual", e)
             recoverNetworkManual()
         }
     }
