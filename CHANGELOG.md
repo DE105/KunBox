@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.2](https://github.com/roseforljh/KunBox/compare/v2.7.1...v2.7.2) (2026-02-02)
+
+
+### Bug Fixes
+
+* 修复从后台恢复时卡在加载状态的问题 ([2a1363e](https://github.com/roseforljh/KunBox/commit/2a1363e9783a88abeaa219501d4c077a56d332bd))
+
 ## [2.7.1](https://github.com/roseforljh/KunBox/compare/v2.7.0...v2.7.1) (2026-01-31)
 
 
