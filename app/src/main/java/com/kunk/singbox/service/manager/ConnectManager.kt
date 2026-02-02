@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * 连接管理器
  * 负责网络状态监控、底层网络绑定、连接重置等
- * 
+ *
  * 2025-fix-v17: 添加接口名变化检测，参考 NekoBox 的 upstreamInterfaceName 逻辑
  * 只有在网络接口真正变化时（如 WiFi ↔ 移动数据切换）才重置连接，
  * 避免在同一网络上频繁重置导致的性能问题

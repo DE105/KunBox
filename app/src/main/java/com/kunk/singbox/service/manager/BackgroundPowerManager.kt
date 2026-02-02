@@ -210,7 +210,6 @@ class BackgroundPowerManager(
         evaluateUserPresence()
     }
 
-    @Suppress("UnusedParameter")
     private fun triggerForegroundRecoveryIfNeeded(backgroundDurationMs: Long, source: String) {
         if (callbacks?.isVpnRunning != true) {
             Log.d(TAG, "[$source] VPN not running, skip recovery")
@@ -284,7 +283,7 @@ class BackgroundPowerManager(
     private fun schedulePowerSavingCheck() {
         powerSavingJob?.cancel()
 
-        powerSavingJob = serviceScope.launch(Dispatchers.Main) {
+        powerSavingJob = serviceScope.launch(Dispatchers.Default) {
             val alreadyAway = SystemClock.elapsedRealtime() - userAwayAtMs
             val remainingDelay = (backgroundThresholdMs - alreadyAway).coerceAtLeast(0L)
 

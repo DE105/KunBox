@@ -25,7 +25,6 @@ class ScreenStateManager(
     companion object {
         private const val TAG = "ScreenStateManager"
         private const val DOZE_EXIT_RECOVERY_DEBOUNCE_MS = 5_000L
-        private const val SCREEN_ON_RECOVERY_MIN_OFF_MS = 5_000L
         private const val ACTIVITY_RESUME_RECOVERY_MIN_AWAY_MS = 3_000L
     }
 
@@ -89,23 +88,9 @@ class ScreenStateManager(
 
                 private fun handleScreenOn() {
                     Log.i(TAG, "Screen ON detected")
-                    val wasScreenOff = !isScreenOn
                     isScreenOn = true
-
-                    val screenOffDuration = if (screenOffAtMs > 0) {
-                        SystemClock.elapsedRealtime() - screenOffAtMs
-                    } else 0L
-
-                    if (wasScreenOff && screenOffDuration >= SCREEN_ON_RECOVERY_MIN_OFF_MS) {
-                        Log.i(TAG, "[ScreenOn] Screen was off for ${screenOffDuration / 1000}s, waking and resetting network")
-                        serviceScope.launch {
-                            if (callbacks?.isRunning == true) {
-                                BoxWrapperManager.wakeAndResetNetwork("screen_on")
-                            }
-                        }
-                    }
-
                     screenOffAtMs = 0L
+                    // BackgroundPowerManager.onScreenOn() 统一处理网络恢复
                     powerManager?.onScreenOn()
                 }
 
@@ -169,7 +154,12 @@ class ScreenStateManager(
 
     /**
      * 注册 Activity 生命周期回调
+     *
+     * 注意：此方法在 VPN 进程 (:vpn_service) 中运行，只能监听同进程内的 Activity
+     * (如 ShortcutActivity)。主进程的 MainActivity 生命周期由 IPC 路径
+     * (AppLifecycleObserver -> SingBoxIpcHub -> BackgroundPowerManager) 处理。
      */
+    @Suppress("CognitiveComplexMethod")
     fun registerActivityLifecycleCallbacks(application: Application?) {
         try {
             if (activityLifecycleCallbacks != null) return
@@ -182,20 +172,21 @@ class ScreenStateManager(
                         Log.i(TAG, "App returned to FOREGROUND (${activity.localClassName})")
                         val wasInBackground = !isAppInForeground
                         isAppInForeground = true
-                        
+
                         val backgroundDuration = if (appBackgroundAtMs > 0) {
                             SystemClock.elapsedRealtime() - appBackgroundAtMs
                         } else 0L
-                        
+
                         if (wasInBackground && backgroundDuration >= ACTIVITY_RESUME_RECOVERY_MIN_AWAY_MS) {
-                            Log.i(TAG, "[ActivityResume] App was in background for ${backgroundDuration / 1000}s, triggering network recovery")
+                            val seconds = backgroundDuration / 1000
+                            Log.i(TAG, "[ActivityResume] Background ${seconds}s, triggering recovery")
                             serviceScope.launch {
                                 if (callbacks?.isRunning == true) {
                                     BoxWrapperManager.wakeAndResetNetwork("activity_resume", force = true)
                                 }
                             }
                         }
-                        
+
                         appBackgroundAtMs = 0L
                         callbacks?.notifyRemoteStateUpdate(true)
                     }
@@ -271,9 +262,8 @@ class ScreenStateManager(
 
             lastDozeExitRecoveryAtMs = now
 
-            Log.i(TAG, "[Doze] Device wake, resetting connections and network")
+            Log.i(TAG, "[Doze] Device wake, resetting network")
             BoxWrapperManager.wakeAndResetNetwork("doze_exit")
-            BoxWrapperManager.resetAllConnections(true)
 
             callbacks?.notifyRemoteStateUpdate(true)
         } catch (e: Exception) {

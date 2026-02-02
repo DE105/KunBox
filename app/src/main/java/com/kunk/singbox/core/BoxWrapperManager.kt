@@ -235,7 +235,7 @@ object BoxWrapperManager {
     /**
      * 2025-fix-v19: 完整网络恢复 - 统一入口点
      * 2025-fix-v26: 添加 force 参数，允许绕过防抖强制执行
-     * 
+     *
      * @param source 调用来源，用于日志追踪
      * @param force 是否强制执行（绕过防抖），用于关键恢复场景如 Activity Resume
      * @return true 如果成功执行
@@ -243,16 +243,16 @@ object BoxWrapperManager {
     fun wakeAndResetNetwork(source: String, force: Boolean = false): Boolean {
         val now = System.currentTimeMillis()
         val elapsed = now - lastResetNetworkTimestamp
-        
+
         if (!force && elapsed < RESET_NETWORK_DEBOUNCE_MS) {
             Log.d(TAG, "[$source] wakeAndResetNetwork skipped (debounce: ${elapsed}ms)")
             return true
         }
-        
+
         lastResetNetworkTimestamp = now
         _isPaused.value = false
         lastResumeTimestamp = now
-        
+
         val forceTag = if (force) " [FORCE]" else ""
         return try {
             val result = Libbox.recoverNetworkAuto()
