@@ -37,6 +37,11 @@ object BoxWrapperManager {
     @Volatile
     private var lastResumeTimestamp: Long = 0L
 
+    // 2025-fix-v18: resetNetwork 防抖，防止多个恢复触发点同时调用
+    @Volatile
+    private var lastResetNetworkTimestamp: Long = 0L
+    private const val RESET_NETWORK_DEBOUNCE_MS = 2_000L
+
     /**
      * 初始化 - 绑定 CommandServer
      * 在 CommandServer 创建后调用
@@ -223,6 +228,42 @@ object BoxWrapperManager {
         } catch (e: Exception) {
             Log.w(TAG, "wake() failed: ${e.message}, falling back to resume()")
             resume()
+        }
+    }
+
+    /**
+     * 2025-fix-v19: 完整网络恢复 - 统一入口点
+     * 
+     * 调用内核层 RecoverNetworkAuto()，它会执行:
+     * 1. DeviceWake() - 解除暂停状态
+     * 2. CloseAllTrackedConnections() - 发送 RST 强制关闭所有连接
+     * 3. Router().ResetNetwork() - 重置网络栈 + conntrack.Close()
+     * 
+     * 内置防抖 (2秒)，防止多个恢复触发点同时调用
+     * 
+     * @param source 调用来源，用于日志追踪
+     * @return true 如果成功执行
+     */
+    fun wakeAndResetNetwork(source: String): Boolean {
+        val now = System.currentTimeMillis()
+        val elapsed = now - lastResetNetworkTimestamp
+        
+        if (elapsed < RESET_NETWORK_DEBOUNCE_MS) {
+            Log.d(TAG, "[$source] wakeAndResetNetwork skipped (debounce: ${elapsed}ms)")
+            return true
+        }
+        
+        lastResetNetworkTimestamp = now
+        _isPaused.value = false
+        lastResumeTimestamp = now
+        
+        return try {
+            val result = Libbox.recoverNetworkAuto()
+            Log.i(TAG, "[$source] recoverNetworkAuto completed: $result")
+            result
+        } catch (e: Exception) {
+            Log.w(TAG, "[$source] recoverNetworkAuto failed, fallback to manual", e)
+            recoverNetworkManual()
         }
     }
 

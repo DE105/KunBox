@@ -25,6 +25,7 @@ class ScreenStateManager(
     companion object {
         private const val TAG = "ScreenStateManager"
         private const val DOZE_EXIT_RECOVERY_DEBOUNCE_MS = 5_000L
+        private const val SCREEN_ON_RECOVERY_MIN_OFF_MS = 5_000L
     }
 
     interface Callbacks {
@@ -48,6 +49,7 @@ class ScreenStateManager(
     private var powerManager: BackgroundPowerManager? = null
 
     @Volatile private var lastDozeExitRecoveryAtMs: Long = 0L
+    @Volatile private var screenOffAtMs: Long = 0L
 
     @Volatile var isScreenOn: Boolean = true
         private set
@@ -85,13 +87,30 @@ class ScreenStateManager(
 
                 private fun handleScreenOn() {
                     Log.i(TAG, "Screen ON detected")
+                    val wasScreenOff = !isScreenOn
                     isScreenOn = true
+
+                    val screenOffDuration = if (screenOffAtMs > 0) {
+                        SystemClock.elapsedRealtime() - screenOffAtMs
+                    } else 0L
+
+                    if (wasScreenOff && screenOffDuration >= SCREEN_ON_RECOVERY_MIN_OFF_MS) {
+                        Log.i(TAG, "[ScreenOn] Screen was off for ${screenOffDuration / 1000}s, waking and resetting network")
+                        serviceScope.launch {
+                            if (callbacks?.isRunning == true) {
+                                BoxWrapperManager.wakeAndResetNetwork("screen_on")
+                            }
+                        }
+                    }
+
+                    screenOffAtMs = 0L
                     powerManager?.onScreenOn()
                 }
 
                 private fun handleScreenOff() {
                     Log.i(TAG, "Screen OFF detected")
                     isScreenOn = false
+                    screenOffAtMs = SystemClock.elapsedRealtime()
                     powerManager?.onScreenOff()
                 }
 
@@ -228,8 +247,8 @@ class ScreenStateManager(
 
             lastDozeExitRecoveryAtMs = now
 
-            Log.i(TAG, "[Doze] Device wake, resetting connections")
-            BoxWrapperManager.wake()
+            Log.i(TAG, "[Doze] Device wake, resetting connections and network")
+            BoxWrapperManager.wakeAndResetNetwork("doze_exit")
             BoxWrapperManager.resetAllConnections(true)
 
             callbacks?.notifyRemoteStateUpdate(true)

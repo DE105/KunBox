@@ -61,7 +61,7 @@ object SingBoxIpcHub {
 
     // 前台恢复阈值
     private const val FOREGROUND_RESET_DEBOUNCE_MS = 2_000L
-    private const val FOREGROUND_RECOVERY_MIN_BACKGROUND_MS = 30_000L
+    private const val FOREGROUND_RECOVERY_MIN_BACKGROUND_MS = 5_000L
 
     fun setPowerManager(manager: BackgroundPowerManager?) {
         powerManager = manager
@@ -98,8 +98,9 @@ object SingBoxIpcHub {
         }
 
         lastForegroundAtMs.set(now)
-        log("[Foreground] Long background (${backgroundDuration / 1000}s), resetting connections")
-        BoxWrapperManager.resetAllConnections(true)
+        log("[Foreground] Long background (${backgroundDuration / 1000}s), waking and resetting network")
+
+        BoxWrapperManager.wakeAndResetNetwork("ipc_foreground")
     }
 
     fun getStateOrdinal(): Int = stateOrdinal

@@ -2,6 +2,7 @@ package com.kunk.singbox.service.manager
 
 import android.os.SystemClock
 import android.util.Log
+import com.kunk.singbox.core.BoxWrapperManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,6 +43,12 @@ class BackgroundPowerManager(
 
         /** 最大阈值: 2 小时 */
         const val MAX_THRESHOLD_MS = 2 * 60 * 60 * 1000L
+
+        /** 触发网络恢复的最小离开时长: 5 秒 */
+        private const val NETWORK_RECOVERY_MIN_AWAY_MS = 5_000L
+
+        /** 网络恢复防抖时间: 2 秒 */
+        private const val NETWORK_RECOVERY_DEBOUNCE_MS = 2_000L
     }
 
     /**
@@ -86,6 +93,9 @@ class BackgroundPowerManager(
 
     @Volatile
     private var backgroundStartTimeMs: Long = 0L
+
+    @Volatile
+    private var lastNetworkRecoveryAtMs: Long = 0L
 
     /**
      * 当前省电模式
@@ -202,8 +212,32 @@ class BackgroundPowerManager(
 
     @Suppress("UnusedParameter")
     private fun triggerForegroundRecoveryIfNeeded(backgroundDurationMs: Long, source: String) {
-        // 不做任何网络恢复，完全依赖内核和应用自身的重连机制
-        Log.d(TAG, "[$source] Returned after ${backgroundDurationMs / 1000}s")
+        if (callbacks?.isVpnRunning != true) {
+            Log.d(TAG, "[$source] VPN not running, skip recovery")
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastNetworkRecoveryAtMs < NETWORK_RECOVERY_DEBOUNCE_MS) {
+            Log.d(TAG, "[$source] Recovery skipped (debounce)")
+            return
+        }
+
+        if (backgroundDurationMs < NETWORK_RECOVERY_MIN_AWAY_MS) {
+            Log.d(TAG, "[$source] Away ${backgroundDurationMs}ms < ${NETWORK_RECOVERY_MIN_AWAY_MS}ms, skip recovery")
+            return
+        }
+
+        lastNetworkRecoveryAtMs = now
+        Log.i(TAG, "[$source] Triggering wakeAndResetNetwork after ${backgroundDurationMs / 1000}s away")
+
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                BoxWrapperManager.wakeAndResetNetwork(source)
+            } catch (e: Exception) {
+                Log.e(TAG, "[$source] wakeAndResetNetwork failed", e)
+            }
+        }
     }
 
     // ==================== 统一判断逻辑 ====================
@@ -327,6 +361,7 @@ class BackgroundPowerManager(
         isScreenOff = false
         userAwayAtMs = 0L
         backgroundStartTimeMs = 0L
+        lastNetworkRecoveryAtMs = 0L
         callbacks = null
         Log.i(TAG, "BackgroundPowerManager cleaned up")
     }

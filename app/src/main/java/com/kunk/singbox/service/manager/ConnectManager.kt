@@ -16,6 +16,10 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * 连接管理器
  * 负责网络状态监控、底层网络绑定、连接重置等
+ * 
+ * 2025-fix-v17: 添加接口名变化检测，参考 NekoBox 的 upstreamInterfaceName 逻辑
+ * 只有在网络接口真正变化时（如 WiFi ↔ 移动数据切换）才重置连接，
+ * 避免在同一网络上频繁重置导致的性能问题
  */
 class ConnectManager(
     private val context: Context,
@@ -34,6 +38,14 @@ class ConnectManager(
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastKnownNetwork: Network? = null
     private var setUnderlyingNetworksFn: ((Array<Network>?) -> Unit)? = null
+
+    /**
+     * 2025-fix-v17: 跟踪上游网络接口名称
+     * 参考 NekoBox BaseService.kt 的 upstreamInterfaceName 逻辑
+     * 用于检测真正的网络切换（如 wlan0 -> rmnet0）
+     */
+    @Volatile
+    private var upstreamInterfaceName: String? = null
 
     @Volatile
     private var isReady = false
@@ -250,6 +262,7 @@ class ConnectManager(
         return runCatching {
             unregisterNetworkCallback()
             lastKnownNetwork = null
+            upstreamInterfaceName = null
             isReady = false
             onNetworkChanged = null
             onNetworkLost = null
@@ -261,7 +274,6 @@ class ConnectManager(
 
     private fun handleNetworkAvailable(network: Network) {
         Log.i(TAG, "Network available: $network")
-        val previousNetwork = lastKnownNetwork
         lastKnownNetwork = network
         StateCache.updateNetworkCache(network)
         isReady = true
@@ -269,13 +281,7 @@ class ConnectManager(
         setUnderlyingNetworksFn?.invoke(arrayOf(network))
         onNetworkChanged?.invoke(network)
 
-        // 网络切换时重置所有连接
-        if (previousNetwork != null && previousNetwork != network) {
-            serviceScope.launch(Dispatchers.IO) {
-                Log.i(TAG, "[NetworkSwitch] Resetting all connections")
-                BoxWrapperManager.resetAllConnections(true)
-            }
-        }
+        checkAndResetOnInterfaceChange(network)
     }
 
     private fun handleNetworkLost(network: Network) {
@@ -292,17 +298,34 @@ class ConnectManager(
         setUnderlyingNetworksFn?.invoke(arrayOf(network))
 
         if (lastKnownNetwork != network) {
-            val previousNetwork = lastKnownNetwork
             lastKnownNetwork = network
             StateCache.updateNetworkCache(network)
             onNetworkChanged?.invoke(network)
+        }
 
-            if (previousNetwork != null) {
-                serviceScope.launch(Dispatchers.IO) {
-                    Log.i(TAG, "[CapChange] Resetting all connections")
+        checkAndResetOnInterfaceChange(network)
+    }
+
+    /**
+     * 检测网络接口名变化并在需要时重置连接
+     * 参考 NekoBox BaseService.kt preInit() 中的实现
+     */
+    private fun checkAndResetOnInterfaceChange(network: Network) {
+        val linkProps = connectivityManager?.getLinkProperties(network)
+        val newInterfaceName = linkProps?.interfaceName
+
+        val oldName = upstreamInterfaceName
+        upstreamInterfaceName = newInterfaceName
+
+        if (oldName != null && newInterfaceName != null && oldName != newInterfaceName) {
+            Log.i(TAG, "[InterfaceChange] $oldName -> $newInterfaceName, resetting connections")
+            serviceScope.launch(Dispatchers.IO) {
+                resetConnections {
                     BoxWrapperManager.resetAllConnections(true)
                 }
             }
+        } else if (oldName == null && newInterfaceName != null) {
+            Log.d(TAG, "[InterfaceInit] First interface: $newInterfaceName")
         }
     }
 
