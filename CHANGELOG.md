@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.7.3](https://github.com/roseforljh/KunBox/compare/v2.7.2...v2.7.3) (2026-02-02)
+
+
+### Bug Fixes
+
+* 000 ([03db480](https://github.com/roseforljh/KunBox/commit/03db4805b99676ffab95396576e44aa6de6b9112))
+* **ipc:** 移除IPC广播中的Thread.sleep阻塞,优化后台恢复机制 ([7af318b](https://github.com/roseforljh/KunBox/commit/7af318bb2c32cbffb483316104857b475f1a6336))
+* 常规优化 ([c46a883](https://github.com/roseforljh/KunBox/commit/c46a8830d2fe2112bb37a53735026dc78034d5ab))
+
 ## [2.7.2](https://github.com/roseforljh/KunBox/compare/v2.7.1...v2.7.2) (2026-02-02)
 
 
