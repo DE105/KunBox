@@ -29,6 +29,7 @@ class ConnectManager(
         private const val TAG = "ConnectManager"
         private const val CONNECTION_RESET_DEBOUNCE_MS = 2000L
         private const val STARTUP_WINDOW_MS = 3000L
+        private const val NETWORK_SWITCH_DELAY_MS = 2000L
     }
 
     private val connectivityManager: ConnectivityManager? by lazy {
@@ -284,14 +285,73 @@ class ConnectManager(
         checkAndResetOnInterfaceChange(network)
     }
 
+    /**
+     * 处理网络丢失事件
+     *
+     * 2025-fix-v28/v29: 网络切换优化
+     * 问题: 切换网络时，系统会先触发 onLost(旧网络)，再触发 onAvailable(新网络)。
+     * WiFi -> 移动数据切换时，移动数据的 onAvailable 可能延迟几百毫秒。
+     *
+     * 解决方案:
+     * 1. 先检查 activeNetwork 是否已有替代网络（WiFi-A -> WiFi-B 快速切换）
+     * 2. 如果没有，延迟一段时间再次检查（WiFi -> 移动数据 慢速切换）
+     * 3. 只有确认没有替代网络时才清除 underlying networks
+     */
     private fun handleNetworkLost(network: Network) {
         Log.i(TAG, "Network lost: $network")
-        if (lastKnownNetwork == network) {
+        if (lastKnownNetwork != network) {
+            onNetworkLost?.invoke()
+            return
+        }
+
+        val cm = connectivityManager ?: run {
             lastKnownNetwork = null
             StateCache.invalidateNetworkCache()
             setUnderlyingNetworksFn?.invoke(null)
+            onNetworkLost?.invoke()
+            return
         }
-        onNetworkLost?.invoke()
+
+        // 先立即检查是否有替代网络（快速切换场景）
+        if (tryFindReplacementNetwork(cm, network)) {
+            return
+        }
+
+        // 没有立即找到替代网络，延迟后再次检查（WiFi -> 移动数据场景）
+        serviceScope.launch {
+            delay(NETWORK_SWITCH_DELAY_MS)
+            // 再次检查 lastKnownNetwork，可能在延迟期间已经收到 onAvailable
+            if (lastKnownNetwork != null && lastKnownNetwork != network) {
+                Log.i(TAG, "Network already switched during delay")
+                return@launch
+            }
+            if (tryFindReplacementNetwork(cm, network)) {
+                return@launch
+            }
+            // 确认没有替代网络，真正断网
+            Log.i(TAG, "No replacement network found, clearing underlying networks")
+            lastKnownNetwork = null
+            StateCache.invalidateNetworkCache()
+            setUnderlyingNetworksFn?.invoke(null)
+            onNetworkLost?.invoke()
+        }
+    }
+
+    private fun tryFindReplacementNetwork(cm: ConnectivityManager, lostNetwork: Network): Boolean {
+        val activeNetwork = cm.activeNetwork
+        if (activeNetwork != null && activeNetwork != lostNetwork) {
+            val caps = cm.getNetworkCapabilities(activeNetwork)
+            if (isValidPhysicalNetwork(caps)) {
+                Log.i(TAG, "Network switch detected: $lostNetwork -> $activeNetwork")
+                lastKnownNetwork = activeNetwork
+                StateCache.updateNetworkCache(activeNetwork)
+                setUnderlyingNetworksFn?.invoke(arrayOf(activeNetwork))
+                onNetworkChanged?.invoke(activeNetwork)
+                checkAndResetOnInterfaceChange(activeNetwork)
+                return true
+            }
+        }
+        return false
     }
 
     private fun handleCapabilitiesChanged(network: Network) {

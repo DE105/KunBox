@@ -21,8 +21,7 @@ class NetworkManager(
 ) {
     companion object {
         private const val TAG = "NetworkManager"
-        // 移除防抖以确保网络变化立即更新
-        // private const val DEBOUNCE_MS = 2000L
+        private const val NETWORK_SWITCH_DELAY_MS = 2000L
     }
 
     interface Listener {
@@ -207,6 +206,7 @@ class NetworkManager(
         return false
     }
 
+    @Suppress("CognitiveComplexMethod")
     private fun registerNetworkCallback() {
         val cm = connectivityManager ?: return
 
@@ -233,10 +233,41 @@ class NetworkManager(
 
             override fun onLost(network: Network) {
                 Log.d(TAG, "Network lost: $network")
-                if (lastKnownNetwork == network) {
+                if (lastKnownNetwork != network) {
+                    return
+                }
+
+                if (tryFindReplacementNetwork(cm, network)) {
+                    return
+                }
+
+                mainHandler.postDelayed({
+                    if (lastKnownNetwork != null && lastKnownNetwork != network) {
+                        return@postDelayed
+                    }
+                    if (tryFindReplacementNetwork(cm, network)) {
+                        return@postDelayed
+                    }
+                    Log.d(TAG, "No replacement network found")
                     lastKnownNetwork = null
                     listener?.onNetworkLost()
+                }, NETWORK_SWITCH_DELAY_MS)
+            }
+
+            private fun tryFindReplacementNetwork(cm: ConnectivityManager, lostNetwork: Network): Boolean {
+                val activeNetwork = cm.activeNetwork
+                if (activeNetwork != null && activeNetwork != lostNetwork) {
+                    val caps = cm.getNetworkCapabilities(activeNetwork)
+                    val isVpn = caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                    val hasInternet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                    if (!isVpn && hasInternet) {
+                        Log.i(TAG, "Network switch: $lostNetwork -> $activeNetwork")
+                        lastKnownNetwork = activeNetwork
+                        listener?.onNetworkChanged(activeNetwork, "")
+                        return true
+                    }
                 }
+                return false
             }
         }
 

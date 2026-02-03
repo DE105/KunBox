@@ -42,6 +42,7 @@ class PlatformInterfaceImpl(
 
     companion object {
         private const val TAG = "PlatformInterfaceImpl"
+        private const val NETWORK_SWITCH_DELAY_MS = 2000L
     }
 
     // 网络切换管理器
@@ -532,16 +533,29 @@ class PlatformInterfaceImpl(
 
             override fun onLost(network: Network) {
                 Log.i(TAG, "Network lost: $network")
-                if (network == callbacks.getLastKnownNetwork()) {
-                    val newActive = cm.activeNetwork
-                    if (newActive != null) {
-                        Log.i(TAG, "Switching to new active network: $newActive")
-                        updateDefaultInterface(newActive)
-                    } else {
-                        callbacks.setLastKnownNetwork(null)
-                        currentInterfaceListener?.updateDefaultInterface("", 0, false, false)
-                    }
+                if (network != callbacks.getLastKnownNetwork()) {
+                    return
                 }
+
+                val newActive = cm.activeNetwork
+                if (newActive != null && newActive != network) {
+                    Log.i(TAG, "Switching to new active network: $newActive")
+                    updateDefaultInterface(newActive)
+                    return
+                }
+
+                mainHandler.postDelayed({
+                    if (callbacks.getLastKnownNetwork() != network) {
+                        return@postDelayed
+                    }
+                    val delayedActive = cm.activeNetwork
+                    if (delayedActive != null && delayedActive != network) {
+                        Log.i(TAG, "Delayed switch to new active network: $delayedActive")
+                        updateDefaultInterface(delayedActive)
+                    } else {
+                        Log.i(TAG, "No replacement network after delay, waiting for onAvailable")
+                    }
+                }, NETWORK_SWITCH_DELAY_MS)
             }
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {

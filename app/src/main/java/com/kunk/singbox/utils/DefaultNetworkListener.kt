@@ -24,6 +24,7 @@ import java.lang.ref.WeakReference
  */
 object DefaultNetworkListener {
     private const val TAG = "DefaultNetworkListener"
+    private const val NETWORK_SWITCH_DELAY_MS = 2000L
 
     private sealed class NetworkMessage {
         class Start(val key: Any, val listener: (Network?) -> Unit) : NetworkMessage()
@@ -117,10 +118,52 @@ object DefaultNetworkListener {
 
         override fun onLost(network: Network) {
             Log.d(TAG, "Network lost: $network")
-            if (underlyingNetwork == network) {
-                underlyingNetwork = null
+            if (underlyingNetwork != network) {
+                networkActor.trySend(NetworkMessage.Lost(network))
+                return
             }
-            networkActor.trySend(NetworkMessage.Lost(network))
+
+            val cm = connectivityManagerRef?.get()
+            if (cm == null) {
+                underlyingNetwork = null
+                networkActor.trySend(NetworkMessage.Lost(network))
+                return
+            }
+
+            // 先立即检查是否有替代网络
+            if (tryFindReplacementNetwork(cm, network)) {
+                return
+            }
+
+            // 延迟后再次检查（WiFi -> 移动数据场景）
+            mainHandler.postDelayed({
+                if (underlyingNetwork != null && underlyingNetwork != network) {
+                    return@postDelayed
+                }
+                if (tryFindReplacementNetwork(cm, network)) {
+                    return@postDelayed
+                }
+                Log.d(TAG, "No replacement network found")
+                underlyingNetwork = null
+                networkActor.trySend(NetworkMessage.Lost(network))
+            }, NETWORK_SWITCH_DELAY_MS)
+        }
+
+        private fun tryFindReplacementNetwork(cm: ConnectivityManager, lostNetwork: Network): Boolean {
+            val activeNetwork = cm.activeNetwork
+            if (activeNetwork != null && activeNetwork != lostNetwork) {
+                val caps = cm.getNetworkCapabilities(activeNetwork)
+                val isValidPhysical = caps != null &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                if (isValidPhysical) {
+                    Log.d(TAG, "Network switch: $lostNetwork -> $activeNetwork")
+                    underlyingNetwork = activeNetwork
+                    networkActor.trySend(NetworkMessage.Put(activeNetwork))
+                    return true
+                }
+            }
+            return false
         }
     }
 

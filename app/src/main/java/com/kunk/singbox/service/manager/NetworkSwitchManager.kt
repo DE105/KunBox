@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.SystemClock
 import android.util.Log
+import com.kunk.singbox.core.BoxWrapperManager
 import kotlinx.coroutines.*
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicLong
@@ -180,7 +181,6 @@ class NetworkSwitchManager(
             Log.i(TAG, "Switched underlying network to $network (interface=$interfaceName)")
         }
 
-        // 更新接口监听器
         if (interfaceName.isNotEmpty()) {
             val index = try {
                 java.net.NetworkInterface.getByName(interfaceName)?.index ?: 0
@@ -191,9 +191,15 @@ class NetworkSwitchManager(
             cb.updateInterfaceListener(interfaceName, index, isExpensive, false)
         }
 
-        // 执行健康检查
-        if (networkChanged) {
-            performHealthCheck(network, typeChanged)
+        if (networkChanged && typeChanged) {
+            Log.i(TAG, "Network type changed, resetting connections after interface update")
+            BoxWrapperManager.closeAllTrackedConnections()
+            BoxWrapperManager.resetAllConnections(true)
+            BoxWrapperManager.resetNetwork()
+            Log.i(TAG, "Triggering network recovery")
+            BoxWrapperManager.wakeAndResetNetwork("NetworkSwitch-TypeChange-Sync", force = true)
+        } else if (networkChanged) {
+            performHealthCheck(network)
         }
     }
 
@@ -214,26 +220,24 @@ class NetworkSwitchManager(
      * 执行健康检查
      */
     @Suppress("CognitiveComplexMethod")
-    private fun performHealthCheck(network: Network, typeChanged: Boolean) {
+    private fun performHealthCheck(network: Network) {
         healthCheckJob?.cancel()
         healthCheckJob = scope.launch(Dispatchers.IO) {
             val cb = callbacks ?: return@launch
             val cm = cb.getConnectivityManager() ?: return@launch
 
-            // 等待网络验证
             var validated = false
-            repeat(10) { attempt ->
+            for (attempt in 0 until 10) {
                 val caps = cm.getNetworkCapabilities(network)
                 if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) {
                     validated = true
                     Log.i(TAG, "Network validated after ${attempt * 200}ms")
-                    return@repeat
+                    break
                 }
                 delay(200)
             }
 
             if (!validated) {
-                // 主动连通性测试
                 val testTargets = listOf(
                     "1.1.1.1" to 53,
                     "8.8.8.8" to 53,
@@ -261,9 +265,8 @@ class NetworkSwitchManager(
                 }
             }
 
-            if (typeChanged) {
-                Log.i(TAG, "Network type changed and validated, relying on setUnderlyingNetworks")
-            }
+            Log.i(TAG, "Network validated, triggering libbox network recovery")
+            BoxWrapperManager.wakeAndResetNetwork("NetworkSwitch-Validated")
         }
     }
 
