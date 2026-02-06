@@ -1185,6 +1185,7 @@ class SingBoxService : VpnService() {
                 skipped = false,
                 outcome = if (success) "success(rate=$successRate)" else "failed(rate=$successRate)"
             )
+            scheduleForegroundHardFallbackIfNeeded(request, mode, success)
         } finally {
             val nextRequest = synchronized(this) {
                 recoveryInFlight = false
@@ -1212,6 +1213,98 @@ class SingBoxService : VpnService() {
         if (total <= 0L) return "n/a"
         val percentage = (success * 100.0) / total.toDouble()
         return "%.1f%%".format(java.util.Locale.US, percentage)
+    }
+
+    private fun shouldScheduleForegroundHardFallback(
+        request: RecoveryRequest,
+        mode: BoxWrapperManager.RecoveryMode,
+        success: Boolean
+    ): Boolean {
+        if (request.reason != RecoveryReason.APP_FOREGROUND) return false
+        if (request.force) return false
+        return mode == BoxWrapperManager.RecoveryMode.SOFT && success
+    }
+
+    private fun evaluateForegroundFallbackState(): ForegroundFallbackState {
+        val stateSkipOutcome = "state_running=$isRunning," +
+            "isStarting=$isStarting,isStopping=$isStopping,isManuallyStopped=$isManuallyStopped"
+        val shouldSkipByState = !isRunning || isStarting || isStopping || isManuallyStopped
+
+        val now = SystemClock.elapsedRealtime()
+        val elapsed = now - lastForegroundHardFallbackAtMs.get()
+        val shouldSkipByDebounce = elapsed in 0 until foregroundHardFallbackDebounceMs
+
+        val skipReason = when {
+            shouldSkipByState -> "state"
+            vpnLinkValidated -> "validated"
+            shouldSkipByDebounce -> "debounce"
+            else -> null
+        }
+
+        return when (skipReason) {
+            "state" -> ForegroundFallbackState(
+                shouldSkip = true,
+                event = "foreground_hard_fallback_skipped_state",
+                outcome = stateSkipOutcome
+            )
+            "validated" -> ForegroundFallbackState(
+                shouldSkip = true,
+                event = "foreground_hard_fallback_skipped_validated",
+                outcome = "vpn_link_validated"
+            )
+            "debounce" -> ForegroundFallbackState(
+                shouldSkip = true,
+                event = "foreground_hard_fallback_skipped_debounce",
+                outcome = "debounce(elapsed=${elapsed}ms," +
+                    "threshold=${foregroundHardFallbackDebounceMs}ms)"
+            )
+            else -> {
+                lastForegroundHardFallbackAtMs.set(now)
+                ForegroundFallbackState(
+                    shouldSkip = false,
+                    event = "foreground_hard_fallback_enqueued",
+                    outcome = "grace=${foregroundRecoveryGraceMs}ms"
+                )
+            }
+        }
+    }
+
+    private fun scheduleForegroundHardFallbackIfNeeded(
+        request: RecoveryRequest,
+        mode: BoxWrapperManager.RecoveryMode,
+        success: Boolean
+    ) {
+        if (!shouldScheduleForegroundHardFallback(request, mode, success)) {
+            return
+        }
+
+        foregroundHardFallbackJob?.cancel()
+        foregroundHardFallbackJob = serviceScope.launch {
+            delay(foregroundRecoveryGraceMs)
+
+            val state = evaluateForegroundFallbackState()
+            logRecoveryEvent(
+                event = state.event,
+                request = request,
+                mode = BoxWrapperManager.RecoveryMode.HARD,
+                merged = false,
+                skipped = state.shouldSkip,
+                outcome = state.outcome
+            )
+            if (state.shouldSkip) {
+                return@launch
+            }
+
+            val hardRequest = RecoveryRequest(
+                reason = RecoveryReason.APP_FOREGROUND,
+                rawReason = "app_foreground_hard_fallback",
+                force = true,
+                requestedAtMs = SystemClock.elapsedRealtime(),
+                merged = false
+            )
+
+            submitRecoveryRequest(hardRequest)
+        }
     }
 
     @Suppress("LongParameterList")
@@ -1372,6 +1465,17 @@ class SingBoxService : VpnService() {
     private val recoveryConsecutiveFailureCount = AtomicInteger(0)
 
     private val recoveryReasonLastAtMs = ConcurrentHashMap<String, Long>()
+
+    private val foregroundRecoveryGraceMs: Long = 5000L
+    private var foregroundHardFallbackJob: Job? = null
+    private val lastForegroundHardFallbackAtMs = AtomicLong(0L)
+    private val foregroundHardFallbackDebounceMs: Long = 15000L
+
+    private data class ForegroundFallbackState(
+        val shouldSkip: Boolean,
+        val event: String,
+        val outcome: String
+    )
 
     private data class RecoveryRequest(
         val reason: RecoveryReason,
@@ -2058,6 +2162,8 @@ class SingBoxService : VpnService() {
         backgroundPowerManager.cleanup()
 
         screenStateManager.unregisterActivityLifecycleCallbacks(application)
+        foregroundHardFallbackJob?.cancel()
+        foregroundHardFallbackJob = null
 
         // Ensure critical state is saved synchronously before we potentially halt
         if (!isManuallyStopped) {

@@ -32,6 +32,7 @@ import java.io.File
 import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -281,6 +282,8 @@ class ConfigRepository(private val context: Context) {
     @Volatile private var lastRunOutboundTags: Set<String>? = null
     // 缓存上一次运行的配置 ID，用于判断是否跨配置切换
     @Volatile private var lastRunProfileId: String? = null
+    // 防止同一时刻并发触发多次 setActiveNodeWithResult 导致重复重启链路
+    private val nodeSwitchInFlight = AtomicBoolean(false)
 
     // 配置级别的节点选择记忆 - 记录每个配置上次选中的节点
     private val profileLastSelectedNode = ConcurrentHashMap<String, String>()
@@ -1653,183 +1656,207 @@ class ConfigRepository(private val context: Context) {
     }
 
     suspend fun setActiveNodeWithResult(nodeId: String): NodeSwitchResult {
-        val allNodesSnapshot = _allNodes.value.takeIf { it.isNotEmpty() } ?: loadAllNodesSnapshot()
+        if (!nodeSwitchInFlight.compareAndSet(false, true)) {
+            Log.i(TAG, "setActiveNodeWithResult: switch already in-flight, skip duplicate request for $nodeId")
+            return NodeSwitchResult.Success
+        }
 
-        // Check for cross-profile switch
-        val targetNode = allNodesSnapshot.find { it.id == nodeId }
-        if (targetNode != null && targetNode.sourceProfileId != _activeProfileId.value) {
-            Log.i(TAG, "Cross-profile switch detected: ${_activeProfileId.value} -> ${targetNode.sourceProfileId}")
+        try {
+            val allNodesSnapshot = _allNodes.value.takeIf { it.isNotEmpty() } ?: loadAllNodesSnapshot()
 
-            // 2025-fix: Ensure profile is loaded synchronously before switching
-            // This prevents race condition where _nodes is empty during generateConfigFile
-            val profileId = targetNode.sourceProfileId
-            withContext(Dispatchers.IO) {
-                if (profileNodes[profileId] == null) {
-                    Log.i(TAG, "Pre-loading profile nodes for $profileId")
-                    loadConfig(profileId)?.let { cfg ->
-                        val nodes = extractNodesFromConfig(cfg, profileId)
-                        // 从 savedNodeLatencies 恢复延迟数据
-                        val nodesWithLatency = nodes.map { node ->
-                            val latency = savedNodeLatencies[node.id]
-                            if (latency != null) node.copy(latencyMs = latency) else node
+            // Check for cross-profile switch
+            val targetNode = allNodesSnapshot.find { it.id == nodeId }
+            if (targetNode != null && targetNode.sourceProfileId != _activeProfileId.value) {
+                Log.i(TAG, "Cross-profile switch detected: ${_activeProfileId.value} -> ${targetNode.sourceProfileId}")
+
+                // 2025-fix: Ensure profile is loaded synchronously before switching
+                // This prevents race condition where _nodes is empty during generateConfigFile
+                val profileId = targetNode.sourceProfileId
+                withContext(Dispatchers.IO) {
+                    if (profileNodes[profileId] == null) {
+                        Log.i(TAG, "Pre-loading profile nodes for $profileId")
+                        loadConfig(profileId)?.let { cfg ->
+                            val nodes = extractNodesFromConfig(cfg, profileId)
+                            // 从 savedNodeLatencies 恢复延迟数据
+                            val nodesWithLatency = nodes.map { node ->
+                                val latency = savedNodeLatencies[node.id]
+                                if (latency != null) node.copy(latencyMs = latency) else node
+                            }
+                            profileNodes[profileId] = nodesWithLatency
                         }
-                        profileNodes[profileId] = nodesWithLatency
                     }
                 }
+
+                setActiveProfile(targetNode.sourceProfileId, nodeId)
             }
 
-            setActiveProfile(targetNode.sourceProfileId, nodeId)
-        }
+            _activeNodeId.value = nodeId
+            saveProfilesImmediate()
 
-        _activeNodeId.value = nodeId
-        saveProfilesImmediate()
-
-        val remoteRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
-        if (!remoteRunning) {
-            Log.i(TAG, "setActiveNodeWithResult: VPN not running, skip hot switch")
-            return NodeSwitchResult.NotRunning
-        }
-
-        return withContext(Dispatchers.IO) {
-            // 尝试从当前配置查找节点
-            var node = _nodes.value.find { it.id == nodeId }
-
-            // 如果找不到，尝试从所有节点查找（支持跨配置切换）
-            if (node == null) {
-                node = allNodesSnapshot.find { it.id == nodeId }
+            val remoteRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
+            if (!remoteRunning) {
+                Log.i(TAG, "setActiveNodeWithResult: VPN not running, skip hot switch")
+                return NodeSwitchResult.NotRunning
             }
 
-            if (node == null) {
-                val msg = "Target node not found: $nodeId"
-                Log.w(TAG, msg)
-                return@withContext NodeSwitchResult.Failed(msg)
-            }
+            return withContext(Dispatchers.IO) {
+                // 尝试从当前配置查找节点
+                var node = _nodes.value.find { it.id == nodeId }
 
-            try {
-                val generationResult = generateConfigFile()
-                if (generationResult == null) {
-                    val msg = context.getString(R.string.dashboard_config_generation_failed)
-                    Log.e(TAG, msg)
+                // 如果找不到，尝试从所有节点查找（支持跨配置切换）
+                if (node == null) {
+                    node = allNodesSnapshot.find { it.id == nodeId }
+                }
+
+                if (node == null) {
+                    val msg = "Target node not found: $nodeId"
+                    Log.w(TAG, msg)
                     return@withContext NodeSwitchResult.Failed(msg)
                 }
 
-                // ... [Skipping comments for brevity in replacement]
+                try {
+                    val generationResult = generateConfigFile()
+                    if (generationResult == null) {
+                        val msg = context.getString(R.string.dashboard_config_generation_failed)
+                        Log.e(TAG, msg)
+                        return@withContext NodeSwitchResult.Failed(msg)
+                    }
 
-                // 修正 cache.db 清理逻辑
-                // 注意：这里删除可能不生效，因为 Service 进程关闭时可能会再次写入 cache.db
-                // 因此我们在 Service 进程启动时增加了一个 EXTRA_CLEAN_CACHE 参数来确保删除
-                runCatching {
-                    // 兼容清理旧位置
-                    val oldCacheDb = File(context.filesDir, "cache.db")
-                    if (oldCacheDb.exists()) oldCacheDb.delete()
-                }
+                    // ... [Skipping comments for brevity in replacement]
 
-                // 检查是否需要重启服务：如果 Outbound 列表发生了变化（例如跨配置切换、增删节点），
-                // 或者当前配置 ID 发生了变化（跨配置切换），则必须重启 VPN 以加载新的配置文件。
-                val currentTags = generationResult.outboundTags
-                val currentProfileId = _activeProfileId.value
+                    // 修正 cache.db 清理逻辑
+                    // 注意：这里删除可能不生效，因为 Service 进程关闭时可能会再次写入 cache.db
+                    // 因此我们在 Service 进程启动时增加了一个 EXTRA_CLEAN_CACHE 参数来确保删除
+                    runCatching {
+                        // 兼容清理旧位置
+                        val oldCacheDb = File(context.filesDir, "cache.db")
+                        if (oldCacheDb.exists()) oldCacheDb.delete()
+                    }
 
-                // 2025-fix: 改进 profileChanged 判断逻辑
-                // 问题：当 App 重启后 lastRunProfileId 为 null，但 VPN 已在运行时，
-                // 跨配置切换不会触发重启，导致热切换使用旧配置中的 selector
-                // 修复：如果 VPN 已在运行但 lastRunProfileId 为 null，视为首次切换，需要重启以确保配置同步
-                val isFirstSwitchWhileRunning = lastRunProfileId == null && remoteRunning
-                val profileChanged = (lastRunProfileId != null && lastRunProfileId != currentProfileId) || isFirstSwitchWhileRunning
+                    // 检查是否需要重启服务：如果 Outbound 列表发生了变化（例如跨配置切换、增删节点），
+                    // 或者当前配置 ID 发生了变化（跨配置切换），则必须重启 VPN 以加载新的配置文件。
+                    val currentTags = generationResult.outboundTags
+                    val currentProfileId = _activeProfileId.value
 
-                // 2025-fix-v5: 统一的重启判断逻辑
-                // 需要重启 VPN 的场景：
-                // 1. outboundTags 实际发生变化（节点列表不同）
-                // 2. profileChanged（跨配置切换，即使 tags 相同也需要重启，因为 sing-box 核心中的 selector 不包含新节点）
-                // 3. VPN 正在启动中（核心还没准备好接受热切换）
-                // 4. lastRunOutboundTags 为 null（首次运行或 App 重启后状态丢失）
-                val tagsActuallyChanged = lastRunOutboundTags != null && lastRunOutboundTags != currentTags
-                val isVpnStartingNotReady = SingBoxRemote.isStarting.value && !SingBoxRemote.isRunning.value
-                val needsConfigReload = lastRunOutboundTags == null && remoteRunning
+                    // 2025-fix: 改进 profileChanged 判断逻辑
+                    // 问题：当 App 重启后 lastRunProfileId 为 null，但 VPN 已在运行时，
+                    // 跨配置切换不会触发重启，导致热切换使用旧配置中的 selector
+                    // 修复：如果 VPN 已在运行但 lastRunProfileId 为 null，视为首次切换，需要重启以确保配置同步
+                    val isFirstSwitchWhileRunning = lastRunProfileId == null && remoteRunning
+                    val profileChanged = (lastRunProfileId != null && lastRunProfileId != currentProfileId) || isFirstSwitchWhileRunning
 
-                val tagsChanged = tagsActuallyChanged || profileChanged || isVpnStartingNotReady || needsConfigReload
+                    // 2025-fix-v5: 统一的重启判断逻辑
+                    // 需要重启 VPN 的场景：
+                    // 1. outboundTags 实际发生变化（节点列表不同）
+                    // 2. profileChanged（跨配置切换，即使 tags 相同也需要重启，因为 sing-box 核心中的 selector 不包含新节点）
+                    // 3. VPN 正在启动中（核心还没准备好接受热切换）
+                    // 4. lastRunOutboundTags 为 null（首次运行或 App 重启后状态丢失）
+                    val tagsActuallyChanged = lastRunOutboundTags != null && lastRunOutboundTags != currentTags
+                    val isVpnStartingNotReady = SingBoxRemote.isStarting.value && !SingBoxRemote.isRunning.value
+                    val needsConfigReload = lastRunOutboundTags == null && remoteRunning
 
-                Log.d(TAG, "Switch decision: profileChanged=$profileChanged (last=$lastRunProfileId, cur=$currentProfileId, firstSwitch=$isFirstSwitchWhileRunning), tagsActuallyChanged=$tagsActuallyChanged, isVpnStartingNotReady=$isVpnStartingNotReady, needsConfigReload=$needsConfigReload, tagsChanged=$tagsChanged")
+                    val tagsChanged = tagsActuallyChanged ||
+                        profileChanged ||
+                        isVpnStartingNotReady ||
+                        needsConfigReload
 
-                // 更新缓存（在判断之后更新，确保下次能正确比较）
-                lastRunOutboundTags = currentTags
-                lastRunProfileId = currentProfileId
+                    Log.d(
+                        TAG,
+                        "Switch decision: profileChanged=$profileChanged " +
+                            "(last=$lastRunProfileId, cur=$currentProfileId, " +
+                            "firstSwitch=$isFirstSwitchWhileRunning), " +
+                            "tagsActuallyChanged=$tagsActuallyChanged, " +
+                            "isVpnStartingNotReady=$isVpnStartingNotReady, " +
+                            "needsConfigReload=$needsConfigReload, tagsChanged=$tagsChanged"
+                    )
 
-                val coreMode = VpnStateStore.getMode()
+                    // 更新缓存（在判断之后更新，确保下次能正确比较）
+                    lastRunOutboundTags = currentTags
+                    lastRunProfileId = currentProfileId
 
-                if (tagsChanged && remoteRunning) {
-                    Log.i(TAG, "Sending PREPARE_RESTART before VPN restart")
-                    if (!VpnStateStore.shouldTriggerPrepareRestart(1500L)) {
-                        Log.d(TAG, "PREPARE_RESTART suppressed (sender throttle)")
+                    val coreMode = VpnStateStore.getMode()
+
+                    if (tagsChanged && remoteRunning) {
+                        Log.i(TAG, "Sending PREPARE_RESTART before VPN restart")
+                        if (!VpnStateStore.shouldTriggerPrepareRestart(1500L)) {
+                            Log.d(TAG, "PREPARE_RESTART suppressed (sender throttle)")
+                        } else {
+                            val prepareIntent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
+                                Intent(context, ProxyOnlyService::class.java).apply {
+                                    action = ProxyOnlyService.ACTION_PREPARE_RESTART
+                                    putExtra(
+                                        com.kunk.singbox.service.SingBoxService.EXTRA_PREPARE_RESTART_REASON,
+                                        "ConfigRepository:switchNode"
+                                    )
+                                }
+                            } else {
+                                Intent(context, SingBoxService::class.java).apply {
+                                    action = SingBoxService.ACTION_PREPARE_RESTART
+                                    putExtra(
+                                        com.kunk.singbox.service.SingBoxService.EXTRA_PREPARE_RESTART_REASON,
+                                        "ConfigRepository:switchNode"
+                                    )
+                                }
+                            }
+                            context.startService(prepareIntent)
+                        }
+                        // 2025-fix-v2: 简化后的预清理只需等待网络广播发送
+                        // 底层网络断开(立即) + 等待应用收到广播(100ms) + 缓冲(50ms)
+                        // 注意: 不再需要等待 closeAllConnectionsImmediate，sing-box restart 会自动处理
+                        delay(200)
+                    }
+
+                    val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
+                        Intent(context, ProxyOnlyService::class.java).apply {
+                            if (tagsChanged) {
+                                action = ProxyOnlyService.ACTION_START
+                                Log.i(TAG, "Outbound tags changed (or first run), forcing RESTART/RELOAD")
+                            } else {
+                                action = ProxyOnlyService.ACTION_SWITCH_NODE
+                                Log.i(TAG, "Outbound tags match, attempting HOT SWITCH")
+                            }
+                            putExtra("node_id", nodeId)
+                            putExtra("outbound_tag", generationResult.activeNodeTag)
+                            putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, generationResult.path)
+                        }
                     } else {
-                        val prepareIntent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
-                            Intent(context, ProxyOnlyService::class.java).apply {
-                                action = ProxyOnlyService.ACTION_PREPARE_RESTART
-                                putExtra(
-                                    com.kunk.singbox.service.SingBoxService.EXTRA_PREPARE_RESTART_REASON,
-                                    "ConfigRepository:switchNode"
+                        Intent(context, SingBoxService::class.java).apply {
+                            if (tagsChanged) {
+                                action = SingBoxService.ACTION_START
+                                putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
+                                Log.i(
+                                    TAG,
+                                    "Outbound tags changed (or first run), " +
+                                        "forcing RESTART/RELOAD with CACHE CLEAN"
                                 )
+                            } else {
+                                action = SingBoxService.ACTION_SWITCH_NODE
+                                Log.i(TAG, "Outbound tags match, attempting HOT SWITCH")
                             }
-                        } else {
-                            Intent(context, SingBoxService::class.java).apply {
-                                action = SingBoxService.ACTION_PREPARE_RESTART
-                                putExtra(
-                                    com.kunk.singbox.service.SingBoxService.EXTRA_PREPARE_RESTART_REASON,
-                                    "ConfigRepository:switchNode"
-                                )
-                            }
+                            putExtra("node_id", nodeId)
+                            putExtra("outbound_tag", generationResult.activeNodeTag)
+                            putExtra(SingBoxService.EXTRA_CONFIG_PATH, generationResult.path)
                         }
-                        context.startService(prepareIntent)
                     }
-                    // 2025-fix-v2: 简化后的预清理只需等待网络广播发送
-                    // 底层网络断开(立即) + 等待应用收到广播(100ms) + 缓冲(50ms)
-                    // 注意: 不再需要等待 closeAllConnectionsImmediate，sing-box restart 会自动处理
-                    delay(200)
-                }
 
-                val intent = if (coreMode == VpnStateStore.CoreMode.PROXY) {
-                    Intent(context, ProxyOnlyService::class.java).apply {
-                        if (tagsChanged) {
-                            action = ProxyOnlyService.ACTION_START
-                            Log.i(TAG, "Outbound tags changed (or first run), forcing RESTART/RELOAD")
-                        } else {
-                            action = ProxyOnlyService.ACTION_SWITCH_NODE
-                            Log.i(TAG, "Outbound tags match, attempting HOT SWITCH")
-                        }
-                        putExtra("node_id", nodeId)
-                        putExtra("outbound_tag", generationResult.activeNodeTag)
-                        putExtra(ProxyOnlyService.EXTRA_CONFIG_PATH, generationResult.path)
+                    // Service already running (VPN active). Use startService to avoid foreground-service timing constraints.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && tagsChanged) {
+                        context.startForegroundService(intent)
+                    } else {
+                        context.startService(intent)
                     }
-                } else {
-                    Intent(context, SingBoxService::class.java).apply {
-                        if (tagsChanged) {
-                            action = SingBoxService.ACTION_START
-                            putExtra(SingBoxService.EXTRA_CLEAN_CACHE, true)
-                            Log.i(TAG, "Outbound tags changed (or first run), forcing RESTART/RELOAD with CACHE CLEAN")
-                        } else {
-                            action = SingBoxService.ACTION_SWITCH_NODE
-                            Log.i(TAG, "Outbound tags match, attempting HOT SWITCH")
-                        }
-                        putExtra("node_id", nodeId)
-                        putExtra("outbound_tag", generationResult.activeNodeTag)
-                        putExtra(SingBoxService.EXTRA_CONFIG_PATH, generationResult.path)
-                    }
+
+                    Log.i(TAG, "Requested switch for node: ${node.name} (Tag: ${generationResult.activeNodeTag}, Restart: $tagsChanged)")
+                    NodeSwitchResult.Success
+                } catch (e: Exception) {
+
+                    val msg = "Switch error: ${e.message ?: "unknown error"}"
+                    Log.e(TAG, "Error during hot switch", e)
+                    NodeSwitchResult.Failed(msg)
                 }
-
-                // Service already running (VPN active). Use startService to avoid foreground-service timing constraints.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && tagsChanged) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-
-                Log.i(TAG, "Requested switch for node: ${node.name} (Tag: ${generationResult.activeNodeTag}, Restart: $tagsChanged)")
-                NodeSwitchResult.Success
-            } catch (e: Exception) {
-
-                val msg = "Switch error: ${e.message ?: "unknown error"}"
-                Log.e(TAG, "Error during hot switch", e)
-                NodeSwitchResult.Failed(msg)
             }
+        } finally {
+            nodeSwitchInFlight.set(false)
         }
     }
 
