@@ -24,6 +24,11 @@ import kotlinx.coroutines.flow.asStateFlow
 object BoxWrapperManager {
     private const val TAG = "BoxWrapperManager"
 
+    enum class RecoveryMode {
+        SOFT,
+        HARD
+    }
+
     @Volatile
     private var commandServer: CommandServer? = null
 
@@ -241,26 +246,49 @@ object BoxWrapperManager {
      * @return true 如果成功执行
      */
     fun wakeAndResetNetwork(source: String, force: Boolean = false): Boolean {
+        return recoverNetwork(source = source, mode = RecoveryMode.SOFT, force = force)
+    }
+
+    fun recoverNetwork(source: String, mode: RecoveryMode, force: Boolean = false): Boolean {
+        if (!isAvailable()) {
+            Log.d(TAG, "[$source] recoverNetwork skipped (service not available)")
+            return false
+        }
+
         val now = System.currentTimeMillis()
         val elapsed = now - lastResetNetworkTimestamp
 
         if (!force && elapsed < RESET_NETWORK_DEBOUNCE_MS) {
-            Log.d(TAG, "[$source] wakeAndResetNetwork skipped (debounce: ${elapsed}ms)")
+            Log.d(TAG, "[$source] recoverNetwork skipped (debounce: ${elapsed}ms)")
             return true
         }
+
+        val connCount = runCatching { getConnectionCount() }.getOrDefault(0)
+        val needRecovery = runCatching { isNetworkRecoveryNeeded() }.getOrDefault(false)
+        val hasActiveState = connCount > 0 || needRecovery || isPausedNow()
+        val bypassIdleGuard = shouldBypassIdleGuard(source)
+        if (!force && !hasActiveState && !bypassIdleGuard) {
+            Log.d(
+                TAG,
+                "[$source] recoverNetwork skipped (no connections, " +
+                    "recovery not needed, bypass=$bypassIdleGuard)"
+            )
+            return true
+        }
+
+        Log.d(
+            TAG,
+            "[$source] recoverNetwork proceed (mode=$mode force=$force " +
+                "hasActiveState=$hasActiveState bypass=$bypassIdleGuard)"
+        )
 
         lastResetNetworkTimestamp = now
         _isPaused.value = false
         lastResumeTimestamp = now
 
-        val forceTag = if (force) " [FORCE]" else ""
-        return try {
-            val result = Libbox.recoverNetworkAuto()
-            Log.i(TAG, "[$source]$forceTag recoverNetworkAuto completed: $result")
-            result
-        } catch (e: Exception) {
-            Log.w(TAG, "[$source]$forceTag recoverNetworkAuto failed, fallback to manual", e)
-            recoverNetworkManual()
+        return when (mode) {
+            RecoveryMode.SOFT -> recoverNetworkSoft(source)
+            RecoveryMode.HARD -> recoverNetworkHard(source)
         }
     }
 
@@ -398,8 +426,8 @@ object BoxWrapperManager {
         return try {
             Libbox.recoverNetworkAuto()
         } catch (e: Exception) {
-            Log.w(TAG, "recoverNetworkAuto kernel call failed, fallback to manual", e)
-            recoverNetworkManual()
+            Log.w(TAG, "recoverNetworkAuto kernel call failed, fallback to SOFT", e)
+            recoverNetwork(source = "recoverNetworkAuto-fallback", mode = RecoveryMode.SOFT, force = true)
         }
     }
 
@@ -414,35 +442,46 @@ object BoxWrapperManager {
         }
     }
 
-    /**
-     * Manual network recovery (fallback)
-     * Used when kernel-level recovery is not available
-     *
-     * 2025-fix-v21: 使用 wake() 替代 resume()
-     * wake() 通过 CommandServer.wake() 更彻底地唤醒内核，
-     * 而 resume() 只调用 Libbox.resumeService()
-     * 这解决了息屏久了亮屏后 VPN 连着但没网络的问题
-     */
-    private fun recoverNetworkManual(): Boolean {
+    private fun shouldBypassIdleGuard(source: String): Boolean {
+        return when (source) {
+            "app_foreground",
+            "screen_on",
+            "doze_exit",
+            "network_type_changed" -> true
+
+            else -> false
+        }
+    }
+
+    private fun recoverNetworkSoft(source: String): Boolean {
+        val forceTag = "[SOFT][$source]"
         return try {
-            // Step 1: 唤醒 - 使用 wake() 而非 resume()
-            // wake() 会调用 CommandServer.wake()，更彻底地唤醒 sing-box 内核
-            if (isPausedNow()) {
-                Log.i(TAG, "recoverNetworkManual: waking up paused service")
-                wake()
-            } else {
-                // 即使不处于暂停状态，也尝试唤醒，确保内核完全活跃
-                Log.i(TAG, "recoverNetworkManual: wake() for safety even if not paused")
-                wake()
-            }
-            // Step 2: 关闭连接
-            resetAllConnections(true)
-            // Step 3: 重置网络栈
-            resetNetwork()
-            Log.i(TAG, "recoverNetworkManual completed")
-            true
+            val wakeOk = wake()
+            val resetOk = resetNetwork()
+            val ok = wakeOk && resetOk
+            Log.i(TAG, "$forceTag wake=$wakeOk resetNetwork=$resetOk")
+            ok
         } catch (e: Exception) {
-            Log.e(TAG, "recoverNetworkManual failed", e)
+            Log.w(TAG, "$forceTag failed", e)
+            false
+        }
+    }
+
+    private fun recoverNetworkHard(source: String): Boolean {
+        val forceTag = "[HARD][$source]"
+        return try {
+            val wakeOk = wake()
+            val closed = closeAllTrackedConnections()
+            val resetConnOk = resetAllConnections(true)
+            val resetOk = resetNetwork()
+            val ok = wakeOk && resetConnOk && resetOk
+            Log.i(
+                TAG,
+                "$forceTag wake=$wakeOk closed=$closed resetAllConnections=$resetConnOk resetNetwork=$resetOk"
+            )
+            ok
+        } catch (e: Exception) {
+            Log.e(TAG, "$forceTag failed", e)
             false
         }
     }

@@ -147,22 +147,16 @@ fun SingBoxApp() {
     val settings by settingsRepository.settings.collectAsState(initial = null)
     val dashboardViewModel: DashboardViewModel = viewModel()
 
-    // 2025-fix: 每次 Activity resume 时刷新 VPN 状态
-    // 解决通过快捷方式/通知栏操作后返回 App 时 UI 不更新的问题
-    // 2025-fix-v10: 增加回调失效检测，如果回调超时则强制重连
+    // 每次 Activity resume 时刷新 VPN 状态（仅刷新，不主动重绑 IPC）
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        // 检测回调是否失效 (超过 10 秒无回调)
-        if (SingBoxRemote.isCallbackStale()) {
-            android.util.Log.w("MainActivity", "Callback stale on resume, forcing rebind")
-            SingBoxRemote.rebindAndNotifyForeground(context)
-        }
         dashboardViewModel.refreshState()
     }
 
-    // 在 ON_START 时强制重新绑定 IPC，确保从后台返回时 IPC 连接是有效的
-    // 使用原子化方法，避免 rebind 和 notifyAppLifecycle 的竞态条件
+    // 在 ON_START 时确保 IPC 连接有效，但不强制重连
+    // 使用 ensureBound 而非 rebindAndNotifyForeground，避免每次切回都触发网络重置
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
-        SingBoxRemote.rebindAndNotifyForeground(context)
+        SingBoxRemote.ensureBound(context)
+        SingBoxRemote.notifyAppLifecycle(isForeground = true)
     }
 
     // 2025-fix-v6: 在 ON_STOP 时通知服务端应用进入后台

@@ -515,22 +515,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 setConnectionState(ConnectionState.Idle)
             }
 
-            // 2025-fix-v6: 第二步 - 检测回调通道是否超时
-            val isCallbackStale = SingBoxRemote.isCallbackStale()
-            val lastSyncAge = SingBoxRemote.getLastSyncAge()
-
-            if (isCallbackStale || lastSyncAge > 30_000L) {
-                // 回调通道可能失效，强制重连
-                Log.w(TAG, "refreshState: callback stale (age=${lastSyncAge}ms), forcing rebind")
+            // 第二步 - 主动查询并同步；仅在 Binder 不可用/调用失败时重绑
+            val synced = runCatching { SingBoxRemote.queryAndSyncState(context) }.getOrDefault(false)
+            if (!synced || !SingBoxRemote.isBound()) {
+                Log.w(TAG, "refreshState: binder unavailable or query failed, forcing rebind")
                 SingBoxRemote.rebind(context)
-            } else {
-                // 回调通道正常，尝试同步
-                val synced = runCatching { SingBoxRemote.queryAndSyncState(context) }.getOrDefault(false)
-
-                if (!synced) {
-                    Log.w(TAG, "refreshState: queryAndSyncState failed, forcing rebind")
-                    SingBoxRemote.rebind(context)
-                }
             }
 
             // 等待 IPC 绑定完成

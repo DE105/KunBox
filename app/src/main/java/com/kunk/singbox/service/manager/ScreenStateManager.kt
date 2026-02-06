@@ -38,9 +38,9 @@ class ScreenStateManager(
         fun notifyRemoteStateUpdate(force: Boolean)
 
         /**
-         * 显式唤醒 sing-box 内核
+         * 请求核心网络恢复（由 Service 网关统一决策）
          */
-        suspend fun wakeCore(reason: String): Boolean
+        fun requestCoreNetworkRecovery(reason: String, force: Boolean = false)
     }
 
     private var callbacks: Callbacks? = null
@@ -177,14 +177,11 @@ class ScreenStateManager(
                             SystemClock.elapsedRealtime() - appBackgroundAtMs
                         } else 0L
 
+                        // 网络恢复由 BackgroundPowerManager 统一处理（通过 IPC 路径）
+                        // 此处不再重复触发，避免多次 wakeAndResetNetwork 导致连接中断
                         if (wasInBackground && backgroundDuration >= ACTIVITY_RESUME_RECOVERY_MIN_AWAY_MS) {
                             val seconds = backgroundDuration / 1000
-                            Log.i(TAG, "[ActivityResume] Background ${seconds}s, triggering recovery")
-                            serviceScope.launch {
-                                if (callbacks?.isRunning == true) {
-                                    BoxWrapperManager.wakeAndResetNetwork("activity_resume", force = true)
-                                }
-                            }
+                            Log.i(TAG, "[ActivityResume] Background ${seconds}s, recovery delegated to PowerManager")
                         }
 
                         appBackgroundAtMs = 0L
@@ -262,9 +259,8 @@ class ScreenStateManager(
 
             lastDozeExitRecoveryAtMs = now
 
-            Log.i(TAG, "[Doze] Device wake, resetting network")
-            BoxWrapperManager.wakeAndResetNetwork("doze_exit")
-
+            Log.i(TAG, "[Doze] Device wake, request recovery")
+            callbacks?.requestCoreNetworkRecovery(reason = "doze_exit", force = false)
             callbacks?.notifyRemoteStateUpdate(true)
         } catch (e: Exception) {
             Log.e(TAG, "[Doze] handleDeviceWake failed", e)

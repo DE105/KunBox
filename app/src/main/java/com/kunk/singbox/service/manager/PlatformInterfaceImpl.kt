@@ -71,6 +71,10 @@ class PlatformInterfaceImpl(
         }
 
         override fun isRunning(): Boolean = callbacks.isRunning()
+
+        override fun requestCoreNetworkRecovery(reason: String, force: Boolean) {
+            callbacks.requestCoreNetworkReset(reason, force)
+        }
     }
 
     /**

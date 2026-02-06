@@ -7,7 +7,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.SystemClock
 import android.util.Log
-import com.kunk.singbox.core.BoxWrapperManager
 import kotlinx.coroutines.*
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicLong
@@ -44,6 +43,7 @@ class NetworkSwitchManager(
         fun getLastKnownNetwork(): Network?
         fun updateInterfaceListener(name: String, index: Int, isExpensive: Boolean, isConstrained: Boolean)
         fun isRunning(): Boolean
+        fun requestCoreNetworkRecovery(reason: String, force: Boolean = false)
     }
 
     private var callbacks: Callbacks? = null
@@ -192,12 +192,8 @@ class NetworkSwitchManager(
         }
 
         if (networkChanged && typeChanged) {
-            Log.i(TAG, "Network type changed, resetting connections after interface update")
-            BoxWrapperManager.closeAllTrackedConnections()
-            BoxWrapperManager.resetAllConnections(true)
-            BoxWrapperManager.resetNetwork()
-            Log.i(TAG, "Triggering network recovery")
-            BoxWrapperManager.wakeAndResetNetwork("NetworkSwitch-TypeChange-Sync", force = true)
+            Log.i(TAG, "Network type changed, requesting recovery")
+            cb.requestCoreNetworkRecovery(reason = "network_type_changed", force = true)
         } else if (networkChanged) {
             performHealthCheck(network)
         }
@@ -265,8 +261,8 @@ class NetworkSwitchManager(
                 }
             }
 
-            Log.i(TAG, "Network validated, triggering libbox network recovery")
-            BoxWrapperManager.wakeAndResetNetwork("NetworkSwitch-Validated")
+            Log.i(TAG, "Network validated, requesting recovery")
+            cb.requestCoreNetworkRecovery(reason = "network_validated", force = false)
         }
     }
 

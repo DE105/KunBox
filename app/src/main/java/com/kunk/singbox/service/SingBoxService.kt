@@ -54,6 +54,7 @@ import kotlinx.coroutines.flow.map
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class SingBoxService : VpnService() {
@@ -354,14 +355,8 @@ class SingBoxService : VpnService() {
                 this@SingBoxService.requestRemoteStateUpdate(force)
             }
 
-            override suspend fun wakeCore(reason: String): Boolean {
-                return try {
-                    Log.i(TAG, "[WakeCore] Waking sing-box core: $reason")
-                    BoxWrapperManager.wake()
-                } catch (e: Exception) {
-                    Log.e(TAG, "[WakeCore] Failed to wake core", e)
-                    false
-                }
+            override fun requestCoreNetworkRecovery(reason: String, force: Boolean) {
+                this@SingBoxService.requestCoreNetworkReset(reason, force)
             }
         })
         Log.i(TAG, "ScreenStateManager initialized")
@@ -427,35 +422,16 @@ class SingBoxService : VpnService() {
                 override val isVpnRunning: Boolean
                     get() = isRunning
 
-                override fun suspendNonEssentialProcesses() {
-                    Log.i(TAG, "[PowerSaving] Suspending non-essential processes...")
-                    val closedCount = BoxWrapperManager.closeAllTrackedConnections()
-                    if (closedCount > 0) {
-                        Log.i(TAG, "[PowerSaving] Closed $closedCount tracked connections")
-                    }
+                override fun requestCoreNetworkRecovery(reason: String, force: Boolean) {
+                    this@SingBoxService.requestCoreNetworkReset(reason, force)
+                }
 
-                    commandManager.suspendNonEssential()
-                    trafficMonitor.pause()
-                    runCatching {
-                        coreManager.enterPowerSavingMode()
-                    }.onFailure { e ->
-                        Log.w(TAG, "[PowerSaving] Failed to suppress WifiLock", e)
-                    }
-                    val mins = backgroundPowerSavingThresholdMs / 1000 / 60
-                    LogRepository.getInstance()
-                        .addLog("INFO: Entered power saving mode (background ${mins}min)")
+                override fun suspendNonEssentialProcesses() {
+                    Log.d(TAG, "[PowerSaving] suspendNonEssentialProcesses ignored")
                 }
 
                 override fun resumeNonEssentialProcesses() {
-                    Log.i(TAG, "[PowerSaving] Resuming all processes...")
-                    commandManager.resumeNonEssential()
-                    trafficMonitor.resume()
-                    runCatching {
-                        coreManager.exitPowerSavingMode()
-                    }.onFailure { e ->
-                        Log.w(TAG, "[PowerSaving] Failed to restore WifiLock", e)
-                    }
-                    LogRepository.getInstance().addLog("INFO: Exited power saving mode (user returned)")
+                    Log.d(TAG, "[PowerSaving] resumeNonEssentialProcesses ignored")
                 }
             },
             thresholdMs = initialThresholdMs
@@ -1005,14 +981,288 @@ class SingBoxService : VpnService() {
     }
 
     private fun requestCoreNetworkReset(reason: String, force: Boolean = false) {
-        serviceScope.launch {
-            if (force) {
-                BoxWrapperManager.resetAllConnections(true)
-                delay(150)
-            }
-            BoxWrapperManager.resetNetwork()
-            Log.i(TAG, "Core network reset: $reason (force=$force)")
+        val now = SystemClock.elapsedRealtime()
+        val parsedReason = parseRecoveryReason(reason)
+        val request = RecoveryRequest(
+            reason = parsedReason,
+            rawReason = reason,
+            force = force,
+            requestedAtMs = now,
+            merged = false
+        )
+        submitRecoveryRequest(request)
+    }
+
+    private fun parseRecoveryReason(reason: String): RecoveryReason {
+        val normalized = reason.trim().lowercase()
+        return when {
+            normalized.contains("network_type_changed") ||
+                normalized.contains("typechange") -> RecoveryReason.NETWORK_TYPE_CHANGED
+            normalized.contains("doze_exit") -> RecoveryReason.DOZE_EXIT
+            normalized.contains("network_validated") -> RecoveryReason.NETWORK_VALIDATED
+            normalized.contains("vpnhealth") || normalized.contains("vpn_health") -> RecoveryReason.VPN_HEALTH
+            normalized.contains("app_foreground") -> RecoveryReason.APP_FOREGROUND
+            normalized.contains("screen_on") -> RecoveryReason.SCREEN_ON
+            else -> RecoveryReason.UNKNOWN
         }
+    }
+
+    @Suppress("CognitiveComplexMethod")
+    private fun submitRecoveryRequest(request: RecoveryRequest) {
+        synchronized(this) {
+            if (recoveryInFlight) {
+                val current = pendingRecoveryRequest
+                pendingRecoveryRequest = if (current == null) {
+                    request.copy(merged = true)
+                } else {
+                    chooseHigherPriorityRecovery(current, request.copy(merged = true))
+                }
+                recoveryMergedCount.incrementAndGet()
+                logRecoveryEvent(
+                    event = "merged_inflight",
+                    request = request,
+                    mode = null,
+                    merged = true,
+                    skipped = false,
+                    outcome = null
+                )
+                return
+            }
+
+            val existingMerge = pendingMergeRequest
+            pendingMergeRequest = if (existingMerge == null) {
+                request
+            } else {
+                chooseHigherPriorityRecovery(existingMerge, request.copy(merged = true))
+            }
+
+            val hadExisting = existingMerge != null
+            if (hadExisting) {
+                recoveryMergedCount.incrementAndGet()
+                logRecoveryEvent(
+                    event = "merged_window",
+                    request = request,
+                    mode = null,
+                    merged = true,
+                    skipped = false,
+                    outcome = null
+                )
+            }
+
+            if (recoveryMergeJob?.isActive != true) {
+                recoveryMergeJob = serviceScope.launch {
+                    delay(recoveryMergeWindowMs)
+                    val toRun = synchronized(this@SingBoxService) {
+                        val r = pendingMergeRequest
+                        pendingMergeRequest = null
+                        r
+                    }
+                    if (toRun != null) {
+                        executeRecoveryRequest(toRun)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun chooseHigherPriorityRecovery(a: RecoveryRequest, b: RecoveryRequest): RecoveryRequest {
+        return when {
+            a.force != b.force -> if (a.force) a else b
+            a.reason.priority != b.reason.priority -> if (a.reason.priority >= b.reason.priority) a else b
+            else -> if (a.requestedAtMs >= b.requestedAtMs) a else b
+        }
+    }
+
+    private data class RecoveryDebounceContext(
+        val now: Long,
+        val lane: String,
+        val effectiveGlobalDebounceMs: Long,
+        val effectiveSourceDebounceMs: Long,
+        val reasonKey: String
+    )
+
+    private fun buildRecoveryDebounceContext(request: RecoveryRequest): RecoveryDebounceContext {
+        val lane = if (request.reason.isFastLane) "fast" else "normal"
+        val effectiveGlobalDebounceMs = if (request.reason.isFastLane) {
+            recoveryFastLaneGlobalDebounceMs
+        } else {
+            recoveryGlobalDebounceMs
+        }
+        val effectiveSourceDebounceMs = if (request.reason.isFastLane) {
+            minOf(request.reason.sourceDebounceMs, recoveryFastLaneSourceDebounceCapMs)
+        } else {
+            request.reason.sourceDebounceMs
+        }
+        return RecoveryDebounceContext(
+            now = SystemClock.elapsedRealtime(),
+            lane = lane,
+            effectiveGlobalDebounceMs = effectiveGlobalDebounceMs,
+            effectiveSourceDebounceMs = effectiveSourceDebounceMs,
+            reasonKey = request.reason.name
+        )
+    }
+
+    private fun shouldSkipByGlobalDebounce(
+        request: RecoveryRequest,
+        context: RecoveryDebounceContext
+    ): Boolean {
+        val lastGlobal = recoveryLastTriggeredAtMs.get()
+        if (!request.force && context.now - lastGlobal < context.effectiveGlobalDebounceMs) {
+            recoverySkippedDebounceCount.incrementAndGet()
+            logRecoveryEvent(
+                event = "skipped_global_debounce",
+                request = request,
+                mode = null,
+                merged = request.merged,
+                skipped = true,
+                outcome = "debounce(lane=${context.lane},threshold=${context.effectiveGlobalDebounceMs}ms)"
+            )
+            return true
+        }
+        return false
+    }
+
+    private fun shouldSkipBySourceDebounce(
+        request: RecoveryRequest,
+        context: RecoveryDebounceContext
+    ): Boolean {
+        val reasonLast = recoveryReasonLastAtMs[context.reasonKey] ?: 0L
+        if (!request.force && context.now - reasonLast < context.effectiveSourceDebounceMs) {
+            recoverySkippedDebounceCount.incrementAndGet()
+            logRecoveryEvent(
+                event = "skipped_source_debounce",
+                request = request,
+                mode = null,
+                merged = request.merged,
+                skipped = true,
+                outcome = "debounce(lane=${context.lane},threshold=${context.effectiveSourceDebounceMs}ms)"
+            )
+            return true
+        }
+        return false
+    }
+
+    @Suppress("LongMethod")
+    private suspend fun executeRecoveryRequest(request: RecoveryRequest) {
+        synchronized(this) {
+            recoveryInFlight = true
+        }
+        try {
+            val context = buildRecoveryDebounceContext(request)
+            if (shouldSkipByGlobalDebounce(request, context)) return
+            if (shouldSkipBySourceDebounce(request, context)) return
+
+            recoveryLastTriggeredAtMs.set(context.now)
+            recoveryReasonLastAtMs[context.reasonKey] = context.now
+            recoveryTriggerCount.incrementAndGet()
+
+            val mode = selectRecoveryMode(request)
+            val success = when (mode) {
+                BoxWrapperManager.RecoveryMode.SOFT -> {
+                    recoverySoftCount.incrementAndGet()
+                    BoxWrapperManager.recoverNetwork(request.rawReason, mode, force = request.force)
+                }
+                BoxWrapperManager.RecoveryMode.HARD -> {
+                    recoveryHardCount.incrementAndGet()
+                    BoxWrapperManager.recoverNetwork(request.rawReason, mode, force = true)
+                }
+            }
+
+            if (success) {
+                recoverySuccessCount.incrementAndGet()
+                recoveryConsecutiveFailureCount.set(0)
+            } else {
+                recoveryFailureCount.incrementAndGet()
+                recoveryConsecutiveFailureCount.incrementAndGet()
+            }
+
+            val successRate = calculateRecoverySuccessRate()
+            logRecoveryEvent(
+                event = "executed",
+                request = request,
+                mode = mode,
+                merged = request.merged,
+                skipped = false,
+                outcome = if (success) "success(rate=$successRate)" else "failed(rate=$successRate)"
+            )
+        } finally {
+            val nextRequest = synchronized(this) {
+                recoveryInFlight = false
+                val next = pendingRecoveryRequest
+                pendingRecoveryRequest = null
+                next
+            }
+            if (nextRequest != null) {
+                executeRecoveryRequest(nextRequest)
+            }
+        }
+    }
+
+    private fun selectRecoveryMode(request: RecoveryRequest): BoxWrapperManager.RecoveryMode {
+        if (request.force) return BoxWrapperManager.RecoveryMode.HARD
+        if (request.reason == RecoveryReason.NETWORK_TYPE_CHANGED) return BoxWrapperManager.RecoveryMode.HARD
+        if (recoveryConsecutiveFailureCount.get() >= 2) return BoxWrapperManager.RecoveryMode.HARD
+        return BoxWrapperManager.RecoveryMode.SOFT
+    }
+
+    private fun calculateRecoverySuccessRate(): String {
+        val success = recoverySuccessCount.get()
+        val failure = recoveryFailureCount.get()
+        val total = success + failure
+        if (total <= 0L) return "n/a"
+        val percentage = (success * 100.0) / total.toDouble()
+        return "%.1f%%".format(java.util.Locale.US, percentage)
+    }
+
+    @Suppress("LongParameterList")
+    private fun logRecoveryEvent(
+        event: String,
+        request: RecoveryRequest,
+        mode: BoxWrapperManager.RecoveryMode?,
+        merged: Boolean,
+        skipped: Boolean,
+        outcome: String?
+    ) {
+        val modeText = mode?.name ?: "n/a"
+        val lane = if (request.reason.isFastLane) "fast" else "normal"
+        val message = buildString {
+            append("[RecoveryGate] event=")
+            append(event)
+            append(" lane=")
+            append(lane)
+            append(" reason=")
+            append(request.reason.name)
+            append(" raw=")
+            append(request.rawReason)
+            append(" priority=")
+            append(request.reason.priority)
+            append(" mode=")
+            append(modeText)
+            append(" merged=")
+            append(merged)
+            append(" skipped=")
+            append(skipped)
+            append(" force=")
+            append(request.force)
+            append(" trigger_count=")
+            append(recoveryTriggerCount.get())
+            append(" merged_count=")
+            append(recoveryMergedCount.get())
+            append(" skipped_debounce=")
+            append(recoverySkippedDebounceCount.get())
+            append(" soft_count=")
+            append(recoverySoftCount.get())
+            append(" hard_count=")
+            append(recoveryHardCount.get())
+            append(" success_rate=")
+            append(calculateRecoverySuccessRate())
+            if (!outcome.isNullOrBlank()) {
+                append(" outcome=")
+                append(outcome)
+            }
+        }
+        Log.i(TAG, message)
+        runCatching { LogRepository.getInstance().addLog("INFO: $message") }
     }
 
 /**
@@ -1086,6 +1336,50 @@ class SingBoxService : VpnService() {
 // ACTION_PREPARE_RESTART 防抖：避免短时间内重复触发导致网络反复震荡
     private val lastPrepareRestartAtMs = AtomicLong(0L)
     private val prepareRestartDebounceMs: Long = 1500L
+
+    private enum class RecoveryReason(
+        val priority: Int,
+        val sourceDebounceMs: Long,
+        val isFastLane: Boolean
+    ) {
+        NETWORK_TYPE_CHANGED(priority = 100, sourceDebounceMs = 3000L, isFastLane = true),
+        DOZE_EXIT(priority = 90, sourceDebounceMs = 3000L, isFastLane = true),
+        NETWORK_VALIDATED(priority = 80, sourceDebounceMs = 3000L, isFastLane = false),
+        VPN_HEALTH(priority = 70, sourceDebounceMs = 30000L, isFastLane = false),
+        APP_FOREGROUND(priority = 50, sourceDebounceMs = 3000L, isFastLane = true),
+        SCREEN_ON(priority = 50, sourceDebounceMs = 3000L, isFastLane = true),
+        UNKNOWN(priority = 10, sourceDebounceMs = 3000L, isFastLane = false)
+    }
+
+    private val recoveryGlobalDebounceMs: Long = 1200L
+    private val recoveryFastLaneGlobalDebounceMs: Long = 250L
+    private val recoveryFastLaneSourceDebounceCapMs: Long = 600L
+    private val recoveryMergeWindowMs: Long = 800L
+
+    @Volatile private var recoveryInFlight: Boolean = false
+    @Volatile private var pendingRecoveryRequest: RecoveryRequest? = null
+    @Volatile private var recoveryMergeJob: Job? = null
+    @Volatile private var pendingMergeRequest: RecoveryRequest? = null
+
+    private val recoveryLastTriggeredAtMs = AtomicLong(0L)
+    private val recoveryTriggerCount = AtomicLong(0L)
+    private val recoveryMergedCount = AtomicLong(0L)
+    private val recoverySkippedDebounceCount = AtomicLong(0L)
+    private val recoverySoftCount = AtomicLong(0L)
+    private val recoveryHardCount = AtomicLong(0L)
+    private val recoverySuccessCount = AtomicLong(0L)
+    private val recoveryFailureCount = AtomicLong(0L)
+    private val recoveryConsecutiveFailureCount = AtomicInteger(0)
+
+    private val recoveryReasonLastAtMs = ConcurrentHashMap<String, Long>()
+
+    private data class RecoveryRequest(
+        val reason: RecoveryReason,
+        val rawReason: String,
+        val force: Boolean,
+        val requestedAtMs: Long,
+        val merged: Boolean
+    )
 
     private fun findBestPhysicalNetwork(): Network? {
         // 优先使用 ConnectManager (新架构)

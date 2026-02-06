@@ -2,34 +2,18 @@ package com.kunk.singbox.service.manager
 
 import android.os.SystemClock
 import android.util.Log
-import com.kunk.singbox.core.BoxWrapperManager
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
- * 后台省电管理器
+ * 后台省电管理器（降级为状态记录器）
  *
- * 功能:
- * 1. 检测用户离开 App (后台或息屏) 超过指定时间后，关闭非核心进程以节省资源
- * 2. 用户返回 (前台或亮屏) 时立即恢复所有进程
- *
- * 双信号源设计:
- * - 信号1: 主进程通过 IPC 通知 App 前后台变化 (onAppBackground/onAppForeground)
- * - 信号2: ScreenStateManager 通知屏幕开关状态 (onScreenOff/onScreenOn)
- *
- * 省电触发逻辑:
- * - 任一信号表明"用户离开" -> 开始计时
- * - 任一信号表明"用户返回" -> 取消计时并退出省电
- *
- * 设计理念:
- * - VPN 核心连接必须始终保持 (BoxService, TUN 接口)
- * - 非核心进程 (日志收集、连接追踪、流量监控) 可以暂停
- * - 健康检查可以降低频率而非完全停止
+ * 说明：
+ * - 保留原有 API 形状与调用入口，兼容现有调用方。
+ * - 不再执行任何会影响连接稳定性的省电动作。
+ * - 主进程后台超时自杀由 AppLifecycleObserver 负责，这里仅记录状态。
  */
 class BackgroundPowerManager(
+    @Suppress("unused")
     private val serviceScope: CoroutineScope
 ) {
     companion object {
@@ -44,25 +28,20 @@ class BackgroundPowerManager(
         /** 最大阈值: 2 小时 */
         const val MAX_THRESHOLD_MS = 2 * 60 * 60 * 1000L
 
-        /** 触发网络恢复的最小离开时长: 3 秒 (2025-fix-v26: 从 5 秒降低到 3 秒) */
-        private const val NETWORK_RECOVERY_MIN_AWAY_MS = 3_000L
-
-        /** 网络恢复防抖时间: 500 毫秒 (2025-fix-v26: 从 2 秒降低到 500 毫秒) */
-        private const val NETWORK_RECOVERY_DEBOUNCE_MS = 500L
+        /** 恢复触发最小离开时长: 3 秒（避免过度触发） */
+        private const val MIN_RECOVERY_AWAY_MS = 3_000L
     }
 
     /**
-     * 省电模式状态
+     * 省电模式状态（兼容保留）
      */
     enum class PowerMode {
-        /** 正常模式 - 所有进程运行 */
         NORMAL,
-        /** 省电模式 - 非核心进程已暂停 */
         POWER_SAVING
     }
 
     /**
-     * 回调接口 - 由 SingBoxService 实现
+     * 回调接口 - 由 SingBoxService 实现（兼容保留）
      */
     interface Callbacks {
         /** VPN 是否正在运行 */
@@ -73,11 +52,13 @@ class BackgroundPowerManager(
 
         /** 恢复非核心进程 (退出省电模式) */
         fun resumeNonEssentialProcesses()
+
+        /** 请求核心网络恢复（由 Service 网关统一决策） */
+        fun requestCoreNetworkRecovery(reason: String, force: Boolean = false)
     }
 
     private var callbacks: Callbacks? = null
     private var backgroundThresholdMs: Long = DEFAULT_BACKGROUND_THRESHOLD_MS
-    private var powerSavingJob: Job? = null
 
     @Volatile
     private var currentMode: PowerMode = PowerMode.NORMAL
@@ -88,14 +69,12 @@ class BackgroundPowerManager(
     // 双信号状态
     @Volatile
     private var isAppInBackground: Boolean = false
+
     @Volatile
     private var isScreenOff: Boolean = false
 
     @Volatile
     private var backgroundStartTimeMs: Long = 0L
-
-    @Volatile
-    private var lastNetworkRecoveryAtMs: Long = 0L
 
     /**
      * 当前省电模式
@@ -123,7 +102,7 @@ class BackgroundPowerManager(
             thresholdMs.coerceIn(MIN_THRESHOLD_MS, MAX_THRESHOLD_MS)
         }
         val thresholdDisplay = if (backgroundThresholdMs == Long.MAX_VALUE) "NEVER" else "${backgroundThresholdMs / 1000 / 60}min"
-        Log.i(TAG, "BackgroundPowerManager initialized (threshold=$thresholdDisplay)")
+        Log.i(TAG, "BackgroundPowerManager initialized as state-recorder only (threshold=$thresholdDisplay)")
     }
 
     /**
@@ -135,12 +114,8 @@ class BackgroundPowerManager(
         } else {
             thresholdMs.coerceIn(MIN_THRESHOLD_MS, MAX_THRESHOLD_MS)
         }
-        Log.i(TAG, "Threshold updated to ${backgroundThresholdMs / 1000 / 60}min")
-
-        // 如果用户已离开，重新计算定时器
-        if (isUserAway && currentMode == PowerMode.NORMAL) {
-            schedulePowerSavingCheck()
-        }
+        val thresholdDisplay = if (backgroundThresholdMs == Long.MAX_VALUE) "NEVER" else "${backgroundThresholdMs / 1000 / 60}min"
+        Log.i(TAG, "Threshold updated to $thresholdDisplay")
     }
 
     // ==================== 信号1: 主进程 IPC 通知 ====================
@@ -158,19 +133,30 @@ class BackgroundPowerManager(
 
     /**
      * App 返回前台 (来自主进程 IPC)
-     * 根据后台时长决定是否触发网络恢复
      */
     fun onAppForeground() {
         if (!isAppInBackground) return
+
+        val now = SystemClock.elapsedRealtime()
+        val backgroundDuration = if (backgroundStartTimeMs > 0) {
+            now - backgroundStartTimeMs
+        } else {
+            0L
+        }
+        val awayDuration = if (userAwayAtMs > 0) {
+            now - userAwayAtMs
+        } else {
+            0L
+        }
+
         isAppInBackground = false
 
-        val backgroundDuration = if (backgroundStartTimeMs > 0) {
-            SystemClock.elapsedRealtime() - backgroundStartTimeMs
-        } else 0L
-
-        Log.i(TAG, "[IPC] App returned to foreground after ${backgroundDuration / 1000}s")
-
-        triggerForegroundRecoveryIfNeeded(backgroundDuration, "app_foreground")
+        maybeRequestRecoveryOnReturn(
+            source = "app_foreground",
+            eventLabel = "[IPC] App returned to foreground",
+            eventDurationMs = backgroundDuration,
+            awayDurationMs = awayDuration
+        )
 
         backgroundStartTimeMs = 0L
         evaluateUserPresence()
@@ -193,153 +179,125 @@ class BackgroundPowerManager(
      */
     fun onScreenOn() {
         if (!isScreenOff) return
+
+        val now = SystemClock.elapsedRealtime()
+        val awayDuration = if (userAwayAtMs > 0) {
+            now - userAwayAtMs
+        } else {
+            0L
+        }
+
         isScreenOff = false
 
-        // 2025-fix-v25: 使用 userAwayAtMs 而不是 backgroundStartTimeMs
-        // 因为 backgroundStartTimeMs 只在 App 进入后台时设置
-        // 而 userAwayAtMs 在息屏时也会设置
-        // 这修复了息屏后恢复时 duration=0 导致不触发 QUIC 恢复的 bug
-        val awayDuration = if (userAwayAtMs > 0) {
-            SystemClock.elapsedRealtime() - userAwayAtMs
-        } else 0L
-
-        Log.i(TAG, "[Screen] Screen turned ON after ${awayDuration / 1000}s away")
-
-        triggerForegroundRecoveryIfNeeded(awayDuration, "screen_on")
+        maybeRequestRecoveryOnReturn(
+            source = "screen_on",
+            eventLabel = "[Screen] Screen turned ON",
+            eventDurationMs = awayDuration,
+            awayDurationMs = awayDuration
+        )
 
         evaluateUserPresence()
     }
 
-    private fun triggerForegroundRecoveryIfNeeded(backgroundDurationMs: Long, source: String) {
-        if (callbacks?.isVpnRunning != true) {
-            Log.d(TAG, "[$source] VPN not running, skip recovery")
-            return
-        }
-
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastNetworkRecoveryAtMs < NETWORK_RECOVERY_DEBOUNCE_MS) {
-            Log.d(TAG, "[$source] Recovery skipped (debounce)")
-            return
-        }
-
-        if (backgroundDurationMs < NETWORK_RECOVERY_MIN_AWAY_MS) {
-            Log.d(TAG, "[$source] Away ${backgroundDurationMs}ms < ${NETWORK_RECOVERY_MIN_AWAY_MS}ms, skip recovery")
-            return
-        }
-
-        lastNetworkRecoveryAtMs = now
-        Log.i(TAG, "[$source] Triggering wakeAndResetNetwork after ${backgroundDurationMs / 1000}s away")
-
-        serviceScope.launch(Dispatchers.IO) {
-            try {
-                BoxWrapperManager.wakeAndResetNetwork(source)
-            } catch (e: Exception) {
-                Log.e(TAG, "[$source] wakeAndResetNetwork failed", e)
-            }
-        }
-    }
-
-    // ==================== 统一判断逻辑 ====================
+    // ==================== 统一判断逻辑（状态记录 + 轻量恢复桥接） ====================
 
     /**
-     * 评估用户状态并决定是否触发省电
+     * 在用户回到可交互态时按需触发核心网络恢复
+     */
+    private fun maybeRequestRecoveryOnReturn(
+        source: String,
+        eventLabel: String,
+        eventDurationMs: Long,
+        awayDurationMs: Long
+    ) {
+        val cb = callbacks
+        if (cb == null) {
+            Log.i(
+                TAG,
+                "$eventLabel after ${eventDurationMs / 1000}s, skip recovery: callbacks is null"
+            )
+            return
+        }
+
+        if (!cb.isVpnRunning) {
+            Log.i(
+                TAG,
+                "$eventLabel after ${eventDurationMs / 1000}s, skip recovery: vpn not running"
+            )
+            return
+        }
+
+        if (awayDurationMs < MIN_RECOVERY_AWAY_MS) {
+            Log.i(
+                TAG,
+                "$eventLabel after ${eventDurationMs / 1000}s, skip recovery: " +
+                    "away ${awayDurationMs}ms < ${MIN_RECOVERY_AWAY_MS}ms"
+            )
+            return
+        }
+
+        Log.i(
+            TAG,
+            "$eventLabel after ${eventDurationMs / 1000}s, " +
+                "request recovery(source=$source, force=false, away=${awayDurationMs}ms)"
+        )
+        cb.requestCoreNetworkRecovery(source, force = false)
+    }
+
+    /**
+     * 评估用户状态（仅状态记录）
      */
     private fun evaluateUserPresence() {
-        if (backgroundThresholdMs == Long.MAX_VALUE) {
-            Log.d(TAG, "Power saving disabled (threshold=NEVER)")
+        if (isUserAway) {
+            if (userAwayAtMs == 0L) {
+                userAwayAtMs = SystemClock.elapsedRealtime()
+                val thresholdDisplay = if (backgroundThresholdMs == Long.MAX_VALUE) {
+                    "NEVER"
+                } else {
+                    "${backgroundThresholdMs / 1000 / 60}min"
+                }
+                Log.i(
+                    TAG,
+                    "User away (background=$isAppInBackground, " +
+                        "screenOff=$isScreenOff), threshold=$thresholdDisplay (state-only)"
+                )
+            }
             return
         }
 
-        if (isUserAway) {
-            // 用户离开 - 开始计时
-            if (userAwayAtMs == 0L) {
-                userAwayAtMs = SystemClock.elapsedRealtime()
-                Log.i(TAG, "User away (background=$isAppInBackground, screenOff=$isScreenOff), scheduling power saving in ${backgroundThresholdMs / 1000 / 60}min")
-                schedulePowerSavingCheck()
-            }
-        } else {
-            // 用户回来 - 取消计时并恢复
-            val wasAway = userAwayAtMs > 0
-            if (wasAway) {
-                val awayDuration = SystemClock.elapsedRealtime() - userAwayAtMs
-                Log.i(TAG, "User returned after ${awayDuration / 1000}s")
-            }
-            userAwayAtMs = 0L
+        val wasAway = userAwayAtMs > 0
+        if (wasAway) {
+            val awayDuration = SystemClock.elapsedRealtime() - userAwayAtMs
+            Log.i(TAG, "User returned after ${awayDuration / 1000}s (state-only)")
+        }
+        userAwayAtMs = 0L
 
-            // 取消待执行的省电检查
-            powerSavingJob?.cancel()
-            powerSavingJob = null
-
-            // 如果处于省电模式，立即恢复
-            if (currentMode == PowerMode.POWER_SAVING) {
-                exitPowerSavingMode()
-            }
+        // 兼容兜底：若旧状态残留为 POWER_SAVING，则复位为 NORMAL，但不触发任何恢复动作
+        if (currentMode == PowerMode.POWER_SAVING) {
+            Log.i(TAG, "Resetting legacy POWER_SAVING state to NORMAL (no-op)")
+            currentMode = PowerMode.NORMAL
         }
     }
 
     /**
-     * 调度省电检查
-     */
-    private fun schedulePowerSavingCheck() {
-        powerSavingJob?.cancel()
-
-        powerSavingJob = serviceScope.launch(Dispatchers.Default) {
-            val alreadyAway = SystemClock.elapsedRealtime() - userAwayAtMs
-            val remainingDelay = (backgroundThresholdMs - alreadyAway).coerceAtLeast(0L)
-
-            if (remainingDelay > 0) {
-                Log.d(TAG, "Waiting ${remainingDelay / 1000}s before entering power saving mode")
-                delay(remainingDelay)
-            }
-
-            // 再次检查是否仍然离开
-            if (isUserAway && callbacks?.isVpnRunning == true) {
-                enterPowerSavingMode()
-            }
-        }
-    }
-
-    /**
-     * 进入省电模式
+     * 进入省电模式（兼容保留，no-op）
      */
     private fun enterPowerSavingMode() {
-        if (currentMode == PowerMode.POWER_SAVING) return
-
-        Log.i(TAG, ">>> Entering POWER_SAVING mode - suspending non-essential processes")
-        currentMode = PowerMode.POWER_SAVING
-
-        try {
-            callbacks?.suspendNonEssentialProcesses()
-            Log.i(TAG, "Non-essential processes suspended successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to suspend non-essential processes", e)
-        }
+        Log.d(TAG, "enterPowerSavingMode ignored: state-recorder-only mode")
     }
 
     /**
-     * 退出省电模式
+     * 退出省电模式（兼容保留，no-op）
      */
     private fun exitPowerSavingMode() {
-        if (currentMode == PowerMode.NORMAL) return
-
-        Log.i(TAG, "<<< Exiting POWER_SAVING mode - resuming all processes")
-        currentMode = PowerMode.NORMAL
-
-        try {
-            callbacks?.resumeNonEssentialProcesses()
-            Log.i(TAG, "All processes resumed successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to resume processes", e)
-        }
+        Log.d(TAG, "exitPowerSavingMode ignored: state-recorder-only mode")
     }
 
     /**
      * 强制进入省电模式 (用于测试或手动触发)
      */
     fun forceEnterPowerSaving() {
-        if (callbacks?.isVpnRunning == true) {
-            enterPowerSavingMode()
-        }
+        enterPowerSavingMode()
     }
 
     /**
@@ -353,14 +311,11 @@ class BackgroundPowerManager(
      * 清理资源
      */
     fun cleanup() {
-        powerSavingJob?.cancel()
-        powerSavingJob = null
         currentMode = PowerMode.NORMAL
         isAppInBackground = false
         isScreenOff = false
         userAwayAtMs = 0L
         backgroundStartTimeMs = 0L
-        lastNetworkRecoveryAtMs = 0L
         callbacks = null
         Log.i(TAG, "BackgroundPowerManager cleaned up")
     }
@@ -374,13 +329,21 @@ class BackgroundPowerManager(
             "isAppInBackground" to isAppInBackground,
             "isScreenOff" to isScreenOff,
             "isUserAway" to isUserAway,
-            "thresholdMin" to (backgroundThresholdMs / 1000 / 60),
+            "thresholdMin" to if (backgroundThresholdMs == Long.MAX_VALUE) {
+                Long.MAX_VALUE
+            } else {
+                backgroundThresholdMs / 1000 / 60
+            },
             "awayDurationSec" to if (userAwayAtMs > 0) {
                 (SystemClock.elapsedRealtime() - userAwayAtMs) / 1000
-            } else 0L,
+            } else {
+                0L
+            },
             "backgroundDurationSec" to if (backgroundStartTimeMs > 0) {
                 (SystemClock.elapsedRealtime() - backgroundStartTimeMs) / 1000
-            } else 0L
+            } else {
+                0L
+            }
         )
     }
 }

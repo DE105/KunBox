@@ -341,9 +341,7 @@ object SingBoxRemote {
                 Log.i(TAG, "queryAndSyncState: synced from service")
                 return true
             } else {
-                Log.w(TAG, "queryAndSyncState: sync failed, forcing reconnect")
-                disconnect(context)
-                connect(context)
+                Log.w(TAG, "queryAndSyncState: sync failed")
                 return false
             }
         }
