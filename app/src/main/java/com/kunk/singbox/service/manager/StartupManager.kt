@@ -318,7 +318,9 @@ class StartupManager(
         val ruleSetDeferred = async { ensureRuleSetReady() }
         val settingsDeferred = async {
             val t = SystemClock.elapsedRealtime()
-            val settings = SettingsRepository.getInstance(context).settings.first()
+            val settingsRepository = SettingsRepository.getInstance(context)
+            settingsRepository.reloadFromStorage()
+            val settings = settingsRepository.settings.first()
             log("[parallelInit] loadSettings: ${SystemClock.elapsedRealtime() - t}ms")
             settings
         }

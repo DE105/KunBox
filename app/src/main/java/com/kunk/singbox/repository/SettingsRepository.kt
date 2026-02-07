@@ -87,6 +87,13 @@ class SettingsRepository(private val context: Context) {
      */
     val settings: StateFlow<AppSettings> = settingsStore.settings
 
+    /**
+     * 在多进程场景下强制从 Room 重新加载设置，避免使用到进程内旧缓存。
+     */
+    fun reloadFromStorage() {
+        settingsStore.reload()
+    }
+
     // ==================== 通用设置 ====================
 
     suspend fun setAutoConnect(value: Boolean) {
