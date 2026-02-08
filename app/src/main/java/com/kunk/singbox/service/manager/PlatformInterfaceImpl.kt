@@ -12,7 +12,6 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.system.OsConstants
 import android.util.Log
-import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.NetworkInterfaceIterator
 import io.nekohasekai.libbox.PlatformInterface
@@ -254,20 +253,11 @@ class PlatformInterfaceImpl(
         sourcePort: Int,
         destinationAddress: String?,
         destinationPort: Int
-    ): ConnectionOwner {
+    ): Int {
         callbacks.incrementConnectionOwnerCalls()
 
         // Avoid expensive /proc scanning when it's known to be unreadable.
         val procFsUsable = runCatching { useProcFS() }.getOrDefault(false)
-
-        fun buildConnectionOwner(uid: Int): ConnectionOwner {
-            val owner = ConnectionOwner()
-            owner.userId = uid
-            if (uid > 0) {
-                owner.androidPackageName = packageNameByUid(uid)
-            }
-            return owner
-        }
 
         fun findUidFromProcFsBySourcePort(protocol: Int, srcPort: Int): Int {
             if (srcPort <= 0) return 0
@@ -318,7 +308,7 @@ class PlatformInterfaceImpl(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             callbacks.incrementConnectionOwnerInvalidArgs()
             callbacks.setConnectionOwnerLastEvent("api<29")
-            return buildConnectionOwner(0)
+            return 0
         }
 
         fun parseAddress(value: String?): InetAddress? {
@@ -348,18 +338,18 @@ class PlatformInterfaceImpl(
                 callbacks.setConnectionOwnerLastEvent(
                     "procfs_fallback uid=$uid proto=$protocol src=$sourceAddress:$sourcePort dst=$destinationAddress:$destinationPort"
                 )
-                return buildConnectionOwner(uid)
+                return uid
             }
 
             callbacks.incrementConnectionOwnerInvalidArgs()
             callbacks.setConnectionOwnerLastEvent(
                 "invalid_args src=$sourceAddress:$sourcePort dst=$destinationAddress:$destinationPort proto=$ipProtocol"
             )
-            return buildConnectionOwner(0)
+            return 0
         }
 
         return try {
-            val cm = callbacks.getConnectivityManager() ?: return buildConnectionOwner(0)
+            val cm = callbacks.getConnectivityManager() ?: return 0
             val uid = cm.getConnectionOwnerUid(
                 protocol,
                 InetSocketAddress(sourceIp, sourcePort),
@@ -371,12 +361,12 @@ class PlatformInterfaceImpl(
                 callbacks.setConnectionOwnerLastEvent(
                     "resolved uid=$uid proto=$protocol $sourceIp:$sourcePort->$destinationIp:$destinationPort"
                 )
-                buildConnectionOwner(uid)
+                uid
             } else {
                 callbacks.setConnectionOwnerLastEvent(
                     "unresolved uid=$uid proto=$protocol $sourceIp:$sourcePort->$destinationIp:$destinationPort"
                 )
-                buildConnectionOwner(0)
+                0
             }
         } catch (e: SecurityException) {
             callbacks.incrementConnectionOwnerSecurityDenied()
@@ -394,9 +384,9 @@ class PlatformInterfaceImpl(
                 callbacks.incrementConnectionOwnerUidResolved()
                 callbacks.setConnectionOwnerLastUid(uid)
                 callbacks.setConnectionOwnerLastEvent("procfs_fallback_after_security uid=$uid")
-                buildConnectionOwner(uid)
+                uid
             } else {
-                buildConnectionOwner(0)
+                0
             }
         } catch (e: Exception) {
             callbacks.incrementConnectionOwnerOtherException()
@@ -406,14 +396,14 @@ class PlatformInterfaceImpl(
                 callbacks.incrementConnectionOwnerUidResolved()
                 callbacks.setConnectionOwnerLastUid(uid)
                 callbacks.setConnectionOwnerLastEvent("procfs_fallback_after_exception uid=$uid")
-                buildConnectionOwner(uid)
+                uid
             } else {
-                buildConnectionOwner(0)
+                0
             }
         }
     }
 
-    fun packageNameByUid(uid: Int): String {
+    override fun packageNameByUid(uid: Int): String {
         if (uid <= 0) return ""
         return try {
             val pkgs = context.packageManager.getPackagesForUid(uid)
@@ -439,7 +429,7 @@ class PlatformInterfaceImpl(
         }
     }
 
-    fun uidByPackageName(packageName: String?): Int {
+    override fun uidByPackageName(packageName: String?): Int {
         if (packageName.isNullOrBlank()) return 0
         return try {
             val appInfo = context.packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
@@ -737,7 +727,7 @@ class PlatformInterfaceImpl(
 
     override fun systemCertificates(): StringIterator? = null
 
-    fun writeLog(message: String?) {
+    override fun writeLog(message: String?) {
         if (message.isNullOrBlank()) return
         com.kunk.singbox.repository.LogRepository.getInstance().addLog(message)
     }

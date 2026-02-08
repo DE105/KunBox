@@ -152,16 +152,10 @@ fun SingBoxApp() {
         dashboardViewModel.refreshState()
     }
 
-    // 在 ON_START 时确保 IPC 连接有效，但不强制重连
-    // 使用 ensureBound 而非 rebindAndNotifyForeground，避免每次切回都触发网络重置
+    // 前后台通知统一走 AppLifecycleObserver，避免与 ProcessLifecycleOwner 双路径竞争
+    // 这里仅确保 IPC 连接有效
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
         SingBoxRemote.ensureBound(context)
-        SingBoxRemote.notifyAppLifecycle(isForeground = true)
-    }
-
-    // 2025-fix-v6: 在 ON_STOP 时通知服务端应用进入后台
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        SingBoxRemote.notifyAppLifecycle(isForeground = false)
     }
 
     // 当语言设置变化时,缓存到 SharedPreferences 供 attachBaseContext 使用

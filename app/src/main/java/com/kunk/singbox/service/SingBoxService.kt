@@ -44,6 +44,7 @@ import com.kunk.singbox.service.manager.BackgroundPowerManager
 import com.kunk.singbox.service.manager.ServiceStateHolder
 import com.kunk.singbox.model.BackgroundPowerSavingDelay
 import com.kunk.singbox.utils.L
+import com.kunk.singbox.utils.KernelHttpClient
 import com.kunk.singbox.utils.NetworkClient
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.*
@@ -470,6 +471,11 @@ class SingBoxService : VpnService() {
         override fun onStarted(configContent: String) {
             Log.i(TAG, "KunBox VPN started successfully")
             notificationManager.setSuppressUpdates(false)
+
+            // 初始化 KernelHttpClient 的代理端口
+            serviceScope.launch {
+                KernelHttpClient.updateProxyPortFromSettings(this@SingBoxService)
+            }
         }
 
         override fun onFailed(error: String) {
@@ -710,6 +716,27 @@ class SingBoxService : VpnService() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to init SelectorManager", e)
         }
+    }
+
+    /**
+     * 触发 URL 测试并返回结果
+     * 使用 CommandClient.urlTest(groupTag) API
+     *
+     * @param groupTag 要测试的 group 标签 (如 "PROXY")
+     * @param timeoutMs 等待结果的超时时间
+     * @return 节点延迟映射 (tag -> delay ms)，失败返回空 Map
+     */
+    suspend fun urlTestGroup(groupTag: String, timeoutMs: Long = 10000L): Map<String, Int> {
+        return commandManager.urlTestGroup(groupTag, timeoutMs)
+    }
+
+    /**
+     * 获取缓存的 URL 测试延迟
+     * @param tag 节点标签
+     * @return 延迟值 (ms)，未测试返回 null
+     */
+    fun getCachedUrlTestDelay(tag: String): Int? {
+        return commandManager.getCachedUrlTestDelay(tag)
     }
 
     private fun closeRecentConnectionsBestEffort(reason: String) {

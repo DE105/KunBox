@@ -18,7 +18,7 @@ import com.kunk.singbox.utils.perf.PerfTracer
 import io.nekohasekai.libbox.CommandClient
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.Libbox
-import io.nekohasekai.libbox.OverrideOptions
+import io.nekohasekai.libbox.BoxService
 import io.nekohasekai.libbox.PlatformInterface
 import io.nekohasekai.libbox.TunOptions
 import kotlinx.coroutines.*
@@ -30,10 +30,11 @@ import java.io.File
  * 负责完整的 VPN 生命周期管理
  * 使用 Result<T> 返回值模式
  *
- * 新版 libbox API:
- * - 不再使用 BoxService，改用 CommandServer
- * - CommandServer.startOrReloadService() 启动服务
- * - CommandServer.closeService() 关闭服务
+ * v1.12.20 libbox API:
+ * - BoxService 通过 Libbox.newService(configContent, platformInterface) 创建
+ * - BoxService.start() 启动服务
+ * - BoxService.close() 关闭服务
+ * - CommandServer.setService(boxService) 关联服务
  */
 class CoreManager(
     private val context: Context,
@@ -49,6 +50,10 @@ class CoreManager(
 
     // ===== 核心状态 =====
     @Volatile var commandServer: CommandServer? = null
+        private set
+
+    // v1.12.20: 添加 BoxService 字段
+    @Volatile var boxService: BoxService? = null
         private set
 
     @Volatile var vpnInterface: ParcelFileDescriptor? = null
@@ -237,9 +242,9 @@ class CoreManager(
     }
 
     /**
-     * 启动 Libbox 服务 (使用 CommandServer API)
+     * 启动 Libbox 服务 (v1.12.20: 使用 BoxService 模式)
      */
-    suspend fun startLibbox(configContent: String, options: OverrideOptions? = null): StartResult {
+    suspend fun startLibbox(configContent: String): StartResult {
         if (isStarting) {
             return StartResult.Failed("Already starting")
         }
@@ -252,21 +257,26 @@ class CoreManager(
         return try {
             val server = commandServer
                 ?: throw IllegalStateException("CommandServer not initialized")
+            val pi = platformInterface
+                ?: throw IllegalStateException("PlatformInterface not initialized")
 
             logRepo.addLog("INFO [Startup] [STEP] startLibbox: ensureLibboxSetup...")
             SingBoxCore.ensureLibboxSetup(context)
 
-            logRepo.addLog("INFO [Startup] [STEP] startLibbox: calling startOrReloadService...")
+            logRepo.addLog("INFO [Startup] [STEP] startLibbox: creating BoxService...")
             val serviceStartTime = android.os.SystemClock.elapsedRealtime()
 
             withContext(Dispatchers.IO) {
-                val overrideOptions = options ?: OverrideOptions()
-                server.startOrReloadService(configContent, overrideOptions)
+                // v1.12.20: 使用 BoxService 模式
+                val service = Libbox.newService(configContent, pi)
+                service.start()
+                boxService = service
+                server.setService(service)
             }
 
             val serviceStartDuration = android.os.SystemClock.elapsedRealtime() - serviceStartTime
             logRepo.addLog(
-                "INFO [Startup] [STEP] startLibbox: startOrReloadService done in ${serviceStartDuration}ms"
+                "INFO [Startup] [STEP] startLibbox: BoxService started in ${serviceStartDuration}ms"
             )
 
             currentConfigContent = configContent
@@ -291,6 +301,7 @@ class CoreManager(
 
     /**
      * 停止服务 (保留 TUN 用于跨配置切换)
+     * v1.12.20: 使用 BoxService.close() 替代 CommandServer.closeService()
      */
     suspend fun stopService(): Result<Unit> {
         return runCatching {
@@ -301,8 +312,9 @@ class CoreManager(
                 // 清除 SelectorManager 状态
                 SelectorManager.clear()
 
-                // 关闭服务
-                commandServer?.closeService()
+                // v1.12.20: 关闭 BoxService
+                boxService?.close()
+                boxService = null
 
                 currentConfigContent = null
                 Log.i(TAG, "Service stopped")
@@ -445,22 +457,27 @@ class CoreManager(
     fun preserveTunInterface(): ParcelFileDescriptor? = vpnInterface
 
     fun setVpnInterface(pfd: ParcelFileDescriptor?) { vpnInterface = pfd }
-    fun isServiceRunning(): Boolean = Libbox.isRunning()
+
+    // v1.12.20: 检查 boxService 是否存在
+    fun isServiceRunning(): Boolean = boxService != null
+
     fun isVpnInterfaceValid(): Boolean = vpnInterface?.fileDescriptor?.valid() == true
 
+    // v1.12.20: 使用 BoxWrapperManager.resume() 替代 CommandServer.wake()
     suspend fun wakeService(): Result<Unit> {
         return runCatching {
             withContext(Dispatchers.IO) {
-                commandServer?.wake()
+                BoxWrapperManager.resume()
                 Unit
             }
         }
     }
 
+    // v1.12.20: 使用 BoxWrapperManager.resetNetwork() 替代 CommandServer.resetNetwork()
     suspend fun resetNetwork(): Result<Unit> {
         return runCatching {
             withContext(Dispatchers.IO) {
-                commandServer?.resetNetwork()
+                BoxWrapperManager.resetNetwork()
                 Unit
             }
         }
@@ -468,6 +485,7 @@ class CoreManager(
 
     /**
      * Hot reload config without destroying VPN service
+     * v1.12.20: 需要关闭旧 BoxService 并创建新的
      * Returns true if hot reload succeeded, false if fallback to full restart is needed
      */
     @Suppress("UNUSED_PARAMETER")
@@ -475,11 +493,17 @@ class CoreManager(
         return runCatching {
             withContext(Dispatchers.IO) {
                 val server = commandServer ?: return@withContext false
+                val pi = platformInterface ?: return@withContext false
 
                 Log.i(TAG, "Attempting hot reload...")
 
-                val options = OverrideOptions()
-                server.startOrReloadService(configContent, options)
+                // v1.12.20: 关闭旧服务，创建新服务
+                boxService?.close()
+
+                val newService = Libbox.newService(configContent, pi)
+                newService.start()
+                boxService = newService
+                server.setService(newService)
 
                 // Update current config content
                 currentConfigContent = configContent

@@ -21,10 +21,11 @@ import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.utils.NetworkClient
+import com.kunk.singbox.utils.KernelHttpClient
 import com.kunk.singbox.repository.RuleSetRepository
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
-import io.nekohasekai.libbox.ConnectionOwner
+import io.nekohasekai.libbox.BoxService
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.NetworkInterfaceIterator
 import io.nekohasekai.libbox.PlatformInterface
@@ -84,6 +85,7 @@ class ProxyOnlyService : Service() {
     }
 
     private var commandServer: CommandServer? = null
+    private var boxService: BoxService? = null
 
     private val notificationUpdateDebounceMs: Long = 900L
     private val lastNotificationUpdateAtMs = java.util.concurrent.atomic.AtomicLong(0L)
@@ -147,14 +149,15 @@ class ProxyOnlyService : Service() {
             return procPaths.all { path -> hasUidHeader(path) }
         }
 
+        // v1.12.20: findConnectionOwner 返回 Int (UID) 而不是 ConnectionOwner
         override fun findConnectionOwner(
             ipProtocol: Int,
             sourceAddress: String?,
             sourcePort: Int,
             destinationAddress: String?,
             destinationPort: Int
-        ): ConnectionOwner {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return ConnectionOwner()
+        ): Int {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return -1
 
             fun parseAddress(value: String?): InetAddress? {
                 if (value.isNullOrBlank()) return null
@@ -169,26 +172,42 @@ class ProxyOnlyService : Service() {
             val sourceIp = parseAddress(sourceAddress)
             val destinationIp = parseAddress(destinationAddress)
             if (sourceIp == null || sourcePort <= 0 || destinationIp == null || destinationPort <= 0) {
-                return ConnectionOwner()
+                return -1
             }
 
             return try {
                 val cm = connectivityManager
                     ?: getSystemService(ConnectivityManager::class.java)
-                    ?: return ConnectionOwner()
+                    ?: return -1
                 val protocol = ipProtocol
-                val uid = cm.getConnectionOwnerUid(
+                cm.getConnectionOwnerUid(
                     protocol,
                     InetSocketAddress(sourceIp, sourcePort),
                     InetSocketAddress(destinationIp, destinationPort)
                 )
-                val result = ConnectionOwner()
-                if (uid > 0) {
-                    result.userId = uid
-                }
-                result
             } catch (_: Exception) {
-                ConnectionOwner()
+                -1
+            }
+        }
+
+        // v1.12.20: 新增 packageNameByUid 方法
+        override fun packageNameByUid(uid: Int): String {
+            return try {
+                val pm = packageManager
+                pm.getPackagesForUid(uid)?.firstOrNull() ?: ""
+            } catch (e: Exception) {
+                ""
+            }
+        }
+
+        // v1.12.20: 新增 uidByPackageName 方法
+        override fun uidByPackageName(packageName: String): Int {
+            return try {
+                val pm = packageManager
+                val appInfo = pm.getApplicationInfo(packageName, 0)
+                appInfo.uid
+            } catch (e: Exception) {
+                -1
             }
         }
 
@@ -288,6 +307,14 @@ class ProxyOnlyService : Service() {
         }
 
         override fun systemCertificates(): StringIterator? = null
+
+        // v1.12.20: 新增 writeLog 方法
+        override fun writeLog(message: String?) {
+            if (message.isNullOrBlank()) return
+            runCatching {
+                LogRepository.getInstance().addLog(message)
+            }
+        }
     }
 
     private class StringIteratorImpl(private val list: List<String>) : StringIterator {
@@ -474,25 +501,35 @@ class ProxyOnlyService : Service() {
                     SingBoxCore.ensureLibboxSetup(this@ProxyOnlyService)
                 }
 
+                // v1.12.20: 使用 postServiceClose 替代 serviceStop，移除 writeDebugMessage
                 val serverHandler = object : CommandServerHandler {
-                    override fun serviceStop() {
-                        Log.i(TAG, "serviceStop requested")
+                    override fun postServiceClose() {
+                        Log.i(TAG, "postServiceClose requested")
                     }
                     override fun serviceReload() {
                         Log.i(TAG, "serviceReload requested")
                     }
                     override fun getSystemProxyStatus(): io.nekohasekai.libbox.SystemProxyStatus? = null
                     override fun setSystemProxyEnabled(isEnabled: Boolean) {}
-                    override fun writeDebugMessage(message: String?) {}
                 }
 
-                val server = Libbox.newCommandServer(serverHandler, platformInterface)
+                // v1.12.20: newCommandServer(handler, maxLines) 签名
+                val server = Libbox.newCommandServer(serverHandler, 100)
                 commandServer = server
                 server.start()
-                server.startOrReloadService(configContent, io.nekohasekai.libbox.OverrideOptions())
+
+                // v1.12.20: 使用 BoxService 模式
+                val service = Libbox.newService(configContent, platformInterface)
+                service.start()
+                boxService = service
+                server.setService(service)
 
                 isRunning = true
                 NetworkClient.onVpnStateChanged(true)
+
+                // 初始化 KernelHttpClient 的代理端口
+                KernelHttpClient.updateProxyPortFromSettings(this@ProxyOnlyService)
+
                 VpnTileService.persistVpnState(applicationContext, true)
                 VpnStateStore.setMode(VpnStateStore.CoreMode.PROXY)
                 VpnTileService.persistVpnPending(applicationContext, "")
@@ -535,7 +572,9 @@ class ProxyOnlyService : Service() {
         jobToJoin?.cancel()
 
         val serverToClose = commandServer
+        val serviceToClose = boxService
         commandServer = null
+        boxService = null
 
         cleanupScope.launch(NonCancellable) {
             try {
@@ -546,7 +585,8 @@ class ProxyOnlyService : Service() {
 
             runCatching {
                 try {
-                    serverToClose?.closeService()
+                    // v1.12.20: 先关闭 BoxService，再关闭 CommandServer
+                    serviceToClose?.close()
                     serverToClose?.close()
                 } catch (e: Exception) { Log.w(TAG, "Failed to close command server", e) }
             }

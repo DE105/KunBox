@@ -79,9 +79,10 @@ object BoxWrapperManager {
 
     /**
      * 检查服务是否可用
+     * v1.12.20: Libbox.isRunning() 已移除，改为检查 commandServer 是否存在
      */
     fun isAvailable(): Boolean {
-        return runCatching { Libbox.isRunning() }.getOrDefault(false)
+        return commandServer != null
     }
 
     // ==================== 节点切换 ====================
@@ -216,25 +217,13 @@ object BoxWrapperManager {
 
     /**
      * 从睡眠中唤醒 - 设备退出空闲 (Doze) 模式时调用
+     * v1.12.20: CommandServer.wake() 已移除，使用 Libbox.resumeService() 替代
      *
      * @return true 如果成功
      */
     fun wake(): Boolean {
-        val server = commandServer
-        if (server == null) {
-            Log.w(TAG, "wake() failed: commandServer is null, falling back to resume()")
-            return resume()
-        }
-        return try {
-            server.wake()
-            _isPaused.value = false
-            lastResumeTimestamp = System.currentTimeMillis()
-            Log.i(TAG, "wake() success")
-            true
-        } catch (e: Exception) {
-            Log.w(TAG, "wake() failed: ${e.message}, falling back to resume()")
-            resume()
-        }
+        // v1.12.20: 直接使用 resume() 实现唤醒功能
+        return resume()
     }
 
     /**
@@ -363,16 +352,13 @@ object BoxWrapperManager {
 
     /**
      * 重置网络
+     * v1.12.20: CommandServer.resetNetwork() 已移除，使用 Libbox.resetAllConnections() 替代
      */
     fun resetNetwork(): Boolean {
-        val server = commandServer
-        if (server == null) {
-            Log.w(TAG, "resetNetwork() failed: commandServer is null")
-            return false
-        }
+        // v1.12.20: 使用 resetAllConnections 作为替代方案
         return try {
-            server.resetNetwork()
-            Log.i(TAG, "resetNetwork() success")
+            Libbox.resetAllConnections(false)
+            Log.i(TAG, "resetNetwork() success (via resetAllConnections)")
             true
         } catch (e: Exception) {
             Log.w(TAG, "resetNetwork() failed: ${e.message}")
@@ -488,74 +474,87 @@ object BoxWrapperManager {
 
     /**
      * URL 测试单个节点
+     * v1.12.20: Libbox.urlTestOutbound() 已移除，返回 -1 表示不支持
+     * 注意: 单节点测试需要使用 OkHttp 回退方案，因为 CommandClient.urlTest() 是针对整个 group 的
      */
+    @Suppress("UNUSED_PARAMETER")
     fun urlTestOutbound(outboundTag: String, url: String, timeoutMs: Int): Int {
-        return try {
-            Libbox.urlTestOutbound(outboundTag, url, timeoutMs)
-        } catch (e: Exception) {
-            Log.w(TAG, "urlTestOutbound failed: ${e.message}")
-            -1
-        }
+        // v1.12.20: urlTestOutbound API 已移除，返回 -1 触发回退到本地测试
+        // CommandClient.urlTest() 是针对整个 group 的，不支持单节点测试
+        Log.d(TAG, "urlTestOutbound: using fallback for single node test")
+        return -1
     }
 
     /**
-     * 批量 URL 测试
+     * 批量 URL 测试 (同步版本)
+     * v1.12.20: 使用 CommandClient.urlTest(groupTag) 实现
+     * 注意: 这是同步方法，如果需要异步测试请使用 urlTestGroupAsync()
      */
+    @Suppress("UNUSED_PARAMETER")
     fun urlTestBatch(
         outboundTags: List<String>,
         url: String,
         timeoutMs: Int,
         concurrency: Int
     ): Map<String, Int> {
-        return try {
-            val tagsStr = outboundTags.joinToString("\n")
-            val result = Libbox.urlTestBatch(tagsStr, url, timeoutMs, concurrency.toLong())
-                ?: return emptyMap()
+        // v1.12.20: 同步方法无法使用异步的 CommandClient.urlTest()
+        // 返回空 Map 触发回退到 OkHttp 方案
+        Log.d(TAG, "urlTestBatch: sync method, returning empty map to trigger fallback")
+        return emptyMap()
+    }
 
-            val map = mutableMapOf<String, Int>()
-            val count = result.len()
-            @Suppress("LoopWithTooManyJumpStatements")
-            for (i in 0 until count) {
-                val item = result.get(i) ?: continue
-                val tag = item.tag
-                if (tag.isNullOrBlank()) continue
-                map[tag] = item.delay
-            }
-            map
+    /**
+     * 异步 URL 测试整个 group
+     * v1.12.20: 使用 CommandClient.urlTest(groupTag) API
+     *
+     * @param groupTag 要测试的 group 标签 (如 "PROXY")
+     * @param timeoutMs 等待结果的超时时间
+     * @return 节点延迟映射 (tag -> delay ms)，失败返回空 Map
+     */
+    suspend fun urlTestGroupAsync(groupTag: String, timeoutMs: Long = 10000L): Map<String, Int> {
+        val service = com.kunk.singbox.service.SingBoxService.instance
+        if (service == null) {
+            Log.w(TAG, "urlTestGroupAsync: service not available")
+            return emptyMap()
+        }
+        return try {
+            service.urlTestGroup(groupTag, timeoutMs)
         } catch (e: Exception) {
-            Log.w(TAG, "urlTestBatch failed: ${e.message}")
+            Log.e(TAG, "urlTestGroupAsync failed: ${e.message}")
             emptyMap()
         }
     }
 
     /**
-     * 关闭空闲连接
+     * 获取缓存的 URL 测试延迟
+     * @param tag 节点标签
+     * @return 延迟值 (ms)，未测试返回 null
      */
+    fun getCachedUrlTestDelay(tag: String): Int? {
+        val service = com.kunk.singbox.service.SingBoxService.instance
+        return service?.getCachedUrlTestDelay(tag)
+    }
+
+    /**
+     * 关闭空闲连接
+     * v1.12.20: Libbox.closeIdleConnections() 已移除，返回 0
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun closeIdleConnections(maxIdleSeconds: Int = 60): Int {
-        return try {
-            val count = Libbox.closeIdleConnections(maxIdleSeconds)
-            if (count > 0) {
-                Log.i(TAG, "closeIdleConnections: closed $count connections (maxIdle=${maxIdleSeconds}s)")
-            }
-            count
-        } catch (e: Exception) {
-            Log.w(TAG, "closeIdleConnections failed: ${e.message}")
-            0
-        }
+        // v1.12.20: closeIdleConnections API 已移除
+        Log.d(TAG, "closeIdleConnections not available in v1.12.20")
+        return 0
     }
 
     // ==================== Main Traffic Protection ====================
 
     /**
      * 通知内核主流量正在活跃
-     * 调用此方法后，延迟测试会自动让路
+     * v1.12.20: Libbox.notifyMainTrafficActive() 已移除，空实现
      */
     fun notifyMainTrafficActive() {
-        try {
-            Libbox.notifyMainTrafficActive()
-        } catch (e: Exception) {
-            Log.w(TAG, "notifyMainTrafficActive failed: ${e.message}")
-        }
+        // v1.12.20: notifyMainTrafficActive API 已移除，空实现
+        Log.d(TAG, "notifyMainTrafficActive not available in v1.12.20")
     }
 
     // ==================== Per-Outbound Traffic ====================
@@ -584,11 +583,14 @@ object BoxWrapperManager {
         }
     }
 
+    /**
+     * 关闭指定应用的连接
+     * v1.12.20: Libbox.closeConnectionsForApp() 已移除，返回 0
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun closeConnectionsForApp(packageName: String): Int {
-        return try {
-            Libbox.closeConnectionsForApp(packageName)
-        } catch (_: Exception) {
-            0
-        }
+        // v1.12.20: closeConnectionsForApp API 已移除
+        Log.d(TAG, "closeConnectionsForApp not available in v1.12.20")
+        return 0
     }
 }

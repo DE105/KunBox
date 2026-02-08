@@ -91,6 +91,15 @@ object SingBoxRemote {
     @Volatile
     private var pendingAppLifecycle: Boolean? = null
 
+    @Volatile
+    private var pendingLifecycleVersion: Long = 0L
+
+    @Volatile
+    private var sentLifecycleVersion: Long = 0L
+
+    @Volatile
+    private var pendingLifecycleRetry: Runnable? = null
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val callback = object : ISingBoxServiceCallback.Stub() {
@@ -159,6 +168,85 @@ object SingBoxRemote {
     @Volatile
     private var SagerConnection_restartingApp = false
 
+    private fun clearPendingLifecycleRetry() {
+        pendingLifecycleRetry?.let { mainHandler.removeCallbacks(it) }
+        pendingLifecycleRetry = null
+    }
+
+    private fun schedulePendingLifecycleRetry(version: Long) {
+        clearPendingLifecycleRetry()
+        val retryTask = Runnable {
+            if (pendingLifecycleVersion != version) {
+                return@Runnable
+            }
+            val pending = pendingAppLifecycle ?: return@Runnable
+            val s = service
+            if (s != null && connectionActive && bound) {
+                runCatching {
+                    s.notifyAppLifecycle(pending)
+                    sentLifecycleVersion = version
+                    pendingAppLifecycle = null
+                    clearPendingLifecycleRetry()
+                    Log.w(TAG, "notifyAppLifecycle retried: isForeground=$pending")
+                }.onFailure {
+                    Log.w(TAG, "notifyAppLifecycle retry failed", it)
+                    schedulePendingLifecycleRetry(version)
+                }
+                return@Runnable
+            }
+
+            val ctx = contextRef?.get()
+            if (ctx != null && (!connectionActive || !bound || service == null)) {
+                ensureBound(ctx)
+            }
+            schedulePendingLifecycleRetry(version)
+        }
+        pendingLifecycleRetry = retryTask
+        mainHandler.postDelayed(retryTask, RECONNECT_DELAY_MS)
+    }
+
+    private fun rebindAndNotifyLifecycle(context: Context, isForeground: Boolean, version: Long) {
+        pendingAppLifecycle = isForeground
+        pendingLifecycleVersion = version
+        sentLifecycleVersion = minOf(sentLifecycleVersion, version - 1)
+        if (!connectionActive) {
+            rebind(context)
+        }
+    }
+
+    private fun flushPendingAppLifecycle(tag: String = "pending") {
+        val pending = pendingAppLifecycle ?: return
+        val version = pendingLifecycleVersion
+        if (version <= sentLifecycleVersion) {
+            pendingAppLifecycle = null
+            return
+        }
+        val s = service
+        if (s == null || !connectionActive || !bound) {
+            val ctx = contextRef?.get()
+            if (ctx != null) {
+                rebindAndNotifyLifecycle(ctx, pending, version)
+            }
+            schedulePendingLifecycleRetry(version)
+            return
+        }
+
+        runCatching {
+            s.notifyAppLifecycle(pending)
+            sentLifecycleVersion = version
+            pendingAppLifecycle = null
+            clearPendingLifecycleRetry()
+            Log.d(TAG, "notifyAppLifecycle ($tag): isForeground=$pending")
+        }.onFailure {
+            Log.w(TAG, "Failed to notify $tag app lifecycle", it)
+            val ctx = contextRef?.get()
+            if (ctx != null) {
+                rebindAndNotifyLifecycle(ctx, pending, version)
+            }
+            schedulePendingLifecycleRetry(version)
+        }
+    }
+
     private fun cleanupConnection() {
         runCatching { binder?.unlinkToDeath(deathRecipient, 0) }
         binder = null
@@ -188,15 +276,7 @@ object SingBoxRemote {
 
             syncStateFromService(s)
 
-            pendingAppLifecycle?.let { pending ->
-                pendingAppLifecycle = null
-                runCatching {
-                    s.notifyAppLifecycle(pending)
-                    Log.d(TAG, "notifyAppLifecycle (pending): isForeground=$pending")
-                }.onFailure {
-                    Log.w(TAG, "Failed to notify pending app lifecycle", it)
-                }
-            }
+            flushPendingAppLifecycle()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -292,6 +372,7 @@ object SingBoxRemote {
 
     fun disconnect(context: Context) {
         unregisterCallback()
+        clearPendingLifecycleRetry()
         if (connectionActive) {
             runCatching { context.applicationContext.unbindService(conn) }
         }
@@ -453,22 +534,22 @@ object SingBoxRemote {
      * 用于触发省电模式
      */
     fun notifyAppLifecycle(isForeground: Boolean) {
+        val version = pendingLifecycleVersion + 1
+        pendingLifecycleVersion = version
+        pendingAppLifecycle = isForeground
+
         val s = service
         if (s != null && connectionActive && bound) {
-            runCatching {
-                s.notifyAppLifecycle(isForeground)
-                Log.d(TAG, "notifyAppLifecycle: isForeground=$isForeground")
-            }.onFailure {
-                Log.w(TAG, "Failed to notify app lifecycle", it)
-            }
-        } else {
-            pendingAppLifecycle = isForeground
-            val ctx = contextRef?.get()
-            if (ctx != null) {
-                ensureBound(ctx)
-            }
-            Log.d(TAG, "notifyAppLifecycle: service not connected, queued")
+            flushPendingAppLifecycle(tag = "immediate")
+            return
         }
+
+        val ctx = contextRef?.get()
+        if (ctx != null) {
+            rebindAndNotifyLifecycle(ctx, isForeground, version)
+        }
+        schedulePendingLifecycleRetry(version)
+        Log.d(TAG, "notifyAppLifecycle: queued version=$version isForeground=$isForeground")
     }
 
     object HotReloadResult {

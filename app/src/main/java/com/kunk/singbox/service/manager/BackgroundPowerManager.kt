@@ -2,6 +2,7 @@ package com.kunk.singbox.service.manager
 
 import android.os.SystemClock
 import android.util.Log
+import com.kunk.singbox.repository.LogRepository
 import kotlinx.coroutines.CoroutineScope
 
 /**
@@ -76,6 +77,13 @@ class BackgroundPowerManager(
     @Volatile
     private var backgroundStartTimeMs: Long = 0L
 
+    private val logRepo by lazy { LogRepository.getInstance() }
+
+    private fun logState(message: String) {
+        Log.i(TAG, message)
+        runCatching { logRepo.addLog("INFO [Power] $message") }
+    }
+
     /**
      * 当前省电模式
      */
@@ -135,7 +143,10 @@ class BackgroundPowerManager(
      * App 返回前台 (来自主进程 IPC)
      */
     fun onAppForeground() {
-        if (!isAppInBackground) return
+        if (!isAppInBackground) {
+            logState("[IPC] App foreground ignored: state mismatch (isAppInBackground=false)")
+            return
+        }
 
         val now = SystemClock.elapsedRealtime()
         val backgroundDuration = if (backgroundStartTimeMs > 0) {
@@ -212,32 +223,24 @@ class BackgroundPowerManager(
     ) {
         val cb = callbacks
         if (cb == null) {
-            Log.i(
-                TAG,
-                "$eventLabel after ${eventDurationMs / 1000}s, skip recovery: callbacks is null"
-            )
+            logState("$eventLabel after ${eventDurationMs / 1000}s, skip recovery: callbacks is null")
             return
         }
 
         if (!cb.isVpnRunning) {
-            Log.i(
-                TAG,
-                "$eventLabel after ${eventDurationMs / 1000}s, skip recovery: vpn not running"
-            )
+            logState("$eventLabel after ${eventDurationMs / 1000}s, skip recovery: vpn not running")
             return
         }
 
         if (awayDurationMs < MIN_RECOVERY_AWAY_MS) {
-            Log.i(
-                TAG,
+            logState(
                 "$eventLabel after ${eventDurationMs / 1000}s, skip recovery: " +
                     "away ${awayDurationMs}ms < ${MIN_RECOVERY_AWAY_MS}ms"
             )
             return
         }
 
-        Log.i(
-            TAG,
+        logState(
             "$eventLabel after ${eventDurationMs / 1000}s, " +
                 "request recovery(source=$source, force=false, away=${awayDurationMs}ms)"
         )
