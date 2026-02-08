@@ -1,17 +1,11 @@
 package com.kunk.singbox.core
 
 import android.util.Log
-import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.model.Outbound
 import com.kunk.singbox.service.SingBoxService
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -41,6 +35,9 @@ class SafeLatencyTester private constructor() {
         private const val CIRCUIT_BREAKER_THRESHOLD = 3
         private const val CIRCUIT_BREAKER_COOLDOWN_MS = 10000L
 
+        /** v1.12.20 中不再使用并发测试，保留兼容 */
+        const val DEFAULT_CONCURRENCY = 1
+
         @Volatile
         private var instance: SafeLatencyTester? = null
 
@@ -58,7 +55,6 @@ class SafeLatencyTester private constructor() {
 
     // 主连接保护
     private var guardJob: Job? = null
-    private val guardScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     /**
      * 安全的批量延迟测试
@@ -195,9 +191,4 @@ class SafeLatencyTester private constructor() {
      * 检查是否正在测试
      */
     fun isTesting(): Boolean = isTestingActive.get()
-
-    /**
-     * 获取当前并发数 (v1.12.20 中不再使用，保留兼容)
-     */
-    fun getCurrentConcurrency(): Int = 1
 }

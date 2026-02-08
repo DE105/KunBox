@@ -196,6 +196,7 @@ class ProxyOnlyService : Service() {
                 val pm = packageManager
                 pm.getPackagesForUid(uid)?.firstOrNull() ?: ""
             } catch (e: Exception) {
+                Log.w(TAG, "packageNameByUid failed for uid=$uid: ${e.message}")
                 ""
             }
         }
@@ -207,6 +208,7 @@ class ProxyOnlyService : Service() {
                 val appInfo = pm.getApplicationInfo(packageName, 0)
                 appInfo.uid
             } catch (e: Exception) {
+                Log.w(TAG, "uidByPackageName failed for $packageName: ${e.message}")
                 -1
             }
         }

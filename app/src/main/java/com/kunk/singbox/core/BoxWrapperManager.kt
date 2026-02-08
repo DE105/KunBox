@@ -281,6 +281,116 @@ object BoxWrapperManager {
         }
     }
 
+    // ==================== 智能恢复 (Phase 1) ====================
+
+    /**
+     * 智能恢复 - 三级渐进式恢复策略
+     *
+     * Level 1 (PROBE): 探测 VPN 链路，如果正常则无需恢复
+     * Level 2 (SELECTIVE): 关闭所有连接 + resetNetwork
+     * Level 3 (NUCLEAR): 完整重置 (resetAllConnections + resetNetwork)
+     *
+     * @param context Android Context，用于探测
+     * @param source 调用来源，用于日志追踪
+     * @param skipProbe 是否跳过探测直接恢复（用于已知链路异常的场景）
+     * @return SmartRecoveryResult 恢复结果
+     */
+    suspend fun smartRecover(
+        context: android.content.Context,
+        source: String,
+        skipProbe: Boolean = false
+    ): SmartRecoveryResult {
+        if (!isAvailable()) {
+            Log.d(TAG, "[$source] smartRecover skipped (service not available)")
+            return SmartRecoveryResult(RecoveryLevel.NONE, false, "service not available")
+        }
+
+        val startTime = System.currentTimeMillis()
+
+        // Level 1: PROBE
+        if (!skipProbe) {
+            val probeResult = executeProbeLevel(context, source, startTime)
+            if (probeResult != null) return probeResult
+        }
+
+        // Level 2: SELECTIVE
+        val selectiveResult = executeSelectiveLevel(context, source, startTime)
+        if (selectiveResult.success && selectiveResult.level == RecoveryLevel.SELECTIVE) {
+            return selectiveResult
+        }
+
+        // Level 3: NUCLEAR
+        return executeNuclearLevel(source, startTime, selectiveResult.closedConnections)
+    }
+
+    private suspend fun executeProbeLevel(
+        context: android.content.Context,
+        source: String,
+        startTime: Long
+    ): SmartRecoveryResult? {
+        Log.i(TAG, "[$source] smartRecover: Level 1 (PROBE)")
+        val probeResult = ProbeManager.probeFirstSuccessViaVpn(context, timeoutMs = 1500L)
+
+        if (probeResult != null) {
+            val elapsed = System.currentTimeMillis() - startTime
+            Log.i(TAG, "[$source] PROBE success (${probeResult.latencyMs}ms), total: ${elapsed}ms")
+            return SmartRecoveryResult(
+                RecoveryLevel.PROBE, true, "VPN link healthy",
+                probeLatencyMs = probeResult.latencyMs
+            )
+        }
+        Log.w(TAG, "[$source] PROBE failed, escalating to SELECTIVE")
+        return null
+    }
+
+    private suspend fun executeSelectiveLevel(
+        context: android.content.Context,
+        source: String,
+        startTime: Long
+    ): SmartRecoveryResult {
+        Log.i(TAG, "[$source] smartRecover: Level 2 (SELECTIVE)")
+        wake()
+        // Phase 2: 优先关闭空闲连接，保留活跃连接
+        val closedCount = closeIdleConnections(maxIdleSeconds = 30)
+        resetNetwork()
+        Log.i(TAG, "[$source] SELECTIVE closed=$closedCount")
+
+        kotlinx.coroutines.delay(300)
+        val verifyResult = ProbeManager.probeFirstSuccessViaVpn(context, timeoutMs = 1500L)
+
+        if (verifyResult != null) {
+            val elapsed = System.currentTimeMillis() - startTime
+            Log.i(TAG, "[$source] SELECTIVE success, verify=${verifyResult.latencyMs}ms, total: ${elapsed}ms")
+            return SmartRecoveryResult(
+                RecoveryLevel.SELECTIVE, true, "SELECTIVE succeeded",
+                closedConnections = closedCount, probeLatencyMs = verifyResult.latencyMs
+            )
+        }
+        Log.w(TAG, "[$source] SELECTIVE verify failed, escalating to NUCLEAR")
+        return SmartRecoveryResult(RecoveryLevel.SELECTIVE, false, "verify failed", closedCount)
+    }
+
+    private fun executeNuclearLevel(source: String, startTime: Long, closedCount: Int): SmartRecoveryResult {
+        Log.i(TAG, "[$source] smartRecover: Level 3 (NUCLEAR)")
+        resetAllConnections(true)
+        resetNetwork()
+        val elapsed = System.currentTimeMillis() - startTime
+        Log.i(TAG, "[$source] NUCLEAR completed, total: ${elapsed}ms")
+        return SmartRecoveryResult(RecoveryLevel.NUCLEAR, true, "NUCLEAR completed", closedCount)
+    }
+
+    /** 恢复级别 */
+    enum class RecoveryLevel { NONE, PROBE, SELECTIVE, NUCLEAR }
+
+    /** 智能恢复结果 */
+    data class SmartRecoveryResult(
+        val level: RecoveryLevel,
+        val success: Boolean,
+        val reason: String,
+        val closedConnections: Int = 0,
+        val probeLatencyMs: Long? = null
+    )
+
     // ==================== 流量统计 ====================
 
     /**
@@ -326,7 +436,7 @@ object BoxWrapperManager {
      */
     fun getConnectionCount(): Int {
         return try {
-            Libbox.getConnectionCount()
+            Libbox.getConnectionCount().toInt()
         } catch (e: Exception) {
             0
         }
@@ -371,7 +481,7 @@ object BoxWrapperManager {
      */
     fun closeAllTrackedConnections(): Int {
         return try {
-            val count = Libbox.closeAllTrackedConnections()
+            val count = Libbox.closeAllTrackedConnections().toInt()
             if (count > 0) {
                 Log.i(TAG, "closeAllTrackedConnections: closed $count connections")
             }
@@ -379,6 +489,32 @@ object BoxWrapperManager {
         } catch (e: Exception) {
             Log.w(TAG, "closeAllTrackedConnections failed: ${e.message}")
             0
+        }
+    }
+
+    /**
+     * 关闭空闲连接 (Phase 2)
+     * 关闭空闲超过指定时间的连接
+     *
+     * @param maxIdleSeconds 最大空闲时间(秒)
+     * @return 关闭的连接数
+     */
+    fun closeIdleConnections(maxIdleSeconds: Int = 30): Int {
+        // 尝试通过反射调用内核扩展 API (避免编译时依赖)
+        return try {
+            val method = Libbox::class.java.getMethod("closeIdleConnections", Long::class.javaPrimitiveType)
+            val count = (method.invoke(null, maxIdleSeconds.toLong()) as Number).toInt()
+            if (count > 0) {
+                Log.i(TAG, "closeIdleConnections($maxIdleSeconds): closed $count connections")
+            }
+            count
+        } catch (e: NoSuchMethodException) {
+            // 内核不支持此 API，回退到关闭所有连接
+            Log.w(TAG, "closeIdleConnections not available in kernel: ${e.message}, fallback")
+            closeAllTrackedConnections()
+        } catch (e: Exception) {
+            Log.w(TAG, "closeIdleConnections failed: ${e.message}, fallback to closeAllTrackedConnections")
+            closeAllTrackedConnections()
         }
     }
 
@@ -533,17 +669,6 @@ object BoxWrapperManager {
     fun getCachedUrlTestDelay(tag: String): Int? {
         val service = com.kunk.singbox.service.SingBoxService.instance
         return service?.getCachedUrlTestDelay(tag)
-    }
-
-    /**
-     * 关闭空闲连接
-     * v1.12.20: Libbox.closeIdleConnections() 已移除，返回 0
-     */
-    @Suppress("UNUSED_PARAMETER")
-    fun closeIdleConnections(maxIdleSeconds: Int = 60): Int {
-        // v1.12.20: closeIdleConnections API 已移除
-        Log.d(TAG, "closeIdleConnections not available in v1.12.20")
-        return 0
     }
 
     // ==================== Main Traffic Protection ====================

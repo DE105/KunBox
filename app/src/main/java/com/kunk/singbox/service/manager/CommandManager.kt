@@ -95,6 +95,7 @@ class CommandManager(
     /**
      * 创建 CommandServer 并启动服务
      */
+    @Suppress("UNUSED_PARAMETER")
     fun createServer(platformInterface: PlatformInterface): Result<CommandServer> = runCatching {
         val serverHandler = object : CommandServerHandler {
             override fun postServiceClose() {
@@ -458,73 +459,8 @@ class CommandManager(
 
         override fun writeGroups(groups: OutboundGroupIterator?) {
             if (groups == null) return
-            val configRepo = ConfigRepository.getInstance(context)
-
             try {
-                var changed = false
-                val pendingGroup = pendingUrlTestGroupTag
-                val testResults = mutableMapOf<String, Int>()
-
-                Log.d(TAG, "writeGroups called, pendingGroup=$pendingGroup")
-
-                while (groups.hasNext()) {
-                    val group = groups.next()
-                    val tag = group.tag
-                    val selected = group.selected
-
-                    Log.d(TAG, "Processing group: $tag, selected=$selected")
-
-                    if (!tag.isNullOrBlank() && !selected.isNullOrBlank()) {
-                        val prev = groupSelectedOutbounds.put(tag, selected)
-                        if (prev != selected) changed = true
-                    }
-
-                    // 处理 URL 测试结果 - 收集所有 group 的结果
-                    val items = group.items
-                    if (items != null) {
-                        var itemCount = 0
-                        var delayCount = 0
-                        while (items.hasNext()) {
-                            val item = items.next()
-                            val itemTag = item?.tag
-                            val delay = item?.urlTestDelay ?: 0
-                            itemCount++
-                            if (!itemTag.isNullOrBlank() && delay > 0) {
-                                delayCount++
-                                // 如果是目标 group，收集结果
-                                if (pendingGroup != null && tag.equals(pendingGroup, ignoreCase = true)) {
-                                    testResults[itemTag] = delay
-                                    urlTestResults[itemTag] = delay
-                                }
-                            }
-                        }
-                        Log.d(TAG, "Group $tag: $itemCount items, $delayCount with delay")
-                    }
-
-                    if (tag.equals("PROXY", ignoreCase = true)) {
-                        if (!selected.isNullOrBlank() && selected != realTimeNodeName) {
-                            realTimeNodeName = selected
-                            VpnStateStore.setActiveLabel(selected)
-                            Log.i(TAG, "Real-time node update: $selected")
-                            serviceScope.launch {
-                                configRepo.syncActiveNodeFromProxySelection(selected)
-                            }
-                            changed = true
-                        }
-                    }
-                }
-
-                // 通知 URL 测试完成
-                if (pendingGroup != null) {
-                    Log.i(TAG, "URL test results for $pendingGroup: ${testResults.size} items")
-                    if (testResults.isNotEmpty()) {
-                        urlTestCompletionCallback?.invoke(testResults)
-                    }
-                }
-
-                if (changed) {
-                    callbacks?.requestNotificationUpdate(false)
-                }
+                processGroups(groups)
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing groups update", e)
             }
@@ -540,6 +476,100 @@ class CommandManager(
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing connections", e)
             }
+        }
+    }
+
+    private fun processGroups(groups: OutboundGroupIterator) {
+        val configRepo = ConfigRepository.getInstance(context)
+        var changed = false
+        val pendingGroup = pendingUrlTestGroupTag
+        val testResults = mutableMapOf<String, Int>()
+
+        Log.d(TAG, "writeGroups called, pendingGroup=$pendingGroup")
+
+        while (groups.hasNext()) {
+            val group = groups.next()
+            val groupChanged = processGroup(group, pendingGroup, testResults, configRepo)
+            if (groupChanged) changed = true
+        }
+
+        notifyUrlTestCompletion(pendingGroup, testResults)
+        if (changed) {
+            callbacks?.requestNotificationUpdate(false)
+        }
+    }
+
+    private fun processGroup(
+        group: OutboundGroup,
+        pendingGroup: String?,
+        testResults: MutableMap<String, Int>,
+        configRepo: ConfigRepository
+    ): Boolean {
+        val tag = group.tag
+        val selected = group.selected
+        var changed = false
+
+        Log.d(TAG, "Processing group: $tag, selected=$selected")
+
+        if (!tag.isNullOrBlank() && !selected.isNullOrBlank()) {
+            val prev = groupSelectedOutbounds.put(tag, selected)
+            if (prev != selected) changed = true
+        }
+
+        collectGroupTestResults(group, tag, pendingGroup, testResults)
+        changed = updateProxyGroupSelection(tag, selected, configRepo) || changed
+
+        return changed
+    }
+
+    private fun collectGroupTestResults(
+        group: OutboundGroup,
+        tag: String?,
+        pendingGroup: String?,
+        testResults: MutableMap<String, Int>
+    ) {
+        val items = group.items ?: return
+        var itemCount = 0
+        var delayCount = 0
+
+        while (items.hasNext()) {
+            val item = items.next()
+            val itemTag = item?.tag
+            val delay = item?.urlTestDelay ?: 0
+            itemCount++
+            if (!itemTag.isNullOrBlank() && delay > 0) {
+                delayCount++
+                if (pendingGroup != null && tag.equals(pendingGroup, ignoreCase = true)) {
+                    testResults[itemTag] = delay
+                    urlTestResults[itemTag] = delay
+                }
+            }
+        }
+        Log.d(TAG, "Group $tag: $itemCount items, $delayCount with delay")
+    }
+
+    private fun updateProxyGroupSelection(
+        tag: String?,
+        selected: String?,
+        configRepo: ConfigRepository
+    ): Boolean {
+        if (!tag.equals("PROXY", ignoreCase = true)) return false
+        if (selected.isNullOrBlank() || selected == realTimeNodeName) return false
+
+        realTimeNodeName = selected
+        VpnStateStore.setActiveLabel(selected)
+        Log.i(TAG, "Real-time node update: $selected")
+        serviceScope.launch {
+            configRepo.syncActiveNodeFromProxySelection(selected)
+        }
+        return true
+    }
+
+    private fun notifyUrlTestCompletion(pendingGroup: String?, testResults: Map<String, Int>) {
+        if (pendingGroup == null) return
+        Log.i(TAG, "URL test results for $pendingGroup: ${testResults.size} items")
+        if (testResults.isNotEmpty()) {
+            urlTestCompletionCallback?.invoke(testResults)
         }
     }
 

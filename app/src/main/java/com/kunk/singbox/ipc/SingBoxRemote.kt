@@ -173,32 +173,40 @@ object SingBoxRemote {
         pendingLifecycleRetry = null
     }
 
+    private fun tryNotifyLifecycle(version: Long, pending: Boolean): Boolean {
+        val s = service ?: return false
+        if (!connectionActive || !bound) return false
+
+        runCatching {
+            s.notifyAppLifecycle(pending)
+            sentLifecycleVersion = version
+            pendingAppLifecycle = null
+            clearPendingLifecycleRetry()
+            Log.w(TAG, "notifyAppLifecycle retried: isForeground=$pending")
+        }.onFailure {
+            Log.w(TAG, "notifyAppLifecycle retry failed", it)
+            schedulePendingLifecycleRetry(version)
+        }
+        return true
+    }
+
+    private fun ensureBindIfNeeded() {
+        val ctx = contextRef?.get() ?: return
+        val needsBind = !connectionActive || !bound || service == null
+        if (needsBind) {
+            ensureBound(ctx)
+        }
+    }
+
     private fun schedulePendingLifecycleRetry(version: Long) {
         clearPendingLifecycleRetry()
         val retryTask = Runnable {
-            if (pendingLifecycleVersion != version) {
-                return@Runnable
-            }
+            if (pendingLifecycleVersion != version) return@Runnable
             val pending = pendingAppLifecycle ?: return@Runnable
-            val s = service
-            if (s != null && connectionActive && bound) {
-                runCatching {
-                    s.notifyAppLifecycle(pending)
-                    sentLifecycleVersion = version
-                    pendingAppLifecycle = null
-                    clearPendingLifecycleRetry()
-                    Log.w(TAG, "notifyAppLifecycle retried: isForeground=$pending")
-                }.onFailure {
-                    Log.w(TAG, "notifyAppLifecycle retry failed", it)
-                    schedulePendingLifecycleRetry(version)
-                }
-                return@Runnable
-            }
 
-            val ctx = contextRef?.get()
-            if (ctx != null && (!connectionActive || !bound || service == null)) {
-                ensureBound(ctx)
-            }
+            if (tryNotifyLifecycle(version, pending)) return@Runnable
+
+            ensureBindIfNeeded()
             schedulePendingLifecycleRetry(version)
         }
         pendingLifecycleRetry = retryTask

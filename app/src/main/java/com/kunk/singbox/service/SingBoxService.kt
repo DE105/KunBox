@@ -25,6 +25,7 @@ import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.repository.TrafficRepository
 import com.kunk.singbox.core.BoxWrapperManager
+import com.kunk.singbox.core.ProbeManager
 import com.kunk.singbox.core.SelectorManager
 import com.kunk.singbox.service.network.NetworkManager
 import com.kunk.singbox.service.network.TrafficMonitor
@@ -1183,18 +1184,28 @@ class SingBoxService : VpnService() {
             recoveryReasonLastAtMs[context.reasonKey] = context.now
             recoveryTriggerCount.incrementAndGet()
 
-            val mode = selectRecoveryMode(request)
-            val success = when (mode) {
-                BoxWrapperManager.RecoveryMode.SOFT -> {
+            // 使用智能恢复替代原有的 SOFT/HARD 二级恢复
+            val smartResult = BoxWrapperManager.smartRecover(
+                context = this@SingBoxService,
+                source = request.rawReason,
+                skipProbe = request.force // 强制恢复时跳过探测
+            )
+
+            // 映射 smartRecover 结果到原有统计
+            val mode = when (smartResult.level) {
+                BoxWrapperManager.RecoveryLevel.NONE,
+                BoxWrapperManager.RecoveryLevel.PROBE -> BoxWrapperManager.RecoveryMode.SOFT
+                BoxWrapperManager.RecoveryLevel.SELECTIVE -> {
                     recoverySoftCount.incrementAndGet()
-                    BoxWrapperManager.recoverNetwork(request.rawReason, mode, force = request.force)
+                    BoxWrapperManager.RecoveryMode.SOFT
                 }
-                BoxWrapperManager.RecoveryMode.HARD -> {
+                BoxWrapperManager.RecoveryLevel.NUCLEAR -> {
                     recoveryHardCount.incrementAndGet()
-                    BoxWrapperManager.recoverNetwork(request.rawReason, mode, force = true)
+                    BoxWrapperManager.RecoveryMode.HARD
                 }
             }
 
+            val success = smartResult.success
             if (success) {
                 recoverySuccessCount.incrementAndGet()
                 recoveryConsecutiveFailureCount.set(0)
@@ -1204,15 +1215,29 @@ class SingBoxService : VpnService() {
             }
 
             val successRate = calculateRecoverySuccessRate()
+            val outcomeDetail = buildString {
+                append(if (success) "success" else "failed")
+                append("(level=${smartResult.level}")
+                smartResult.probeLatencyMs?.let { append(",probe=${it}ms") }
+                if (smartResult.closedConnections > 0) {
+                    append(",closed=${smartResult.closedConnections}")
+                }
+                append(",rate=$successRate)")
+            }
             logRecoveryEvent(
                 event = "executed",
                 request = request,
                 mode = mode,
                 merged = request.merged,
                 skipped = false,
-                outcome = if (success) "success(rate=$successRate)" else "failed(rate=$successRate)"
+                outcome = outcomeDetail
             )
-            scheduleForegroundHardFallbackIfNeeded(request, mode, success)
+
+            // smartRecover 已包含渐进升级逻辑，不再需要 foregroundHardFallback
+            // 仅当 PROBE 级别（链路正常无需恢复）时才考虑调度兜底
+            if (smartResult.level == BoxWrapperManager.RecoveryLevel.PROBE) {
+                scheduleForegroundHardFallbackIfNeeded(request, mode, success)
+            }
         } finally {
             val nextRequest = synchronized(this) {
                 recoveryInFlight = false
@@ -1224,13 +1249,6 @@ class SingBoxService : VpnService() {
                 executeRecoveryRequest(nextRequest)
             }
         }
-    }
-
-    private fun selectRecoveryMode(request: RecoveryRequest): BoxWrapperManager.RecoveryMode {
-        if (request.force) return BoxWrapperManager.RecoveryMode.HARD
-        if (request.reason == RecoveryReason.NETWORK_TYPE_CHANGED) return BoxWrapperManager.RecoveryMode.HARD
-        if (recoveryConsecutiveFailureCount.get() >= 2) return BoxWrapperManager.RecoveryMode.HARD
-        return BoxWrapperManager.RecoveryMode.SOFT
     }
 
     private fun calculateRecoverySuccessRate(): String {
@@ -1308,6 +1326,26 @@ class SingBoxService : VpnService() {
         foregroundHardFallbackJob?.cancel()
         foregroundHardFallbackJob = serviceScope.launch {
             delay(foregroundRecoveryGraceMs)
+
+            // 先探测 VPN 链路，如果正常则跳过 HARD fallback
+            val probeOk = runCatching {
+                ProbeManager.probeFirstSuccessViaVpn(
+                    context = this@SingBoxService,
+                    timeoutMs = 1500L
+                )
+            }.getOrNull() != null
+
+            if (probeOk) {
+                logRecoveryEvent(
+                    event = "foreground_hard_fallback_skipped_probe_ok",
+                    request = request,
+                    mode = BoxWrapperManager.RecoveryMode.HARD,
+                    merged = false,
+                    skipped = true,
+                    outcome = "vpn_link_healthy_on_probe"
+                )
+                return@launch
+            }
 
             val state = evaluateForegroundFallbackState()
             logRecoveryEvent(
