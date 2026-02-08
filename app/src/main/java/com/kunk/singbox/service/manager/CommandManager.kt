@@ -1,6 +1,7 @@
 package com.kunk.singbox.service.manager
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.ipc.VpnStateStore
@@ -11,6 +12,8 @@ import io.nekohasekai.libbox.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -36,6 +39,8 @@ class CommandManager(
     companion object {
         private const val TAG = "CommandManager"
         private const val MAX_LOG_LINES = 300
+        private const val PORT_RELEASE_TIMEOUT_MS = 10000L
+        private const val PORT_CHECK_INTERVAL_MS = 50L
     }
 
     // Command Server/Client
@@ -201,6 +206,50 @@ class CommandManager(
 
     /**
      * 停止所有 Command Server/Client
+     * @param proxyPort 需要等待释放的代理端口，传 0 或负数则不等待
+     */
+    suspend fun stopAndWaitPortRelease(proxyPort: Int): Result<Unit> = runCatching {
+        commandClient?.disconnect()
+        commandClient = null
+        commandClientGroup?.disconnect()
+        commandClientGroup = null
+        commandClientLogs?.disconnect()
+        commandClientLogs = null
+        commandClientConnections?.disconnect()
+        commandClientConnections = null
+
+        // 2025-fix: 必须在 clients 断开后再清理 handler，确保 Go 侧引用有效
+        clientHandler = null
+
+        BoxWrapperManager.release()
+
+        // 必须先关闭 BoxService (释放端口和连接)，再关闭 server
+        val closeStart = SystemClock.elapsedRealtime()
+        runCatching { boxService?.close() }
+            .onFailure { Log.w(TAG, "BoxService.close failed: ${it.message}") }
+        boxService = null
+
+        commandServer?.close()
+        commandServer = null
+
+        // 关键修复：主动等待端口释放
+        if (proxyPort > 0) {
+            val portReleased = waitForPortRelease(proxyPort)
+            val elapsed = SystemClock.elapsedRealtime() - closeStart
+            if (portReleased) {
+                Log.i(TAG, "Command Server/Client stopped, port $proxyPort released in ${elapsed}ms")
+            } else {
+                // 端口释放失败，强制杀死进程让系统回收端口
+                Log.e(TAG, "Port $proxyPort NOT released after ${elapsed}ms, killing process to force release")
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }
+        } else {
+            Log.i(TAG, "Command Server/Client stopped")
+        }
+    }
+
+    /**
+     * 停止所有 Command Server/Client（兼容旧调用，不等待端口）
      */
     fun stop(): Result<Unit> = runCatching {
         commandClient?.disconnect()
@@ -225,6 +274,35 @@ class CommandManager(
         commandServer?.close()
         commandServer = null
         Log.i(TAG, "Command Server/Client stopped")
+    }
+
+    /**
+     * 等待端口释放
+     */
+    private suspend fun waitForPortRelease(port: Int): Boolean {
+        val startTime = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - startTime < PORT_RELEASE_TIMEOUT_MS) {
+            if (isPortAvailable(port)) {
+                return true
+            }
+            delay(PORT_CHECK_INTERVAL_MS)
+        }
+        return false
+    }
+
+    /**
+     * 检测端口是否可用
+     */
+    private fun isPortAvailable(port: Int): Boolean {
+        return try {
+            ServerSocket().use { socket ->
+                socket.reuseAddress = true
+                socket.bind(InetSocketAddress("127.0.0.1", port))
+                true
+            }
+        } catch (@Suppress("SwallowedException") e: Exception) {
+            false
+        }
     }
 
     /**

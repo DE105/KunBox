@@ -90,7 +90,8 @@ class ShutdownManager(
      */
     data class ShutdownOptions(
         val stopService: Boolean,
-        val preserveTunInterface: Boolean = !stopService
+        val preserveTunInterface: Boolean = !stopService,
+        val proxyPort: Int = 0  // 需要等待释放的代理端口
     )
 
     /**
@@ -109,6 +110,7 @@ class ShutdownManager(
         callbacks: Callbacks
     ): Job {
         val stopService = options.stopService
+        val proxyPort = options.proxyPort
 
         // 1. 取消进行中的任务
         val jobToJoin = callbacks.cancelStartVpnJob()
@@ -148,14 +150,14 @@ class ShutdownManager(
         // 9. 清除 libbox 运行服务
         callbacks.tryClearRunningServiceForLibbox()
 
-        // 10. 释放 BoxWrapperManager
-        BoxWrapperManager.release()
+        // 10. 释放 BoxWrapperManager (移到 CommandManager.stop 内部处理)
+        // BoxWrapperManager.release() -- 已在 CommandManager.stop() 中调用
 
         // 11. 清除 SelectorManager 状态
         CoreSelectorManager.clear()
         selectorManager.clear()
 
-        Log.i(TAG, "stopVpn(stopService=$stopService)")
+        Log.i(TAG, "stopVpn(stopService=$stopService, proxyPort=$proxyPort)")
 
         // 12. 重置节点名称和运行状态
         callbacks.setRealTimeNodeName(null)
@@ -181,16 +183,17 @@ class ShutdownManager(
             callbacks.unregisterScreenStateReceiver()
         }
 
-        // 15. 停止命令管理器
-        commandManager.stop().onFailure { e ->
-            Log.w(TAG, "Error closing command server/client", e)
-        }
-
-        // 16. 异步清理
+        // 15. 异步清理（包括停止命令管理器和等待端口释放）
         return cleanupScope.launch(NonCancellable) {
             try {
                 jobToJoin?.join()
             } catch (_: Exception) {}
+
+            // 关键修复：在异步任务中停止命令管理器并等待端口释放
+            // 这确保端口释放完成后才设置 ServiceState.STOPPED
+            commandManager.stopAndWaitPortRelease(proxyPort).onFailure { e ->
+                Log.w(TAG, "Error closing command server/client", e)
+            }
 
             // 跨配置切换时不关闭 interface monitor
             if (stopService) {
@@ -201,7 +204,6 @@ class ShutdownManager(
 
             try {
                 withTimeout(2000L) {
-                    // 服务关闭由 CommandManager.stop() 处理
                     if (interfaceToClose != null) {
                         try { interfaceToClose.close() } catch (_: Exception) {}
                     }

@@ -2165,11 +2165,15 @@ class SingBoxService : VpnService() {
 
         Log.i(TAG, "stopVpn(stopService=$stopService) isManuallyStopped=$isManuallyStopped")
 
+        // 获取代理端口用于等待释放
+        val proxyPort = currentSettings?.proxyPort ?: 2080
+
         // 委托给 ShutdownManager
         cleanupJob = shutdownManager.stopVpn(
             options = ShutdownManager.ShutdownOptions(
                 stopService = stopService,
-                preserveTunInterface = !stopService
+                preserveTunInterface = !stopService,
+                proxyPort = proxyPort
             ),
             coreManager = coreManager,
             commandManager = commandManager,

@@ -42,12 +42,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
+import java.net.ServerSocket
 
 class ProxyOnlyService : Service() {
 
@@ -56,6 +58,9 @@ class ProxyOnlyService : Service() {
         private const val NOTIFICATION_ID = 11
         private const val CHANNEL_ID = "singbox_proxy_silent"
         private const val LEGACY_CHANNEL_ID = "singbox_proxy"
+        // 启动时的端口等待作为兜底，主要等待在关闭流程中完成
+        private const val PORT_WAIT_TIMEOUT_MS = 5000L
+        private const val PORT_CHECK_INTERVAL_MS = 100L
 
         const val ACTION_START = SingBoxService.ACTION_START
         const val ACTION_STOP = SingBoxService.ACTION_STOP
@@ -107,6 +112,7 @@ class ProxyOnlyService : Service() {
     @Volatile private var isStopping: Boolean = false
     @Volatile private var stopSelfRequested: Boolean = false
     @Volatile private var startJob: Job? = null
+    @Volatile private var cleanupJob: Job? = null
 
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -400,9 +406,9 @@ class ProxyOnlyService : Service() {
             ACTION_SWITCH_NODE -> {
                 val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
                 if (!configPath.isNullOrBlank()) {
-                    stopCore(stopService = false)
                     serviceScope.launch {
-                        delay(350)
+                        stopCore(stopService = false)
+                        waitForCleanupJob()
                         startCore(configPath)
                     }
                 } else {
@@ -411,7 +417,7 @@ class ProxyOnlyService : Service() {
                         val generationResult = repo.generateConfigFile()
                         if (generationResult?.path.isNullOrBlank()) return@launch
                         stopCore(stopService = false)
-                        delay(350)
+                        waitForCleanupJob()
                         startCore(generationResult!!.path)
                     }
                 }
@@ -460,6 +466,7 @@ class ProxyOnlyService : Service() {
         return START_NOT_STICKY
     }
 
+    @Suppress("CognitiveComplexMethod", "LongMethod")
     private fun startCore(configPath: String) {
         synchronized(this) {
             if (isRunning || isStarting) return
@@ -501,6 +508,26 @@ class ProxyOnlyService : Service() {
 
                 runCatching {
                     SingBoxCore.ensureLibboxSetup(this@ProxyOnlyService)
+                }
+
+                // 等待代理端口可用（解决跨服务切换时端口未释放的问题）
+                val proxyPort = runCatching {
+                    com.kunk.singbox.repository.SettingsRepository
+                        .getInstance(this@ProxyOnlyService)
+                        .settings.first().proxyPort
+                }.getOrDefault(2080)
+                if (proxyPort > 0 && !isPortAvailable(proxyPort)) {
+                    Log.i(TAG, "Port $proxyPort in use, waiting for release...")
+                    val waitStart = SystemClock.elapsedRealtime()
+                    val portAvailable = waitForPortAvailable(proxyPort)
+                    val waitTime = SystemClock.elapsedRealtime() - waitStart
+                    if (portAvailable) {
+                        Log.i(TAG, "Port $proxyPort available after ${waitTime}ms")
+                    } else {
+                        // 端口超时未释放，强制杀死进程让系统回收端口
+                        Log.e(TAG, "Port $proxyPort NOT released after ${waitTime}ms, killing process to force release")
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                    }
                 }
 
                 // v1.12.20: 使用 postServiceClose 替代 serviceStop，移除 writeDebugMessage
@@ -557,10 +584,15 @@ class ProxyOnlyService : Service() {
         }
     }
 
-    private fun stopCore(stopService: Boolean) {
+    /**
+     * 停止核心服务，返回 Job 以便调用方等待关闭完成
+     * @param stopService 是否同时停止 Service 本身
+     * @return 清理任务的 Job，调用方可通过 job.join() 等待关闭完成
+     */
+    private fun stopCore(stopService: Boolean): Job? {
         synchronized(this) {
             stopSelfRequested = stopSelfRequested || stopService
-            if (isStopping) return
+            if (isStopping) return cleanupJob
             isStopping = true
         }
 
@@ -578,19 +610,50 @@ class ProxyOnlyService : Service() {
         commandServer = null
         boxService = null
 
-        cleanupScope.launch(NonCancellable) {
+        notificationUpdateJob?.cancel()
+        notificationUpdateJob = null
+        hasForegroundStarted.set(false)
+
+        // 获取代理端口用于等待释放
+        val proxyPort = runCatching {
+            com.kunk.singbox.repository.SettingsRepository
+                .getInstance(this@ProxyOnlyService)
+                .settings.value.proxyPort
+        }.getOrDefault(2080)
+
+        val job = cleanupScope.launch(NonCancellable) {
             try {
                 jobToJoin?.join()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to join start job", e)
             }
 
-            runCatching {
+            // 关闭 BoxService 和 CommandServer，释放端口
+            if (serviceToClose != null || serverToClose != null) {
+                Log.i(TAG, "Closing BoxService and CommandServer...")
+                val closeStart = SystemClock.elapsedRealtime()
                 try {
                     // v1.12.20: 先关闭 BoxService，再关闭 CommandServer
                     serviceToClose?.close()
                     serverToClose?.close()
-                } catch (e: Exception) { Log.w(TAG, "Failed to close command server", e) }
+
+                    // 关键修复：主动等待端口释放
+                    if (proxyPort > 0) {
+                        val portReleased = waitForPortAvailable(proxyPort, PORT_WAIT_TIMEOUT_MS)
+                        val elapsed = SystemClock.elapsedRealtime() - closeStart
+                        if (portReleased) {
+                            Log.i(TAG, "BoxService/CommandServer closed, port $proxyPort released in ${elapsed}ms")
+                        } else {
+                            // 端口释放失败，强制杀死进程让系统回收端口
+                            Log.e(TAG, "Port $proxyPort NOT released after ${elapsed}ms, killing process to force release")
+                            android.os.Process.killProcess(android.os.Process.myPid())
+                        }
+                    } else {
+                        Log.i(TAG, "BoxService/CommandServer closed in ${SystemClock.elapsedRealtime() - closeStart}ms")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to close BoxService/CommandServer: ${e.message}", e)
+                }
             }
 
             withContext(Dispatchers.Main) {
@@ -608,12 +671,56 @@ class ProxyOnlyService : Service() {
             synchronized(this@ProxyOnlyService) {
                 isStopping = false
                 stopSelfRequested = false
+                cleanupJob = null
             }
         }
+        cleanupJob = job
+        return job
+    }
 
-        notificationUpdateJob?.cancel()
-        notificationUpdateJob = null
-        hasForegroundStarted.set(false)
+    /**
+     * 等待上一次清理任务完成
+     */
+    private suspend fun waitForCleanupJob() {
+        val job = cleanupJob
+        if (job != null && job.isActive) {
+            Log.i(TAG, "Waiting for previous cleanup to complete...")
+            val waitStart = SystemClock.elapsedRealtime()
+            job.join()
+            Log.i(TAG, "Previous cleanup completed in ${SystemClock.elapsedRealtime() - waitStart}ms")
+        }
+    }
+
+    /**
+     * 检测端口是否可用
+     */
+    private fun isPortAvailable(port: Int): Boolean {
+        if (port <= 0) return true
+        return try {
+            ServerSocket().use { socket ->
+                socket.reuseAddress = true
+                socket.bind(InetSocketAddress("127.0.0.1", port))
+                true
+            }
+        } catch (@Suppress("SwallowedException") e: Exception) {
+            // 端口被占用时会抛出异常，这是预期行为
+            false
+        }
+    }
+
+    /**
+     * 等待端口可用，带超时
+     */
+    private suspend fun waitForPortAvailable(port: Int, timeoutMs: Long = PORT_WAIT_TIMEOUT_MS): Boolean {
+        if (port <= 0) return true
+        val startTime = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - startTime < timeoutMs) {
+            if (isPortAvailable(port)) {
+                return true
+            }
+            delay(PORT_CHECK_INTERVAL_MS)
+        }
+        return false
     }
 
     private fun updateDefaultInterface(network: Network) {

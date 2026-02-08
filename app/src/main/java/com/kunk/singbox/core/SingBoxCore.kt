@@ -156,7 +156,15 @@ class SingBoxCore private constructor(private val context: Context) {
             return@withContext nativeRtt
         }
 
-        // 回退方案：本地 HTTP 代理测速
+        // 2025-fix: VPN 运行时不回退到 testWithLocalHttpProxy
+        // 因为 testWithLocalHttpProxy 会创建临时 CommandServer，与主 VPN 服务的 CommandServer 冲突
+        // 导致 "command.sock: bind: address already in use" 错误
+        if (VpnStateStore.getActive()) {
+            Log.d(TAG, "VPN is running, skipping local HTTP proxy fallback to avoid command.sock conflict")
+            return@withContext -1L
+        }
+
+        // 回退方案：本地 HTTP 代理测速（仅在 VPN 未运行时）
         return@withContext try {
             val fallbackUrl = try {
                 if (finalSettings.latencyTestMethod == com.kunk.singbox.model.LatencyTestMethod.TCP) {
@@ -442,9 +450,12 @@ class SingBoxCore private constructor(private val context: Context) {
         if (VpnStateStore.getActive() && libboxAvailable) {
             val rtt = testWithLibboxStaticUrlTest(outbound, targetUrl, timeoutMs, method)
             if (rtt >= 0) return@withContext rtt
+            // 2025-fix: VPN 运行时不回退到临时服务测速，避免 command.sock 冲突
+            Log.d(TAG, "VPN is running, skipping temporary service fallback to avoid command.sock conflict")
+            return@withContext -1L
         }
 
-        // 内核不支持或未运行，直接走 HTTP 代理测速
+        // VPN 未运行时，使用临时服务测速
         testWithLocalHttpProxyInternal(outbound, targetUrl, fallbackUrl, timeoutMs, dependencyOutbounds)
     }
 

@@ -21,6 +21,8 @@ import com.kunk.singbox.utils.perf.PerfTracer
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import java.io.File
+import java.net.InetSocketAddress
+import java.net.ServerSocket
 
 /**
  * VPN 启动管理器
@@ -38,6 +40,9 @@ class StartupManager(
 ) {
     companion object {
         private const val TAG = "StartupManager"
+        // 启动时的端口等待作为兜底，主要等待在关闭流程中完成
+        private const val PORT_WAIT_TIMEOUT_MS = 5000L
+        private const val PORT_CHECK_INTERVAL_MS = 100L
     }
 
     private val gson = Gson()
@@ -46,6 +51,39 @@ class StartupManager(
     private fun log(msg: String) {
         Log.i(TAG, msg)
         logRepo.addLog("INFO [Startup] $msg")
+    }
+
+    /**
+     * 检测端口是否可用
+     */
+    private fun isPortAvailable(port: Int): Boolean {
+        if (port <= 0) return true
+        return try {
+            ServerSocket().use { socket ->
+                socket.reuseAddress = true
+                socket.bind(InetSocketAddress("127.0.0.1", port))
+                true
+            }
+        } catch (@Suppress("SwallowedException") e: Exception) {
+            // 端口被占用时会抛出异常，这是预期行为
+            false
+        }
+    }
+
+    /**
+     * 等待端口可用，带超时
+     * @return true 如果端口可用，false 如果超时
+     */
+    private suspend fun waitForPortAvailable(port: Int, timeoutMs: Long = PORT_WAIT_TIMEOUT_MS): Boolean {
+        if (port <= 0) return true
+        val startTime = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - startTime < timeoutMs) {
+            if (isPortAvailable(port)) {
+                return true
+            }
+            delay(PORT_CHECK_INTERVAL_MS)
+        }
+        return false
     }
 
     /**
@@ -131,7 +169,7 @@ class StartupManager(
     /**
      * 执行完整的 VPN 启动流程
      */
-    @Suppress("CognitiveComplexMethod", "LongMethod")
+    @Suppress("CognitiveComplexMethod", "CyclomaticComplexMethod", "LongMethod")
     suspend fun startVpn(
         configPath: String,
         cleanCache: Boolean,
@@ -223,6 +261,22 @@ class StartupManager(
 
             // 5.5 在 libbox 启动前恢复底层网络（修复 PREPARE_RESTART 时序问题）
             callbacks.restoreUnderlyingNetwork(initResult.network)
+
+            // 5.6 等待代理端口可用（解决跨服务切换时端口未释放的问题）
+            val proxyPort = initResult.settings.proxyPort
+            if (proxyPort > 0 && !isPortAvailable(proxyPort)) {
+                stepStart = SystemClock.elapsedRealtime()
+                log("[STEP] Port $proxyPort in use, waiting for release...")
+                val portAvailable = waitForPortAvailable(proxyPort)
+                val waitTime = SystemClock.elapsedRealtime() - stepStart
+                if (portAvailable) {
+                    log("[STEP] Port $proxyPort available after ${waitTime}ms")
+                } else {
+                    // 端口超时未释放，强制杀死进程让系统回收端口
+                    log("[STEP] Port $proxyPort NOT released after ${waitTime}ms, killing process to force release")
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }
+            }
 
             // 6. 启动 Libbox
             stepStart = SystemClock.elapsedRealtime()

@@ -803,7 +803,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 val oppositeWasRunning = SingBoxRemote.isRunning.value || SingBoxRemote.isStarting.value
                 if (oppositeWasRunning) {
                     try {
-                        withTimeout(3000L) {
+                        // 增加超时时间：BoxService.close() 可能需要较长时间释放端口
+                        withTimeout(8000L) {
                             // 使用 drop(1) 跳过当前值，等待真正的状态变化
                             SingBoxRemote.state
                                 .drop(1)
@@ -813,9 +814,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                         Log.w(TAG, "Timeout waiting for opposite service to stop")
                     }
                 }
-                // 优化: 减少缓冲时间从 800ms 到 200ms
-                // 原因: 已经通过状态机等待 STOPPED,只需短暂缓冲即可
-                delay(200)
+                // 增加缓冲时间：确保端口完全释放
+                // 原因: BoxService.close() 后端口释放可能有延迟
+                delay(500)
             }
 
             // 生成配置文件并启动 VPN 服务

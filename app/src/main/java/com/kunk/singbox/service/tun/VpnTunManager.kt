@@ -116,9 +116,11 @@ class VpnTunManager(
             blocklist = blocklist
         )
 
+        // 保存用户设置的 MTU 而不是 effectiveMtu，因为 effectiveMtu 是运行时根据网络类型计算的
+        // 如果保存 effectiveMtu，会导致 hasTunSettingsChanged 误判（用户没改设置但 hash 不匹配）
         VpnStateStore.saveTunSettings(
             tunStack = (settings?.tunStack ?: TunStack.MIXED).name,
-            tunMtu = effectiveMtu,
+            tunMtu = settings?.tunMtu ?: 1500,
             autoRoute = settings?.autoRoute ?: false,
             strictRoute = settings?.strictRoute ?: true,
             proxyPort = settings?.proxyPort ?: 2080
