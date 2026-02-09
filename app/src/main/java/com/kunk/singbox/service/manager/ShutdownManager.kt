@@ -8,7 +8,6 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
-import com.kunk.singbox.core.BoxWrapperManager
 import com.kunk.singbox.core.SelectorManager as CoreSelectorManager
 import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.service.ServiceState
@@ -92,7 +91,8 @@ class ShutdownManager(
     data class ShutdownOptions(
         val stopService: Boolean,
         val preserveTunInterface: Boolean = !stopService,
-        val proxyPort: Int = 0  // 需要等待释放的代理端口
+        val proxyPort: Int = 0,  // 需要等待释放的代理端口
+        val strictPortRelease: Boolean = false
     )
 
     /**
@@ -205,12 +205,22 @@ class ShutdownManager(
                 }
             }
 
-            // 关键修复：在异步任务中停止命令管理器并等待端口释放
-            // 快速停机模式下，缩短主路径等待时间并避免阻塞 UI
+            // 关键修复：先关闭 CoreManager 中的 BoxService（这是真正持有端口的对象）
+            // 然后再调用 CommandManager 等待端口释放
+            val boxCloseStart = SystemClock.elapsedRealtime()
+            val hasBoxService = coreManager.boxService != null
+            Log.i(TAG, "Closing CoreManager.BoxService (exists=$hasBoxService)...")
+            runCatching { coreManager.boxService?.close() }
+                .onFailure { e -> Log.w(TAG, "CoreManager.BoxService.close failed: ${e.message}") }
+            Log.i(TAG, "CoreManager.BoxService closed in ${SystemClock.elapsedRealtime() - boxCloseStart}ms")
+
+            // 快速关闭：先尝试正常关闭，如果端口没释放则杀进程
+            // 当 stopService=true 时，必须确保端口释放，否则下次启动会失败
             commandManager.stopAndWaitPortRelease(
                 proxyPort = proxyPort,
                 waitTimeoutMs = FAST_PORT_RELEASE_WAIT_MS,
-                forceKillOnTimeout = false
+                forceKillOnTimeout = stopService,  // 完全停止时强制杀进程确保端口释放
+                enforceReleaseOnTimeout = false
             ).onFailure { e ->
                 Log.w(TAG, "Error closing command server/client", e)
             }
@@ -248,6 +258,7 @@ class ShutdownManager(
             callbacks.clearPendingStartConfigPath()
 
             if (!startAfterStop.isNullOrBlank()) {
+                // 不需要等待端口释放，启动时会强杀进程确保端口可用
                 val hasExistingTun = callbacks.hasExistingTunInterface()
                 if (!hasExistingTun) {
                     waitForSystemVpnDown(callbacks.getConnectivityManager(), 1500L)

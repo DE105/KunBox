@@ -213,8 +213,11 @@ class CommandManager(
     suspend fun stopAndWaitPortRelease(
         proxyPort: Int,
         waitTimeoutMs: Long = PORT_RELEASE_TIMEOUT_MS,
-        forceKillOnTimeout: Boolean = true
+        forceKillOnTimeout: Boolean = true,
+        enforceReleaseOnTimeout: Boolean = false
     ): Result<Unit> = runCatching {
+        Log.i(TAG, "stopAndWaitPortRelease: port=$proxyPort, timeout=${waitTimeoutMs}ms, forceKill=$forceKillOnTimeout")
+
         commandClient?.disconnect()
         commandClient = null
         commandClientGroup?.disconnect()
@@ -231,9 +234,12 @@ class CommandManager(
 
         // 必须先关闭 BoxService (释放端口和连接)，再关闭 server
         val closeStart = SystemClock.elapsedRealtime()
+        val hasBoxService = boxService != null
+        Log.i(TAG, "Closing BoxService (exists=$hasBoxService)...")
         runCatching { boxService?.close() }
             .onFailure { Log.w(TAG, "BoxService.close failed: ${it.message}") }
         boxService = null
+        Log.i(TAG, "BoxService closed in ${SystemClock.elapsedRealtime() - closeStart}ms")
 
         commandServer?.close()
         commandServer = null
@@ -247,10 +253,11 @@ class CommandManager(
 
         // 关键修复：主动等待端口释放
         if (proxyPort > 0) {
+            Log.i(TAG, "Waiting for port $proxyPort to be released (timeout=${waitTimeoutMs}ms)...")
             val portReleased = waitForPortRelease(proxyPort, waitTimeoutMs)
             val elapsed = SystemClock.elapsedRealtime() - closeStart
             if (portReleased) {
-                Log.i(TAG, "Command Server/Client stopped, port $proxyPort released in ${elapsed}ms")
+                Log.i(TAG, "Port $proxyPort released in ${elapsed}ms")
             } else {
                 if (forceKillOnTimeout) {
                     // 端口释放失败，强制杀死进程让系统回收端口
@@ -258,11 +265,16 @@ class CommandManager(
                     Log.e(TAG, "Port $proxyPort NOT released after ${elapsed}ms, killing process to force release")
                     android.os.Process.killProcess(android.os.Process.myPid())
                 } else {
-                    Log.w(TAG, "Port $proxyPort NOT released after ${elapsed}ms, skip force kill in fast-stop mode")
+                    if (enforceReleaseOnTimeout) {
+                        throw IllegalStateException(
+                            "Port $proxyPort NOT released after ${elapsed}ms in strict-stop mode"
+                        )
+                    }
+                    Log.w(TAG, "Port $proxyPort NOT released after ${elapsed}ms, skip force kill (forceKillOnTimeout=false)")
                 }
             }
         } else {
-            Log.i(TAG, "Command Server/Client stopped")
+            Log.i(TAG, "Command Server/Client stopped (no port to wait)")
         }
     }
 
