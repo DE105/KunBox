@@ -137,6 +137,7 @@ class SingBoxCore private constructor(private val context: Context) {
      * 使用 Libbox 原生方法进行延迟测试
      * 优先尝试调用内核的 urlTest 方法，失败则回退到本地 HTTP 代理测速
      */
+    @Suppress("CognitiveComplexMethod")
     private suspend fun testOutboundLatencyWithLibbox(
         outbound: Outbound,
         settings: com.kunk.singbox.model.AppSettings? = null,

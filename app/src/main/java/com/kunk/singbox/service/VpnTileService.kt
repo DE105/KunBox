@@ -321,6 +321,7 @@ class VpnTileService : TileService() {
     /**
      * 执行启动 VPN 逻辑 (使用 VpnServiceManager 统一管理)
      */
+    @Suppress("CognitiveComplexMethod")
     private fun executeStartVpn() {
         // 在主线程立即标记状态,防止竞态条件导致 UI 闪烁
         val currentSequenceId = SystemClock.elapsedRealtimeNanos()

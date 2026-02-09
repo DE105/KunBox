@@ -595,6 +595,7 @@ class ProxyOnlyService : Service() {
      * @param stopService 是否同时停止 Service 本身
      * @return 清理任务的 Job，调用方可通过 job.join() 等待关闭完成
      */
+    @Suppress("CognitiveComplexMethod", "LongMethod")
     private fun stopCore(stopService: Boolean): Job? {
         synchronized(this) {
             stopSelfRequested = stopSelfRequested || stopService
@@ -651,7 +652,8 @@ class ProxyOnlyService : Service() {
                             Log.i(TAG, "BoxService/CommandServer closed, port $proxyPort released in ${elapsed}ms")
                         } else {
                             // 端口释放失败，强制杀死进程让系统回收端口
-                            Log.e(TAG, "Port $proxyPort NOT released after ${elapsed}ms, killing process to force release")
+                            Log.e(TAG, "Port $proxyPort NOT released after ${elapsed}ms, " +
+                                "killing process to force release")
                             // 在杀死进程前先清除通知，防止通知残留
                             runCatching {
                                 val nm = getSystemService(android.app.NotificationManager::class.java)

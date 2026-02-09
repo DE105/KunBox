@@ -210,6 +210,7 @@ class CommandManager(
      * 停止所有 Command Server/Client
      * @param proxyPort 需要等待释放的代理端口，传 0 或负数则不等待
      */
+    @Suppress("CognitiveComplexMethod")
     suspend fun stopAndWaitPortRelease(
         proxyPort: Int,
         waitTimeoutMs: Long = PORT_RELEASE_TIMEOUT_MS,
@@ -270,7 +271,8 @@ class CommandManager(
                             "Port $proxyPort NOT released after ${elapsed}ms in strict-stop mode"
                         )
                     }
-                    Log.w(TAG, "Port $proxyPort NOT released after ${elapsed}ms, skip force kill (forceKillOnTimeout=false)")
+                    Log.w(TAG, "Port $proxyPort NOT released after ${elapsed}ms, " +
+                        "skip force kill (forceKillOnTimeout=false)")
                 }
             }
         } else {
