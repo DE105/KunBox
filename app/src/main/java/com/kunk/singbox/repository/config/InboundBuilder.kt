@@ -24,7 +24,8 @@ object InboundBuilder {
                     type = "mixed",
                     tag = "mixed-in",
                     listen = if (settings.allowLan) "0.0.0.0" else "127.0.0.1",
-                    listenPort = settings.proxyPort
+                    listenPort = settings.proxyPort,
+                    reuseAddr = true
                 )
             )
         }
@@ -52,7 +53,8 @@ object InboundBuilder {
                     type = "mixed",
                     tag = "mixed-in",
                     listen = "127.0.0.1",
-                    listenPort = 2080
+                    listenPort = 2080,
+                    reuseAddr = true
                 )
             )
         }

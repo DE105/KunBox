@@ -2169,11 +2169,13 @@ class SingBoxService : VpnService() {
         val proxyPort = currentSettings?.proxyPort ?: 2080
 
         // 委托给 ShutdownManager
+        // 不需要严格等待端口释放，启动时会强杀进程确保端口可用
         cleanupJob = shutdownManager.stopVpn(
             options = ShutdownManager.ShutdownOptions(
                 stopService = stopService,
                 preserveTunInterface = !stopService,
-                proxyPort = proxyPort
+                proxyPort = proxyPort,
+                strictPortRelease = false
             ),
             coreManager = coreManager,
             commandManager = commandManager,
