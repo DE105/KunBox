@@ -11,7 +11,9 @@ import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
+import android.app.NotificationManager
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.Toast
@@ -23,6 +25,7 @@ import com.kunk.singbox.ipc.SingBoxIpcService
 import com.kunk.singbox.manager.VpnServiceManager
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.SettingsRepository
+import com.kunk.singbox.service.notification.VpnNotificationManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,6 +45,7 @@ class VpnTileService : TileService() {
     private var tapPending = false
     // 内存标记，用于在重启服务的过程中保持 UI 状态，防止被中间的 STOPPED 状态闪烁
     @Volatile private var isStartingSequence = false
+    @Volatile private var startSequenceId: Long = 0L
 
     @Volatile private var remoteService: ISingBoxService? = null
 
@@ -55,17 +59,27 @@ class VpnTileService : TileService() {
 
     private val remoteCallback = object : ISingBoxServiceCallback.Stub() {
         override fun onStateChanged(state: Int, activeLabel: String?, lastError: String?, manuallyStopped: Boolean) {
-            lastServiceState = ServiceState.values().getOrNull(state)
-                ?: ServiceState.STOPPED
-            updateTile(activeLabelOverride = activeLabel)
+            serviceScope.launch(Dispatchers.Main) {
+                val mappedState = ServiceState.values().getOrNull(state)
+                    ?: ServiceState.STOPPED
+                lastServiceState = mappedState
+                if (mappedState == ServiceState.STOPPING || mappedState == ServiceState.STOPPED) {
+                    // 停止态优先，避免启动序列标记覆盖真实停止状态
+                    isStartingSequence = false
+                    startSequenceId = 0L
+                }
+                updateTile(activeLabelOverride = activeLabel)
+            }
         }
     }
 
     companion object {
+        private const val TAG = "VpnTileService"
         private const val PREFS_NAME = "vpn_state"
         private const val KEY_VPN_ACTIVE = "vpn_active"
         private const val KEY_VPN_PENDING = "vpn_pending"
         const val ACTION_REFRESH_TILE = "com.kunk.singbox.REFRESH_TILE"
+        private const val STOP_NOTIFICATION_CLEANUP_DELAY_MS = 250L
         /**
          * 持久化 VPN 状态到 SharedPreferences
          * 在 SingBoxService 启动/停止时调用
@@ -146,7 +160,7 @@ class VpnTileService : TileService() {
                     tile.subtitle = null
                 }
             } catch (e: Exception) {
-                Log.w("VpnTileService", "Failed to set tile subtitle", e)
+                Log.w(TAG, "Failed to set tile subtitle", e)
             }
             tile.updateTile()
 
@@ -179,20 +193,36 @@ class VpnTileService : TileService() {
             persistedActive = false
         }
 
-        val pending = runCatching {
+        var pending = runCatching {
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getString(KEY_VPN_PENDING, "")
         }.getOrNull().orEmpty()
 
-        // 优先级：内存中的启动标记 > Pending 状态 > Service 状态 > 持久化状态
-        if (isStartingSequence) {
-            lastServiceState = ServiceState.STARTING
+        // 孤儿状态检测：如果 pending 为 stopping/starting 但 Service 实际未运行，清理残留状态
+        // 这解决了覆盖安装后磁贴灰色不可点击的问题
+        if ((pending == "stopping" || pending == "starting") && !isStartingSequence) {
+            val serviceActuallyRunning = serviceBound && remoteService != null
+            val hasVpnTransport = hasSystemVpnTransport()
+            // 如果既没有绑定到 Service，也没有系统 VPN transport，说明是孤儿状态
+            if (!serviceActuallyRunning && !hasVpnTransport) {
+                persistVpnPending(this, "")
+                persistVpnState(this, false)
+                pending = ""
+                persistedActive = false
+            }
+        }
+
+        // 仅计算 UI 渲染态，不污染 lastServiceState（lastServiceState 只由回调更新）
+        val effectiveState = if (isStartingSequence) {
+            ServiceState.STARTING
         } else if (!serviceBound || remoteService == null || pending.isNotEmpty()) {
-            lastServiceState = when (pending) {
+            when (pending) {
                 "starting" -> ServiceState.STARTING
                 "stopping" -> ServiceState.STOPPING
                 else -> if (persistedActive) ServiceState.RUNNING else ServiceState.STOPPED
             }
+        } else {
+            lastServiceState
         }
 
         val tile = qsTile ?: return
@@ -201,7 +231,7 @@ class VpnTileService : TileService() {
         if (isStartingSequence) {
             tile.state = Tile.STATE_ACTIVE
         } else {
-            when (lastServiceState) {
+            when (effectiveState) {
                 ServiceState.STARTING,
                 ServiceState.RUNNING -> {
                     tile.state = Tile.STATE_ACTIVE
@@ -214,8 +244,8 @@ class VpnTileService : TileService() {
                 }
             }
         }
-        val activeLabel = if (lastServiceState == ServiceState.RUNNING ||
-            lastServiceState == ServiceState.STARTING
+        val activeLabel = if (effectiveState == ServiceState.RUNNING ||
+            effectiveState == ServiceState.STARTING
         ) {
             activeLabelOverride?.takeIf { it.isNotBlank() }
                 ?: runCatching { remoteService?.activeLabel }.getOrNull()?.takeIf { it.isNotBlank() }
@@ -249,15 +279,39 @@ class VpnTileService : TileService() {
      * 执行停止 VPN 逻辑 (使用 VpnServiceManager 统一管理)
      */
     private fun executeStopVpn() {
+        // 停止操作应立刻终止启动序列，避免状态被 STARTING 覆盖
+        isStartingSequence = false
+        startSequenceId = 0L
+
         // 在主线程立即标记状态,防止竞态条件导致 UI 闪烁
         persistVpnPending(this, "stopping")
         persistVpnState(this, false)
+        val stopRequestedAt = SystemClock.elapsedRealtime()
 
         serviceScope.launch(Dispatchers.IO) {
             try {
                 VpnServiceManager.stopVpn(this@VpnTileService)
+
+                withContext(Dispatchers.Main) {
+                    // 先收敛 UI 状态，避免磁贴在 stop 期间长时间停留在 pending
+                    persistVpnPending(this@VpnTileService, "")
+                    updateTile()
+                }
+
+                // 兜底：短延迟后清除通知，防止 Service 进程异常导致通知残留
+                delay(STOP_NOTIFICATION_CLEANUP_DELAY_MS)
+                withContext(Dispatchers.Main) {
+                    runCatching {
+                        val nm = getSystemService(NotificationManager::class.java)
+                        // 清除 SingBoxService 通知 (ID=1)
+                        nm?.cancel(VpnNotificationManager.NOTIFICATION_ID)
+                        // 清除 ProxyOnlyService 通知 (ID=11)
+                        nm?.cancel(11)
+                    }
+                    Log.d(TAG, "executeStopVpn ui settle in ${SystemClock.elapsedRealtime() - stopRequestedAt}ms")
+                }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "Stop service failed", e)
                 // 如果停止失败,恢复 UI 状态 (虽然概率很低)
                 handleStartFailure("Stop service failed: ${e.message}")
             }
@@ -269,6 +323,8 @@ class VpnTileService : TileService() {
      */
     private fun executeStartVpn() {
         // 在主线程立即标记状态,防止竞态条件导致 UI 闪烁
+        val currentSequenceId = SystemClock.elapsedRealtimeNanos()
+        startSequenceId = currentSequenceId
         isStartingSequence = true
         persistVpnPending(this, "starting")
 
@@ -309,12 +365,15 @@ class VpnTileService : TileService() {
             } finally {
                 // 无论成功失败,结束启动序列标记
                 // 延迟一小会儿清除标记,确保 Service 状态已经稳定
-                if (isStartingSequence) {
+                if (isStartingSequence && startSequenceId == currentSequenceId) {
                     delay(2000)
-                    isStartingSequence = false
-                    // 最后刷新一次以同步真实状态
-                    withContext(Dispatchers.Main) {
-                        updateTile()
+                    if (startSequenceId == currentSequenceId) {
+                        isStartingSequence = false
+                        startSequenceId = 0L
+                        // 最后刷新一次以同步真实状态
+                        withContext(Dispatchers.Main) {
+                            updateTile()
+                        }
                     }
                 }
             }
@@ -322,6 +381,7 @@ class VpnTileService : TileService() {
     }
 
     private suspend fun handleStartFailure(reason: String) {
+        startSequenceId = 0L
         isStartingSequence = false // 立即取消标记
         // 清除状态
         persistVpnPending(this@VpnTileService, "")

@@ -35,6 +35,7 @@ class ShutdownManager(
 ) {
     companion object {
         private const val TAG = "ShutdownManager"
+        private const val FAST_PORT_RELEASE_WAIT_MS = 1500L
     }
 
     /**
@@ -189,9 +190,28 @@ class ShutdownManager(
                 jobToJoin?.join()
             } catch (_: Exception) {}
 
+            if (stopService) {
+                withContext(Dispatchers.Main) {
+                    callbacks.stopForegroundService()
+                    runCatching {
+                        val manager = context.getSystemService(NotificationManager::class.java)
+                        manager.cancel(VpnNotificationManager.NOTIFICATION_ID)
+                    }
+                    VpnTileService.persistVpnState(context, false)
+                    VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
+                    VpnTileService.persistVpnPending(context, "")
+                    callbacks.updateServiceState(ServiceState.STOPPED)
+                    callbacks.updateTileState()
+                }
+            }
+
             // 关键修复：在异步任务中停止命令管理器并等待端口释放
-            // 这确保端口释放完成后才设置 ServiceState.STOPPED
-            commandManager.stopAndWaitPortRelease(proxyPort).onFailure { e ->
+            // 快速停机模式下，缩短主路径等待时间并避免阻塞 UI
+            commandManager.stopAndWaitPortRelease(
+                proxyPort = proxyPort,
+                waitTimeoutMs = FAST_PORT_RELEASE_WAIT_MS,
+                forceKillOnTimeout = false
+            ).onFailure { e ->
                 Log.w(TAG, "Error closing command server/client", e)
             }
 
@@ -216,18 +236,8 @@ class ShutdownManager(
             // 这确保用户明确请求停止时，通知总会被取消
             withContext(Dispatchers.Main) {
                 if (stopService) {
-                    callbacks.stopForegroundService()
-                    runCatching {
-                        val manager = context.getSystemService(NotificationManager::class.java)
-                        manager.cancel(VpnNotificationManager.NOTIFICATION_ID)
-                    }
                     callbacks.stopSelf()
                     Log.i(TAG, "VPN stopped")
-                    VpnTileService.persistVpnState(context, false)
-                    VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
-                    VpnTileService.persistVpnPending(context, "")
-                    callbacks.updateServiceState(ServiceState.STOPPED)
-                    callbacks.updateTileState()
                 } else {
                     Log.i(TAG, "Config reload: boxService closed, keeping TUN and foreground")
                 }

@@ -1,5 +1,6 @@
 package com.kunk.singbox.service.manager
 
+import android.app.NotificationManager
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
@@ -8,6 +9,7 @@ import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.repository.ConfigRepository
 import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.repository.TrafficRepository
+import com.kunk.singbox.service.notification.VpnNotificationManager
 import io.nekohasekai.libbox.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -208,7 +210,11 @@ class CommandManager(
      * 停止所有 Command Server/Client
      * @param proxyPort 需要等待释放的代理端口，传 0 或负数则不等待
      */
-    suspend fun stopAndWaitPortRelease(proxyPort: Int): Result<Unit> = runCatching {
+    suspend fun stopAndWaitPortRelease(
+        proxyPort: Int,
+        waitTimeoutMs: Long = PORT_RELEASE_TIMEOUT_MS,
+        forceKillOnTimeout: Boolean = true
+    ): Result<Unit> = runCatching {
         commandClient?.disconnect()
         commandClient = null
         commandClientGroup?.disconnect()
@@ -232,16 +238,28 @@ class CommandManager(
         commandServer?.close()
         commandServer = null
 
+        // 在端口等待之前先清除通知，防止端口等待超时 killProcess 后通知残留
+        runCatching {
+            val nm = context.getSystemService(NotificationManager::class.java)
+            nm?.cancel(VpnNotificationManager.NOTIFICATION_ID)
+            nm?.cancel(11) // ProxyOnlyService NOTIFICATION_ID
+        }
+
         // 关键修复：主动等待端口释放
         if (proxyPort > 0) {
-            val portReleased = waitForPortRelease(proxyPort)
+            val portReleased = waitForPortRelease(proxyPort, waitTimeoutMs)
             val elapsed = SystemClock.elapsedRealtime() - closeStart
             if (portReleased) {
                 Log.i(TAG, "Command Server/Client stopped, port $proxyPort released in ${elapsed}ms")
             } else {
-                // 端口释放失败，强制杀死进程让系统回收端口
-                Log.e(TAG, "Port $proxyPort NOT released after ${elapsed}ms, killing process to force release")
-                android.os.Process.killProcess(android.os.Process.myPid())
+                if (forceKillOnTimeout) {
+                    // 端口释放失败，强制杀死进程让系统回收端口
+                    // 通知已在端口等待之前清除
+                    Log.e(TAG, "Port $proxyPort NOT released after ${elapsed}ms, killing process to force release")
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                } else {
+                    Log.w(TAG, "Port $proxyPort NOT released after ${elapsed}ms, skip force kill in fast-stop mode")
+                }
             }
         } else {
             Log.i(TAG, "Command Server/Client stopped")
@@ -279,9 +297,9 @@ class CommandManager(
     /**
      * 等待端口释放
      */
-    private suspend fun waitForPortRelease(port: Int): Boolean {
+    private suspend fun waitForPortRelease(port: Int, timeoutMs: Long): Boolean {
         val startTime = SystemClock.elapsedRealtime()
-        while (SystemClock.elapsedRealtime() - startTime < PORT_RELEASE_TIMEOUT_MS) {
+        while (SystemClock.elapsedRealtime() - startTime < timeoutMs) {
             if (isPortAvailable(port)) {
                 return true
             }

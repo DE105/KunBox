@@ -526,6 +526,12 @@ class ProxyOnlyService : Service() {
                     } else {
                         // 端口超时未释放，强制杀死进程让系统回收端口
                         Log.e(TAG, "Port $proxyPort NOT released after ${waitTime}ms, killing process to force release")
+                        // 在杀死进程前先清除通知，防止通知残留
+                        runCatching {
+                            val nm = getSystemService(android.app.NotificationManager::class.java)
+                            nm?.cancel(NOTIFICATION_ID)
+                        }
+                        Thread.sleep(50)
                         android.os.Process.killProcess(android.os.Process.myPid())
                     }
                 }
@@ -646,6 +652,12 @@ class ProxyOnlyService : Service() {
                         } else {
                             // 端口释放失败，强制杀死进程让系统回收端口
                             Log.e(TAG, "Port $proxyPort NOT released after ${elapsed}ms, killing process to force release")
+                            // 在杀死进程前先清除通知，防止通知残留
+                            runCatching {
+                                val nm = getSystemService(android.app.NotificationManager::class.java)
+                                nm?.cancel(NOTIFICATION_ID)
+                            }
+                            Thread.sleep(50)
                             android.os.Process.killProcess(android.os.Process.myPid())
                         }
                     } else {
@@ -880,5 +892,11 @@ class ProxyOnlyService : Service() {
         notificationUpdateJob?.cancel()
         notificationUpdateJob = null
         hasForegroundStarted.set(false)
+        // 确保通知被清除，防止进程异常终止时通知残留
+        runCatching {
+            val nm = getSystemService(android.app.NotificationManager::class.java)
+            nm.cancel(NOTIFICATION_ID)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
     }
 }

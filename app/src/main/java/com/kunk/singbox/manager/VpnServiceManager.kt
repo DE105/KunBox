@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import com.kunk.singbox.ipc.SingBoxRemote
+import com.kunk.singbox.ipc.VpnStateStore
 import com.kunk.singbox.service.ProxyOnlyService
 import com.kunk.singbox.service.SingBoxService
 
@@ -136,23 +137,29 @@ object VpnServiceManager {
     /**
      * 停止 VPN
      *
-     * 同时停止 SingBoxService 和 ProxyOnlyService,确保完全停止
+     * 按当前核心模式精准停止对应服务，避免双服务状态抖动
      */
     fun stopVpn(context: Context) {
         Log.d(TAG, "stopVpn")
 
         try {
-            // 停止 TUN 服务
-            val tunIntent = Intent(context, SingBoxService::class.java).apply {
-                action = SingBoxService.ACTION_STOP
+            val mode = VpnStateStore.getMode()
+            val stopTun = when (mode) {
+                VpnStateStore.CoreMode.VPN -> true
+                VpnStateStore.CoreMode.PROXY -> false
+                VpnStateStore.CoreMode.NONE -> isTunEnabled(context)
             }
-            context.startService(tunIntent)
 
-            // 停止 Proxy-Only 服务
-            val proxyIntent = Intent(context, ProxyOnlyService::class.java).apply {
-                action = ProxyOnlyService.ACTION_STOP
+            val intent = if (stopTun) {
+                Intent(context, SingBoxService::class.java).apply {
+                    action = SingBoxService.ACTION_STOP
+                }
+            } else {
+                Intent(context, ProxyOnlyService::class.java).apply {
+                    action = ProxyOnlyService.ACTION_STOP
+                }
             }
-            context.startService(proxyIntent)
+            context.startService(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to stop VPN service", e)
         }

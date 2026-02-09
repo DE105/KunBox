@@ -2189,6 +2189,12 @@ class SingBoxService : VpnService() {
     private fun updateTileState() {
         try {
             TileService.requestListeningState(this, ComponentName(this, VpnTileService::class.java))
+
+            // 显式触发 TileService 刷新，避免仅依赖 listening/bind 回调导致状态滞后
+            val refreshIntent = Intent(this, VpnTileService::class.java).apply {
+                action = VpnTileService.ACTION_REFRESH_TILE
+            }
+            startService(refreshIntent)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update tile state", e)
         }
@@ -2239,8 +2245,9 @@ class SingBoxService : VpnService() {
             // If we are being destroyed but not manually stopped (e.g. app update or system kill),
             // ensure we don't accidentally mark it as manually stopped, but we DO mark VPN as inactive.
             VpnTileService.persistVpnState(applicationContext, false)
+            VpnTileService.persistVpnPending(applicationContext, "")
             VpnStateStore.setMode(VpnStateStore.CoreMode.NONE)
-            Log.i(TAG, "onDestroy: Persisted vpn_active=false, mode=NONE")
+            Log.i(TAG, "onDestroy: Persisted vpn_active=false, vpn_pending='', mode=NONE")
         }
 
         val shouldStop = runCatching {
@@ -2257,6 +2264,7 @@ class SingBoxService : VpnService() {
         } else {
             runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
             VpnTileService.persistVpnState(applicationContext, false)
+            VpnTileService.persistVpnPending(applicationContext, "")
             updateServiceState(ServiceState.STOPPED)
             updateTileState()
         }
