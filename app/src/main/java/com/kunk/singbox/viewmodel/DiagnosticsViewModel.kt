@@ -160,6 +160,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
         val findProcess = runConfig?.route?.findProcess ?: false
         val hasSniffRule = rules.any { it.action == "sniff" }
+        val hasInboundSniff = runConfig?.inbounds?.any { it.sniff == true } ?: false
         val tunInboundMtu = runConfig?.inbounds
             ?.firstOrNull { it.type == "tun" }
             ?.mtu
@@ -182,6 +183,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             appendLine("MTU in running_config tun inbound: ${tunInboundMtu ?: "(null)"}")
             appendLine("QUIC blocked: ${settings.blockQuic}")
             appendLine("find_process (route): $findProcess")
+            appendLine("sniff enabled (inbound): $hasInboundSniff")
             appendLine("sniff enabled (route rule): $hasSniffRule")
             appendLine("\n=== Routing Summary ===")
             appendLine("Final outbound: $finalOutbound")

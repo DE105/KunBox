@@ -3160,9 +3160,12 @@ class ConfigRepository(private val context: Context) {
             }
         }
 
-        // Fake DNS 兜底
+        // Fake DNS 兜底：仅对 TUN 流量生效，避免 mixed-in 代理流量走 FakeIP
         if (settings.fakeDnsEnabled) {
-            dnsRules.add(dnsRouteTo("fakeip-dns", DnsRule(queryType = fakeipQueryTypes)))
+            dnsRules.add(dnsRouteTo("fakeip-dns", DnsRule(
+                queryType = fakeipQueryTypes,
+                inbound = listOf("tun-in")
+            )))
         }
 
         val fakeIpConfig = if (settings.fakeDnsEnabled) {
@@ -3579,10 +3582,6 @@ class ConfigRepository(private val context: Context) {
         validRuleSets: List<RuleSetConfig>
     ): RouteConfig {
         val hasAppRouting = settings.appRules.any { it.enabled } || settings.appGroups.any { it.enabled }
-        val hasRuleSetRouting = settings.ruleSets.any { it.enabled }
-        val hasCustomDomainRouting = settings.customRules.any { it.enabled &&
-            (it.type == RuleType.DOMAIN || it.type == RuleType.DOMAIN_SUFFIX || it.type == RuleType.DOMAIN_KEYWORD)
-        }
 
         val appRoutingRules = buildAppRoutingRules(settings, selectorTag, outbounds, nodeTagResolver)
         val customRuleSetRules =
@@ -3593,22 +3592,15 @@ class ConfigRepository(private val context: Context) {
         val customDomainRules = buildCustomDomainRules(settings, selectorTag, outbounds, nodeTagResolver)
         val defaultRuleCatchAll = buildDefaultRules(settings, selectorTag)
 
-        // 2025-fix: 只在规则模式下启用 sniff，全局代理/直连不需要
-        // 原因：
-        // 1. sniff 需要等待首个数据包识别协议，增加延迟
-        // 2. 全局代理时所有流量都走代理，不需要域名分流
-        // 3. 只有规则模式需要 sniff 来匹配域名规则
-        val needSniff = settings.routingMode == RoutingMode.RULE &&
-            (hasCustomDomainRouting || hasRuleSetRouting)
-        val sniffRule = if (needSniff) listOf(RouteRule(action = "sniff")) else emptyList()
+        // sniff 已在 inbound 层启用（sniff + sniff_override_destination），
+        // 无需在 route rules 中再添加 action: "sniff"，避免双重嗅探和额外 300ms 超时。
         val hijackDnsRule = listOf(RouteRule(protocolRaw = listOf("dns"), action = "hijack-dns"))
 
         val allRules = when (settings.routingMode) {
-            // 2025-fix: 全局模式不再添加 sniffRule
             RoutingMode.GLOBAL_PROXY -> hijackDnsRule
             RoutingMode.GLOBAL_DIRECT -> hijackDnsRule + listOf(RouteRule(outbound = "direct"))
             RoutingMode.RULE -> {
-                sniffRule + hijackDnsRule + quicRule + bypassLanRules +
+                hijackDnsRule + quicRule + bypassLanRules +
                     customDomainRules + appRoutingRules + customRuleSetRules + defaultRuleCatchAll
             }
         }

@@ -29,7 +29,7 @@ data class AppSettings(
     @SerializedName("tunInterfaceName") val tunInterfaceName: String = "tun0",
     @SerializedName("autoRoute") val autoRoute: Boolean = false,
     @SerializedName("strictRoute") val strictRoute: Boolean = true,
-    @SerializedName("endpointIndependentNat") val endpointIndependentNat: Boolean = false,
+    @SerializedName("endpointIndependentNat") val endpointIndependentNat: Boolean = true,
     @SerializedName("vpnRouteMode") val vpnRouteMode: VpnRouteMode = VpnRouteMode.GLOBAL,
     @SerializedName("vpnRouteIncludeCidrs") val vpnRouteIncludeCidrs: String = "",
     @SerializedName("vpnAppMode") val vpnAppMode: VpnAppMode = VpnAppMode.ALL,

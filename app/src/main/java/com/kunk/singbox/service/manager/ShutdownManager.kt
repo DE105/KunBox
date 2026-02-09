@@ -91,7 +91,7 @@ class ShutdownManager(
     data class ShutdownOptions(
         val stopService: Boolean,
         val preserveTunInterface: Boolean = !stopService,
-        val proxyPort: Int = 0,  // 需要等待释放的代理端口
+        val proxyPort: Int = 0, // 需要等待释放的代理端口
         val strictPortRelease: Boolean = false
     )
 
@@ -219,7 +219,7 @@ class ShutdownManager(
             commandManager.stopAndWaitPortRelease(
                 proxyPort = proxyPort,
                 waitTimeoutMs = FAST_PORT_RELEASE_WAIT_MS,
-                forceKillOnTimeout = stopService,  // 完全停止时强制杀进程确保端口释放
+                forceKillOnTimeout = stopService, // 完全停止时强制杀进程确保端口释放
                 enforceReleaseOnTimeout = false
             ).onFailure { e ->
                 Log.w(TAG, "Error closing command server/client", e)
