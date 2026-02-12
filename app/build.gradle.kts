@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.util.zip.ZipFile
 
 plugins {
     id("com.android.application")
@@ -22,7 +23,31 @@ val abiOnly = (project.findProperty("abiOnly") as String?)
     ?.trim()
     ?.takeIf { it.isNotBlank() }
 
-val defaultAbis = listOf("arm64-v8a")
+fun detectLibboxAbis(libboxAar: File): Set<String> {
+    if (!libboxAar.isFile) {
+        return emptySet()
+    }
+    val abiRegex = Regex("^jni/([^/]+)/libbox\\.so$")
+    ZipFile(libboxAar).use { zip ->
+        return zip.entries().asSequence()
+            .mapNotNull { entry -> abiRegex.matchEntire(entry.name)?.groupValues?.get(1) }
+            .toSet()
+    }
+}
+
+val availableLibboxAbis = detectLibboxAbis(libboxInputAar)
+if (!abiOnly.isNullOrBlank() && abiOnly !in availableLibboxAbis) {
+    throw GradleException(
+        "Requested abiOnly=$abiOnly, but app/libs/libbox.aar does not contain it. " +
+            "Available: ${availableLibboxAbis.sorted()}. " +
+            "Rebuild libbox.aar with android/arm platform support first."
+    )
+}
+
+val preferredDefaultAbis = listOf("arm64-v8a", "armeabi-v7a")
+val defaultAbis = preferredDefaultAbis.filter { it in availableLibboxAbis }.ifEmpty {
+    if (availableLibboxAbis.isEmpty()) listOf("arm64-v8a") else availableLibboxAbis.sorted()
+}
 val apkAbis = abiOnly?.let { listOf(it) } ?: defaultAbis
 
 val autoSfaUniversalDir = rootProject.projectDir

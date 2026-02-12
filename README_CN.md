@@ -46,14 +46,14 @@
 
 前往 [Releases 页面](https://github.com/roseforljh/KunBox/releases) 下载最新版本的 APK 文件。
 
-> **提示**: 默认发布 `arm64-v8a` 架构的 APK。如需其他架构，请参考 [构建指南](#-构建指南) 自行编译。
+> **提示**: 发布产物包含 `arm64-v8a` 与 `armeabi-v7a` 两个架构版本。
 
 ### 系统要求
 
 | 项目 | 最低要求 |
 |:---|:---|
 | Android 版本 | Android 7.0 (API 24) |
-| 架构 | arm64-v8a |
+| 架构 | arm64-v8a / armeabi-v7a |
 | 存储空间 | 约 15MB |
 
 ### 安装方式

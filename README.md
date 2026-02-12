@@ -46,14 +46,14 @@
 
 Visit the [Releases page](https://github.com/roseforljh/KunBox/releases) to download the latest APK file.
 
-> **Note**: The default release is for `arm64-v8a` architecture. For other architectures, please refer to the [Build Guide](#-build-guide) to compile yourself.
+> **Note**: Release assets include `arm64-v8a` and `armeabi-v7a` builds.
 
 ### System Requirements
 
 | Item | Minimum Requirement |
 |:---|:---|
 | Android Version | Android 7.0 (API 24) |
-| Architecture | arm64-v8a |
+| Architecture | arm64-v8a / armeabi-v7a |
 | Storage | ~15MB |
 
 ### Installation Methods
