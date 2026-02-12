@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.8.0](https://github.com/roseforljh/KunBox/compare/v2.7.3...v2.8.0) (2026-02-12)
+
+
+### Features
+
+* **inbound:** 为 mixed inbound 添加 reuse_addr 选项 ([a947148](https://github.com/roseforljh/KunBox/commit/a947148f8b580916b999273215573902c48bb512))
+* **network:** 实现智能网络恢复机制解决后台切换卡顿问题 ([e7ef770](https://github.com/roseforljh/KunBox/commit/e7ef770f65721f30b87a37ec7a339cc9009d5516))
+* **traffic:** 实现按 outbound 分组的流量统计 ([dc822cb](https://github.com/roseforljh/KunBox/commit/dc822cb6d5ade32a44db07b01dca9f4b4a983e1b))
+
+
+### Bug Fixes
+
+* **detekt:** 修复所有 detekt 静态分析问题 ([8976225](https://github.com/roseforljh/KunBox/commit/89762250339bcfaf7b2e8855d8d46e1ffbd61f81))
+* https://github.com/roseforljh/KunBox/issues/55 ([4404960](https://github.com/roseforljh/KunBox/commit/440496068b37a3f6e9d6d69f45f6fabcb1341534))
+* **network:** 优化WiFi与移动数据切换时的网络恢复机制 ([d7eebc2](https://github.com/roseforljh/KunBox/commit/d7eebc22b228c184d2dbfa663ff0b02036bae4bd))
+* **network:** 收敛节点切换重启触发并增加前台恢复HARD兜底 ([f7dba7a](https://github.com/roseforljh/KunBox/commit/f7dba7a83446d9679b6bb8f0eb7ac8cd85bf9e62))
+* **sniff:** 将协议嗅探移至 inbound 层并启用 sniff_override_destination ([786d609](https://github.com/roseforljh/KunBox/commit/786d609475715074cf7d79e668110d1ca90ff2a9))
+* **vpn:** speed up stop flow and stabilize QS tile state ([a4238e7](https://github.com/roseforljh/KunBox/commit/a4238e7f01d1d6e2b0dd910213ead50e53ea606b))
+* **vpn:** 修复快速停止启动时端口未释放导致启动失败的问题 ([1fe74e7](https://github.com/roseforljh/KunBox/commit/1fe74e73d4fa90b8eccdadb95921a33715c0ef35))
+* **vpn:** 修复热重载误判和端口释放问题 ([92cdfe9](https://github.com/roseforljh/KunBox/commit/92cdfe9276b21a59c69c74b460d8b48a5c8a2a5f))
+* **vpn:** 重启时刷新设置缓存以应用最新仅允许列表 ([589806e](https://github.com/roseforljh/KunBox/commit/589806e84f117784b429d7c49cc9a26645dced7c))
+* 修复测速与状态恢复相关问题并同步本地改动 ([e8583cc](https://github.com/roseforljh/KunBox/commit/e8583ccd0f30f4016b3556b4fe96dbeef785655f))
+* 同步官方内核 ([7d6c376](https://github.com/roseforljh/KunBox/commit/7d6c3764cb5c4d5fa05c81ed13d6dc172d6dd7a3))
+
 ## [2.7.3](https://github.com/roseforljh/KunBox/compare/v2.7.2...v2.7.3) (2026-02-02)
 
 
