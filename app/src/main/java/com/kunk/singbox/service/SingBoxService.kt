@@ -1038,6 +1038,28 @@ class SingBoxService : VpnService() {
     @Suppress("CognitiveComplexMethod")
     private fun submitRecoveryRequest(request: RecoveryRequest) {
         synchronized(this) {
+            // 2025-fix-v7: APP_FOREGROUND + force 走快车道，不进合并窗口
+            // 直接 wake + resetNetwork，跳过 800ms 合并等待和多级探测
+            if (request.reason == RecoveryReason.APP_FOREGROUND && request.force && !recoveryInFlight) {
+                recoveryInFlight = true
+                serviceScope.launch {
+                    try {
+                        executeForegroundFastRecovery(request)
+                    } finally {
+                        val nextRequest = synchronized(this@SingBoxService) {
+                            recoveryInFlight = false
+                            val next = pendingRecoveryRequest
+                            pendingRecoveryRequest = null
+                            next
+                        }
+                        if (nextRequest != null) {
+                            executeRecoveryRequest(nextRequest)
+                        }
+                    }
+                }
+                return
+            }
+
             if (recoveryInFlight) {
                 val current = pendingRecoveryRequest
                 pendingRecoveryRequest = if (current == null) {
@@ -1258,6 +1280,37 @@ class SingBoxService : VpnService() {
         if (total <= 0L) return "n/a"
         val percentage = (success * 100.0) / total.toDouble()
         return "%.1f%%".format(java.util.Locale.US, percentage)
+    }
+
+    /**
+     * 2025-fix-v7: 前台快速恢复 - 跳过探测，直接 wake + resetNetwork
+     * 比 smartRecover 少 2-5 秒（不做 PROBE + SELECTIVE 的验证循环）
+     * 仅在 APP_FOREGROUND + force 时使用
+     */
+    private fun executeForegroundFastRecovery(request: RecoveryRequest) {
+        val startMs = SystemClock.elapsedRealtime()
+
+        // 直接 wake + resetNetwork，不做探测
+        BoxWrapperManager.wake()
+        BoxWrapperManager.resetNetwork()
+
+        val elapsedMs = SystemClock.elapsedRealtime() - startMs
+        Log.i(TAG, "[ForegroundFastRecovery] completed in ${elapsedMs}ms")
+
+        recoveryLastTriggeredAtMs.set(SystemClock.elapsedRealtime())
+        recoveryTriggerCount.incrementAndGet()
+        recoverySoftCount.incrementAndGet()
+        recoverySuccessCount.incrementAndGet()
+        recoveryConsecutiveFailureCount.set(0)
+
+        logRecoveryEvent(
+            event = "foreground_fast_recovery",
+            request = request,
+            mode = BoxWrapperManager.RecoveryMode.SOFT,
+            merged = false,
+            skipped = false,
+            outcome = "fast_path(${elapsedMs}ms)"
+        )
     }
 
     private fun shouldScheduleForegroundHardFallback(

@@ -11,23 +11,25 @@
 
 > **OLED Hyper-Minimalist**
 >
-> 专为追求极致性能与视觉纯粹主义者打造的下一代 Android 代理客户端。
-> <br/>摒弃繁杂，回归网络本质。
+> A next-generation Android proxy client designed for those who pursue ultimate performance and visual purity.
+> <br/>Cut the clutter, return to the essence of networking.
 
-[下载安装](#-下载安装) • [功能特性](#-核心特性) • [协议支持](#-协议矩阵) • [项目架构](#-项目结构) • [快速开始](#-构建指南) • [交流群](https://t.me/+978J0WfmJLk4ZmQ1)
+[Download](#-download-and-installation) • [Features](#-core-features) • [Protocols](#-protocol-matrix) • [Architecture](#-project-structure) • [Quick Start](#-build-guide) • [Community](https://t.me/+978J0WfmJLk4ZmQ1)
+
+**[中文文档](README_CN.md)**
 
 </div>
 
 ---
 
-## 📱 视觉预览
+## 📱 Visual Preview
 
 <div align="center">
-  <img src="https://beone.kuz7.com/p/bTJJUBRl5tjaUX5kWJ5JBnrCK-IWOGwzx32fL8mGuB0" width="30%" alt="首页概览" />
+  <img src="https://beone.kuz7.com/p/bTJJUBRl5tjaUX5kWJ5JBnrCK-IWOGwzx32fL8mGuB0" width="30%" alt="Dashboard" />
   &nbsp;&nbsp;
-  <img src="https://beone.kuz7.com/p/J47jgAo14XU34TXAyXwo-8zaAIWoKfqUytzI0UGzpws" width="30%" alt="节点列表" />
+  <img src="https://beone.kuz7.com/p/J47jgAo14XU34TXAyXwo-8zaAIWoKfqUytzI0UGzpws" width="30%" alt="Nodes List" />
   &nbsp;&nbsp;
-  <img src="https://beone.kuz7.com/p/jK9YTrZ6ZOITiSNxLBfHZtbKRdCu2o88vK62t1qNGgI" width="30%" alt="演示动画" />
+  <img src="https://beone.kuz7.com/p/jK9YTrZ6ZOITiSNxLBfHZtbKRdCu2o88vK62t1qNGgI" width="30%" alt="Demo Animation" />
 </div>
 <br/>
 <div align="center">
@@ -38,171 +40,171 @@
 
 ---
 
-## 📥 下载安装
+## 📥 Download and Installation
 
-### 从 GitHub Releases 下载
+### Download from GitHub Releases
 
-前往 [Releases 页面](https://github.com/roseforljh/KunBox/releases) 下载最新版本的 APK 文件。
+Visit the [Releases page](https://github.com/roseforljh/KunBox/releases) to download the latest APK file.
 
-> **提示**: 默认发布 `arm64-v8a` 架构的 APK。如需其他架构，请参考 [构建指南](#-构建指南) 自行编译。
+> **Note**: The default release is for `arm64-v8a` architecture. For other architectures, please refer to the [Build Guide](#-build-guide) to compile yourself.
 
-### 系统要求
+### System Requirements
 
-| 项目 | 最低要求 |
+| Item | Minimum Requirement |
 |:---|:---|
-| Android 版本 | Android 7.0 (API 24) |
-| 架构 | arm64-v8a |
-| 存储空间 | 约 15MB |
+| Android Version | Android 7.0 (API 24) |
+| Architecture | arm64-v8a |
+| Storage | ~15MB |
 
-### 安装方式
+### Installation Methods
 
-1. **直接安装**: 下载 APK 后点击安装（需要允许安装未知来源应用）
-2. **ADB 安装**: `adb install KunBox-x.x.x.apk`
-
----
-
-## ✨ 核心特性
-
-### 🎨 OLED 纯黑美学 (Hyper-Minimalist UI)
-区别于传统的 Material Design，我们采用了深度定制的 **True Black** 界面。不仅在 OLED 屏幕上实现像素级省电，更带来深邃、沉浸的视觉体验。无干扰的 UI 设计让关键信息（延迟、流量、节点）一目了然。
-
-- **耿鬼动态效果**: 首页独特的耿鬼形象随 VPN 状态切换
-- **流畅动画**: 基于 Jetpack Compose 的丝滑过渡动画
-- **自适应图标**: 支持 Android 13+ 主题自适应图标
-
-### 🚀 极致性能核心 (High-Performance Core)
-基于 Golang 编写的 **Sing-box (libbox)** 下一代通用代理核心。
-- **内存占用**: 相比传统核心降低 30%+
-- **启动速度**: 毫秒级冷启动
-- **连接稳定性**: 优秀的连接复用与保活机制
-- **热重载支持**: 配置变更无需重启 VPN 服务
-
-### 🛡️ 智能分流与规则集中心 (Smart Routing & RuleSet Hub)
-内置强大的路由引擎，支持复杂的规则集匹配。
-- **规则集中心**: 在线下载与管理海量规则集（GeoSite/GeoIP/AdGuard 等），支持 Source 与 Binary 格式。
-- **精准应用分流**: 采用 `UID` + `Package Name` 双重匹配机制，有效解决部分系统环境下应用分流失效的问题。
-- **灵活策略**: 支持 GeoSite、GeoIP、域名后缀、关键字、进程名等多种匹配维度。
-- **自动更新**: 规则集支持定时自动更新
-
-### ⚡ 便捷交互 (Quick Actions)
-- **Quick Settings Tile**: 支持系统下拉栏快捷开关，无需进入应用即可一键启停 VPN。
-- **桌面快捷方式**: 支持节点选择和 VPN 切换快捷方式
-- **真·延迟测试**: 基于 URL-Test 的真实连接测试，准确反映 YouTube/Google 等目标网站的真实加载速度。
-- **实时流量监控**: 通知栏实时显示上传/下载速度
-
-### 🔄 后台保活与省电优化
-- **智能保活**: 多层次的息屏保活机制
-- **后台省电**: 可配置的后台自动休眠，平衡续航与可用性
-- **快速恢复**: 从后台恢复时优化重连速度
+1. **Direct Install**: Download APK and tap to install (requires permission to install from unknown sources)
+2. **ADB Install**: `adb install KunBox-x.x.x.apk`
 
 ---
 
-## 🌐 协议矩阵
+## ✨ Core Features
 
-我们构建了全方位的协议支持网络，兼容市面上绝大多数代理协议与高级特性。
+### 🎨 OLED Pure Black Aesthetics (Hyper-Minimalist UI)
+Unlike traditional Material Design, we've adopted a deeply customized **True Black** interface. Not only does it achieve pixel-level power saving on OLED screens, but it also brings a deep, immersive visual experience. The distraction-free UI design makes key information (latency, traffic, nodes) clear at a glance.
 
-### 核心代理协议
+- **Gengar Dynamic Effect**: Unique Gengar character on the home page switches with VPN status
+- **Smooth Animations**: Silky transition animations based on Jetpack Compose
+- **Adaptive Icons**: Support for Android 13+ themed adaptive icons
 
-| 协议 | 标识 | 链接格式 | 核心特性支持 |
+### 🚀 High-Performance Core
+Based on the **Sing-box (libbox)** next-generation universal proxy core written in Golang.
+- **Memory Usage**: 30%+ lower than traditional cores
+- **Startup Speed**: Millisecond-level cold start
+- **Connection Stability**: Excellent connection reuse and keepalive mechanisms
+- **Hot Reload Support**: Configuration changes without restarting VPN service
+
+### 🛡️ Smart Routing & RuleSet Hub
+Built-in powerful routing engine supporting complex rule set matching.
+- **RuleSet Hub**: Online download and management of massive rule sets (GeoSite/GeoIP/AdGuard, etc.), supporting both Source and Binary formats.
+- **Precise App Routing**: Uses `UID` + `Package Name` dual matching mechanism, effectively solving app routing issues in some system environments.
+- **Flexible Policies**: Supports GeoSite, GeoIP, domain suffix, keyword, process name, and other matching dimensions.
+- **Auto Update**: Rule sets support scheduled automatic updates
+
+### ⚡ Quick Actions
+- **Quick Settings Tile**: Support system dropdown quick toggle, no need to enter the app to start/stop VPN.
+- **Desktop Shortcuts**: Support node selection and VPN toggle shortcuts
+- **Real Latency Test**: URL-Test based real connection testing, accurately reflecting actual loading speed of YouTube/Google and other target websites.
+- **Real-time Traffic Monitoring**: Notification bar displays real-time upload/download speed
+
+### 🔄 Background Keepalive & Power Saving
+- **Smart Keepalive**: Multi-level screen-off keepalive mechanism
+- **Background Power Saving**: Configurable auto-sleep in background, balancing battery life and availability
+- **Quick Recovery**: Optimized reconnection speed when returning from background
+
+---
+
+## 🌐 Protocol Matrix
+
+We've built a comprehensive protocol support network, compatible with most proxy protocols and advanced features on the market.
+
+### Core Proxy Protocols
+
+| Protocol | Identifier | Link Format | Core Feature Support |
 |:---|:---|:---|:---|
 | **Shadowsocks** | `SS` | `ss://` | SIP002, SIP008, AEAD (AES-128/256-GCM, Chacha20-Poly1305) |
 | **VMess** | `VMess` | `vmess://` | WS, gRPC, HTTP/2, Auto Secure, Packet Encoding |
 | **VLESS** | `VLESS` | `vless://` | **Reality**, **Vision**, XTLS Flow, uTLS |
-| **Trojan** | `Trojan` | `trojan://` | Trojan-Go 兼容, Mux |
-| **Hysteria 2** | `Hy2` | `hysteria2://` | 最新 QUIC 协议, 端口跳跃 (Port Hopping), 拥塞控制 |
-| **TUIC v5** | `TUIC` | `tuic://` | 0-RTT, BBR 拥塞控制, QUIC 传输 |
-| **WireGuard** | `WG` | `wireguard://` | 内核级 VPN 隧道, 预共享密钥 (PSK) |
-| **SSH** | `SSH` | `ssh://` | 安全隧道代理, Private Key 认证 |
-| **AnyTLS** | `AnyTLS` | `anytls://` | 通用 TLS 包装, 流量伪装 |
+| **Trojan** | `Trojan` | `trojan://` | Trojan-Go compatible, Mux |
+| **Hysteria 2** | `Hy2` | `hysteria2://` | Latest QUIC protocol, Port Hopping, Congestion Control |
+| **TUIC v5** | `TUIC` | `tuic://` | 0-RTT, BBR congestion control, QUIC transport |
+| **WireGuard** | `WG` | `wireguard://` | Kernel-level VPN tunnel, Pre-shared Key (PSK) |
+| **SSH** | `SSH` | `ssh://` | Secure tunnel proxy, Private Key authentication |
+| **AnyTLS** | `AnyTLS` | `anytls://` | Universal TLS wrapper, Traffic obfuscation |
 
-### 订阅生态支持
-- **Sing-box JSON**: 原生支持，特性最全。
-- **Clash YAML**: 完美兼容 Clash / Clash Meta (Mihomo) 配置，自动转换策略组。
-- **Standard Base64**: 兼容 V2RayN / Shadowrocket 订阅格式。
-- **导入方式**: 支持 剪贴板导入、URL 订阅导入、二维码扫描、本地文件导入。
+### Subscription Ecosystem Support
+- **Sing-box JSON**: Native support with full features.
+- **Clash YAML**: Perfect compatibility with Clash / Clash Meta (Mihomo) configurations, automatic policy group conversion.
+- **Standard Base64**: Compatible with V2RayN / Shadowrocket subscription formats.
+- **Import Methods**: Supports clipboard import, URL subscription import, QR code scanning, local file import.
 
 ---
 
-## 🏗️ 项目结构
+## 🏗️ Project Structure
 
-本项目遵循现代 Android 架构的最佳实践，采用 MVVM 模式与 Clean Architecture 设计理念。
+This project follows best practices of modern Android architecture, adopting MVVM pattern and Clean Architecture design principles.
 
 ```
 KunBox-Android/
 ├── app/src/main/java/com/kunk/singbox/
-│   ├── core/              # libbox JNI 封装 (BoxWrapperManager, SingBoxCore)
-│   ├── database/          # Room 数据库 (dao/, entity/)
-│   ├── ipc/               # VPN 跨进程通信 (SingBoxIpcHub, VpnStateStore)
-│   ├── model/             # 数据模型 (SingBoxConfig, RoutingModels, Settings)
-│   ├── repository/        # 数据仓库层
-│   │   ├── config/        # 配置构建器 (InboundBuilder, OutboundFixer)
-│   │   ├── store/         # 设置存储
-│   │   └── subscription/  # 订阅获取器
-│   ├── service/           # Android 服务
-│   │   ├── manager/       # VPN 生命周期管理 (CoreManager, ConnectManager)
-│   │   ├── network/       # 网络监控
-│   │   └── tun/           # TUN 设备管理
+│   ├── core/              # libbox JNI wrapper (BoxWrapperManager, SingBoxCore)
+│   ├── database/          # Room database (dao/, entity/)
+│   ├── ipc/               # VPN inter-process communication (SingBoxIpcHub, VpnStateStore)
+│   ├── model/             # Data models (SingBoxConfig, RoutingModels, Settings)
+│   ├── repository/        # Data repository layer
+│   │   ├── config/        # Configuration builders (InboundBuilder, OutboundFixer)
+│   │   ├── store/         # Settings storage
+│   │   └── subscription/  # Subscription fetcher
+│   ├── service/           # Android services
+│   │   ├── manager/       # VPN lifecycle management (CoreManager, ConnectManager)
+│   │   ├── network/       # Network monitoring
+│   │   └── tun/           # TUN device management
 │   ├── ui/                # Jetpack Compose UI
-│   │   ├── components/    # 可复用组件
-│   │   ├── screens/       # 页面级 Composables
-│   │   └── navigation/    # 导航配置
-│   ├── utils/parser/      # 协议解析器 (NodeLinkParser, ClashYamlParser)
-│   └── viewmodel/         # ViewModel 层
+│   │   ├── components/    # Reusable components
+│   │   ├── screens/       # Screen-level Composables
+│   │   └── navigation/    # Navigation configuration
+│   ├── utils/parser/      # Protocol parsers (NodeLinkParser, ClashYamlParser)
+│   └── viewmodel/         # ViewModel layer
 │
-├── Kkunbox/               # Sing-box 核心源码与构建脚本
-│   └── buildScript/       # libbox 编译脚本
+├── Kkunbox/               # Sing-box core source and build scripts
+│   └── buildScript/       # libbox compilation scripts
 │
-└── config/detekt/         # 代码质量检查配置
+└── config/detekt/         # Code quality check configuration
 ```
 
-### 架构亮点
+### Architecture Highlights
 
-#### 多进程架构
-- VPN 服务运行在独立进程 (`:vpn_service`)
-- UI 通过 `SingBoxIpcHub` 进行跨进程通信
-- 使用 `VpnStateStore` (MMKV) 实现跨进程状态同步
+#### Multi-process Architecture
+- VPN service runs in a separate process (`:vpn_service`)
+- UI communicates across processes via `SingBoxIpcHub`
+- Uses `VpnStateStore` (MMKV) for cross-process state synchronization
 
-#### VPN 数据流
+#### VPN Data Flow
 ```
 SingBoxService -> CoreManager -> BoxWrapperManager -> libbox.aar
 ```
 
 ---
 
-## 🛠️ 技术栈详情
+## 🛠️ Tech Stack Details
 
-| 维度 | 技术选型 | 说明 |
+| Dimension | Technology | Description |
 |:---|:---|:---|
-| **Language** | Kotlin 1.9 | 100% 纯 Kotlin 代码，利用 Coroutines 和 Flow 处理异步流 |
-| **UI Framework** | Jetpack Compose | 声明式 UI，Material 3 设计规范 |
-| **Architecture** | MVVM | 配合 ViewModel 和 Repository 实现关注点分离 |
-| **Core Engine** | Sing-box (Go) | 通过 JNI 与 Go 核心库通信 |
-| **Database** | Room | 本地数据持久化 |
-| **KV Storage** | MMKV | 高性能跨进程键值存储 |
-| **Network** | OkHttp 4 | 用于订阅更新、延迟测试等网络请求 |
-| **Serialization** | Gson & SnakeYAML | 高性能 JSON 和 YAML 解析 |
-| **Build System** | Gradle 8.x | 混合构建系统支持 |
-| **Code Quality** | Detekt | 静态代码分析与格式化 |
+| **Language** | Kotlin 1.9 | 100% pure Kotlin code, using Coroutines and Flow for async streams |
+| **UI Framework** | Jetpack Compose | Declarative UI, Material 3 design specification |
+| **Architecture** | MVVM | Separation of concerns with ViewModel and Repository |
+| **Core Engine** | Sing-box (Go) | Communicates with Go core library via JNI |
+| **Database** | Room | Local data persistence |
+| **KV Storage** | MMKV | High-performance cross-process key-value storage |
+| **Network** | OkHttp 4 | For subscription updates, latency tests, and other network requests |
+| **Serialization** | Gson & SnakeYAML | High-performance JSON and YAML parsing |
+| **Build System** | Gradle 8.x | Hybrid build system support |
+| **Code Quality** | Detekt | Static code analysis and formatting |
 
 ---
 
-## 🚀 快速开始
+## 🚀 Build Guide
 
-### 环境要求
+### Environment Requirements
 
-- **JDK**: 17 或更高版本
-- **Android Studio**: Hedgehog (2023.1.1) 或更高版本
-- **Go**: 1.24+ (仅编译 libbox 核心时需要)
-- **NDK**: r29 或更高版本
+- **JDK**: 17 or higher
+- **Android Studio**: Hedgehog (2023.1.1) or higher
+- **Go**: 1.24+ (only needed when compiling libbox core)
+- **NDK**: r29 or higher
 
-### 克隆项目
+### Clone Project
 
 ```bash
 git clone https://github.com/roseforljh/KunBox.git
 cd KunBox
 ```
 
-### 构建 Debug APK
+### Build Debug APK
 
 ```powershell
 # Windows
@@ -212,9 +214,9 @@ cd KunBox
 ./gradlew assembleDebug
 ```
 
-### 构建 Release APK
+### Build Release APK
 
-Release 构建需要配置签名。创建 `signing.properties` 文件：
+Release builds require signing configuration. Create a `signing.properties` file:
 
 ```properties
 STORE_FILE=release.keystore
@@ -223,43 +225,43 @@ KEY_ALIAS=your_key_alias
 KEY_PASSWORD=your_key_password
 ```
 
-然后执行：
+Then execute:
 
 ```powershell
 .\gradlew assembleRelease
 ```
 
-### 编译 libbox 核心 (可选)
+### Compile libbox Core (Optional)
 
-如需修改底层核心代码，需要编译 libbox：
+If you need to modify the underlying core code, compile libbox:
 
 ```powershell
-# 从本地源码编译 (需要 Go 1.24+)
+# Compile from local source (requires Go 1.24+)
 .\Kkunbox\buildScript\tasks\build_libbox.ps1 -UseLocalSource
 
-# 从远程仓库编译
+# Compile from remote repository
 .\Kkunbox\buildScript\tasks\build_libbox.ps1
 ```
 
-编译完成后，`libbox.aar` 将自动放置到 `app/libs/` 目录。
+After compilation, `libbox.aar` will be automatically placed in the `app/libs/` directory.
 
-### 运行测试
+### Run Tests
 
 ```powershell
-# 运行所有单元测试
+# Run all unit tests
 .\gradlew testDebugUnitTest
 
-# 运行特定测试类
+# Run specific test class
 .\gradlew testDebugUnitTest --tests "com.kunk.singbox.utils.parser.NodeLinkParserTest"
 
-# 运行特定测试方法
+# Run specific test method
 .\gradlew testDebugUnitTest --tests "com.kunk.singbox.utils.parser.NodeLinkParserTest.testVmessLink"
 
-# 运行 Detekt 代码检查
+# Run Detekt code check
 .\gradlew detekt
 ```
 
-### 清理构建
+### Clean Build
 
 ```powershell
 .\gradlew clean
@@ -267,117 +269,117 @@ KEY_PASSWORD=your_key_password
 
 ---
 
-## 📝 URL Scheme 支持
+## 📝 URL Scheme Support
 
-KunBox 支持通过 URL Scheme 快速导入配置：
+KunBox supports quick configuration import via URL Scheme:
 
 ```
 kunbox://import?url=<subscription_url>
 ```
 
-示例：
+Example:
 ```
 kunbox://import?url=https%3A%2F%2Fexample.com%2Fsubscription
 ```
 
 ---
 
-## 🧪 测试
+## 🧪 Testing
 
-项目包含完整的单元测试覆盖：
+The project includes complete unit test coverage:
 
-| 测试类 | 说明 |
+| Test Class | Description |
 |:---|:---|
-| `NodeLinkParserTest` | 协议链接解析测试 |
-| `ClashConfigParserTest` | Clash 配置解析测试 |
-| `ConfigRepositoryTest` | 配置生成测试 |
-| `ModelSerializationTest` | 模型序列化测试 |
-| `VpnStateStoreTest` | IPC 状态存储测试 |
+| `NodeLinkParserTest` | Protocol link parsing tests |
+| `ClashConfigParserTest` | Clash configuration parsing tests |
+| `ConfigRepositoryTest` | Configuration generation tests |
+| `ModelSerializationTest` | Model serialization tests |
+| `VpnStateStoreTest` | IPC state storage tests |
 
-运行测试前请确保：
-1. 已配置 Android SDK
-2. 已安装 NDK
-3. 测试数据库目录可写
-
----
-
-## 🤝 贡献指南
-
-我们欢迎所有形式的贡献！
-
-### 提交 Issue
-
-- 使用清晰的标题描述问题
-- 提供设备型号、Android 版本、应用版本
-- 附上复现步骤和相关日志
-
-### 提交 PR
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add amazing feature'`)
-4. 推送分支 (`git push origin feature/amazing-feature`)
-5. 创建 Pull Request
-
-### 代码规范
-
-- 使用 4 空格缩进（不使用 Tab）
-- 最大行长度 120 字符
-- 类名使用 PascalCase，函数和变量使用 camelCase
-- 提交前运行 `./gradlew detekt` 确保代码检查通过
-- 禁止空 catch 块，使用 `Log.e()` 替代 `printStackTrace()`
+Before running tests, ensure:
+1. Android SDK is configured
+2. NDK is installed
+3. Test database directory is writable
 
 ---
 
-## 📋 常见问题
+## 🤝 Contributing Guide
 
-### Q: 为什么安装后无法连接？
-A: 请检查：
-1. 是否授予 VPN 权限
-2. 节点配置是否正确
-3. 尝试切换不同的 DNS 设置
+We welcome all forms of contributions!
 
-### Q: 如何导入订阅？
-A: 支持多种方式：
-1. 点击右上角 "+" 选择 "从剪贴板导入"
-2. 长按订阅链接选择 "用 KunBox 打开"
-3. 使用 URL Scheme: `kunbox://import?url=<url>`
+### Submit Issues
 
-### Q: 耗电量大怎么办？
-A: 建议：
-1. 开启"后台省电"功能
-2. 减少不必要的规则集
-3. 关闭不使用的功能（如详细日志）
+- Use a clear title to describe the problem
+- Provide device model, Android version, app version
+- Include reproduction steps and relevant logs
 
-### Q: 支持哪些 Android 版本？
-A: 最低支持 Android 7.0 (API 24)，推荐 Android 10+ 以获得最佳体验。
+### Submit PRs
+
+1. Fork this repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push branch (`git push origin feature/amazing-feature`)
+5. Create a Pull Request
+
+### Code Standards
+
+- Use 4-space indentation (no tabs)
+- Maximum line length 120 characters
+- Class names use PascalCase, functions and variables use camelCase
+- Run `./gradlew detekt` before committing to ensure code check passes
+- No empty catch blocks, use `Log.e()` instead of `printStackTrace()`
 
 ---
 
-## 💖 赞助支持
+## 📋 FAQ
 
-感谢以下用户的慷慨支持：
+### Q: Why can't I connect after installation?
+A: Please check:
+1. Whether VPN permission is granted
+2. Whether node configuration is correct
+3. Try switching different DNS settings
 
-| 赞助者 | 金额 |
+### Q: How to import subscriptions?
+A: Multiple methods supported:
+1. Click "+" in the top right corner and select "Import from Clipboard"
+2. Long press subscription link and select "Open with KunBox"
+3. Use URL Scheme: `kunbox://import?url=<url>`
+
+### Q: What to do about high battery usage?
+A: Suggestions:
+1. Enable "Background Power Saving" feature
+2. Reduce unnecessary rule sets
+3. Turn off unused features (like detailed logs)
+
+### Q: Which Android versions are supported?
+A: Minimum support is Android 7.0 (API 24), Android 10+ recommended for best experience.
+
+---
+
+## 💖 Sponsorship
+
+Thanks to the following users for their generous support:
+
+| Sponsor | Amount |
 |:---|:---|
-| [@WestWood](https://github.com/yuedaochangmendian) | ¥15 |
+| [@WestWood](https://github.com/yuedaochangmendian) | ¥30 |
 
-> 您的支持是我们持续开发的动力！如有意愿赞助，请通过 [Telegram](https://t.me/+978J0WfmJLk4ZmQ1) 联系我们。
-
----
-
-## ❤️ 致谢与引用
-
-本项目站在巨人的肩膀上，特别感谢以下开源项目：
-
-* **[SagerNet/sing-box](https://github.com/SagerNet/sing-box)**: 下一代通用代理平台核心
-* **[MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)**: 优秀的 Android 代理客户端参考
-* **[v2ray/v2ray-core](https://github.com/v2ray/v2ray-core)**: V2Ray 团队为代理生态做出的开创性贡献
-* **[Jetpack Compose](https://developer.android.com/jetpack/compose)**: 现代化的 Android UI 工具包
+> Your support is our motivation for continuous development! If you wish to sponsor, please contact us via [Telegram](https://t.me/+978J0WfmJLk4ZmQ1).
 
 ---
 
-## 📝 许可证
+## ❤️ Acknowledgments
+
+This project stands on the shoulders of giants, special thanks to the following open source projects:
+
+* **[SagerNet/sing-box](https://github.com/SagerNet/sing-box)**: Next-generation universal proxy platform core
+* **[MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)**: Excellent Android proxy client reference
+* **[v2ray/v2ray-core](https://github.com/v2ray/v2ray-core)**: V2Ray team's pioneering contribution to the proxy ecosystem
+* **[Jetpack Compose](https://developer.android.com/jetpack/compose)**: Modern Android UI toolkit
+
+---
+
+## 📝 License
 
 ```
 Copyright © 2024-2025 KunK.
@@ -398,8 +400,8 @@ limitations under the License.
 
 <div align="center">
 
-**[⬆ 回到顶部](#kunbox-for-android)**
+**[⬆ Back to Top](#kunbox-for-android)**
 
-<sub>本项目仅供学习和研究网络技术使用，请遵守当地法律法规。</sub>
+<sub>This project is for learning and researching network technology only. Please comply with local laws and regulations.</sub>
 
 </div>

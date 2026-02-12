@@ -387,8 +387,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     if (pendingIdleJob?.isActive == true) return
 
                     pendingIdleJob = viewModelScope.launch {
-                        // 如果是启动时的检测，给更长的宽限期 (1000ms)，否则给普通的防抖期 (300ms)
-                        val delayTime = if (systemVpnDetectedOnBoot) 1000L else 300L
+                        // 2025-fix-v7: 如果 MMKV 记录 VPN 正在运行，给更长宽限期等 IPC 恢复
+                        // 避免 IPC 还在绑定中时误触发断连（从 300ms 延长到 3000ms）
+                        val delayTime = when {
+                            VpnStateStore.getActive() -> 3000L
+                            systemVpnDetectedOnBoot -> 1000L
+                            else -> 300L
+                        }
                         delay(delayTime)
 
                         // 宽限期过，再次检查 SingBoxRemote 状态
@@ -490,57 +495,59 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * 2025-fix-v6: 刷新 VPN 状态 (增强版)
+     * 2025-fix-v7: 刷新 VPN 状态 (两阶段即时恢复)
      *
-     * 核心改进:
-     * 1. 回调超时检测 - 如果回调通道失效，不再依赖它
-     * 2. 强制从 VpnStateStore 同步 - 直接读取跨进程共享的真实状态
-     * 3. 强制重连 - rebind() 直接断开再重连，确保回调通道畅通
+     * Phase 1: 即时恢复 (< 1ms)
+     * - 从 MMKV 读取 VPN 状态，立即更新 UI
+     * - 异步启动 IPC 重建（不阻塞）
      *
-     * 这是解决 "后台恢复后 UI 一直加载中" 问题的关键修复
+     * Phase 2: 异步精确同步 (后台完成，用户无感)
+     * - 等待 IPC 绑定完成
+     * - 通过 AIDL 获取精确状态，覆盖乐观 UI
+     *
+     * 这彻底解决了 "后台恢复后 UI 卡加载" 的问题
      */
     fun refreshState() {
         viewModelScope.launch {
             val context = getApplication<Application>()
 
-            // 2025-fix-v6: 第一步 - 立即从 VpnStateStore 恢复状态
-            // 这确保 UI 不会显示过时状态，即使 IPC 还没完成
-            SingBoxRemote.forceStoreSync()
+            // Phase 1: 即时恢复 (< 1ms，从 MMKV 读状态 + 异步启动 IPC)
+            SingBoxRemote.instantRecovery(context)
 
-            // 同步更新 UI 状态
+            // 立即从 MMKV 状态更新 UI（不等 IPC）
             val isActive = VpnStateStore.getActive()
-            if (isActive) {
-                setConnectionState(ConnectionState.Connected)
-            } else if (!SingBoxRemote.isStarting.value) {
-                setConnectionState(ConnectionState.Idle)
+            when {
+                isActive -> setConnectionState(ConnectionState.Connected)
+                SingBoxRemote.isStarting.value -> setConnectionState(ConnectionState.Connecting)
+                else -> setConnectionState(ConnectionState.Idle)
             }
 
-            // 第二步 - 主动查询并同步；仅在 Binder 不可用/调用失败时重绑
-            val synced = runCatching { SingBoxRemote.queryAndSyncState(context) }.getOrDefault(false)
-            if (!synced || !SingBoxRemote.isBound()) {
-                Log.w(TAG, "refreshState: binder unavailable or query failed, forcing rebind")
-                SingBoxRemote.rebind(context)
-            }
-
-            // 等待 IPC 绑定完成
-            var retries = 0
-            while (!SingBoxRemote.isBound() && retries < 15) {
-                delay(100)
-                retries++
-            }
-
-            // 最终状态同步
-            val state = SingBoxRemote.state.value
-            Log.i(TAG, "refreshState: state=$state, bound=${SingBoxRemote.isBound()}")
-
-            when (state) {
-                ServiceState.RUNNING -> setConnectionState(ConnectionState.Connected)
-                ServiceState.STARTING -> setConnectionState(ConnectionState.Connecting)
-                ServiceState.STOPPING -> setConnectionState(ConnectionState.Disconnecting)
-                ServiceState.STOPPED -> setConnectionState(ConnectionState.Idle)
-            }
-
+            // 确保状态收集器已启动
             startStateCollector()
+
+            // Phase 2: IPC 就绪后精确同步（后台静默完成，用户无感）
+            launch {
+                // 最多等 5 秒，但不阻塞 UI
+                var retries = 0
+                while (!SingBoxRemote.isBound() && retries < 50) {
+                    delay(100)
+                    retries++
+                }
+
+                if (SingBoxRemote.isBound()) {
+                    // IPC 就绪，用 AIDL 精确同步（覆盖 MMKV 的乐观状态）
+                    val state = SingBoxRemote.state.value
+                    Log.i(TAG, "refreshState Phase 2: state=$state, bound=true, retries=$retries")
+                    when (state) {
+                        ServiceState.RUNNING -> setConnectionState(ConnectionState.Connected)
+                        ServiceState.STARTING -> setConnectionState(ConnectionState.Connecting)
+                        ServiceState.STOPPING -> setConnectionState(ConnectionState.Disconnecting)
+                        ServiceState.STOPPED -> setConnectionState(ConnectionState.Idle)
+                    }
+                } else {
+                    Log.w(TAG, "refreshState Phase 2: IPC still not bound after 5s")
+                }
+            }
         }
     }
 
@@ -993,9 +1000,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
 
                 // 使用5秒超时包装整个测试过程
-                val delay = withTimeoutOrNull(5000L) {
-                    configRepository.testNodeLatency(activeNodeId)
-                }
+                val delay = configRepository.testNodeLatency(activeNodeId)
 
                 // 测试完成，更新状态
                 _isPingTesting.value = false
@@ -1007,7 +1012,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     } else {
                         // 超时或失败，设置为 -1 表示超时
                         _currentNodePing.value = -1L
-                        Log.w(TAG, "Ping test failed or timed out (5s)")
+                        Log.w(TAG, "Ping test failed or timed out")
                     }
                 }
             } catch (e: Exception) {

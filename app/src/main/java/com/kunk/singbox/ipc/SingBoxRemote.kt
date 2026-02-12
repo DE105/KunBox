@@ -17,6 +17,9 @@ import com.kunk.singbox.aidl.ISingBoxServiceCallback
 import com.kunk.singbox.service.ServiceState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.asStateFlow
 import java.lang.ref.WeakReference
 
@@ -525,6 +528,43 @@ object SingBoxRemote {
      */
     fun forceStoreSync() {
         syncStateFromStore()
+    }
+
+    /**
+     * 即时恢复 - 前台回来时调用
+     * Phase 1: 同步从 MMKV 恢复状态 (< 1ms, 不依赖 IPC)
+     * Phase 2: 异步重建/验证 IPC (不阻塞 UI)
+     */
+    fun instantRecovery(context: Context) {
+        // Phase 1: 立即从 MMKV 读取状态（微秒级）
+        syncStateFromStore()
+        Log.i(TAG, "instantRecovery: Phase 1 done, state=${_state.value}")
+
+        // Phase 2: 异步确保 IPC 可用（不阻塞调用者）
+        contextRef = WeakReference(context.applicationContext)
+        if (!isBound() || service == null) {
+            Log.i(TAG, "instantRecovery: IPC not bound, triggering async rebind")
+            rebind(context)
+        } else {
+            // 连接看似存活，异步验证 + 同步
+            CoroutineScope(Dispatchers.IO).launch {
+                val s = service
+                if (s != null) {
+                    val ok = runCatching {
+                        syncStateFromService(s)
+                        true
+                    }.getOrDefault(false)
+                    if (!ok) {
+                        Log.w(TAG, "instantRecovery: AIDL verify failed, rebinding")
+                        rebind(context)
+                    } else {
+                        Log.i(TAG, "instantRecovery: Phase 2 AIDL verify ok")
+                    }
+                } else {
+                    rebind(context)
+                }
+            }
+        }
     }
 
     fun isBound(): Boolean = connectionActive && bound && service != null

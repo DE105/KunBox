@@ -242,9 +242,11 @@ class BackgroundPowerManager(
 
         logState(
             "$eventLabel after ${eventDurationMs / 1000}s, " +
-                "request recovery(source=$source, force=false, away=${awayDurationMs}ms)"
+                "request recovery(source=$source, force=${awayDurationMs > 30_000L}, away=${awayDurationMs}ms)"
         )
-        cb.requestCoreNetworkRecovery(source, force = false)
+        // 离开超过 30 秒，强制恢复（跳过所有防抖），避免恢复被合并/跳过
+        val forceRecovery = awayDurationMs > 30_000L
+        cb.requestCoreNetworkRecovery(source, force = forceRecovery)
     }
 
     /**

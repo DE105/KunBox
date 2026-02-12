@@ -765,7 +765,39 @@ class SingBoxCore private constructor(private val context: Context) {
         }
 
         if (VpnStateStore.getActive()) {
-            return@withContext testOutboundLatencyWithLibbox(outbound, settings, dependencyOutbounds)
+            val isNativeUrlTestSupported = BoxWrapperManager.isAvailable()
+            if (libboxAvailable && isNativeUrlTestSupported) {
+                val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
+                var safeLatency = -1L
+                SafeLatencyTester.getInstance().testOutboundsLatencySafe(
+                    outbounds = listOf(outbound),
+                    targetUrl = url,
+                    timeoutMs = timeoutMs
+                ) { tag, latency ->
+                    if (tag == outbound.tag) {
+                        safeLatency = latency
+                    }
+                }
+                if (safeLatency > 0) {
+                    return@withContext safeLatency
+                }
+                Log.w(TAG, "Safe single-node latency test failed for ${outbound.tag}, fallback to legacy path")
+                return@withContext testOutboundLatencyWithLibbox(outbound, settings, dependencyOutbounds)
+            }
+
+            val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)
+            var temporaryServiceLatency = -1L
+            testOutboundsLatencyOfflineWithTemporaryService(
+                outbounds = listOf(outbound),
+                targetUrl = url,
+                timeoutMs = timeoutMs,
+                method = settings.latencyTestMethod
+            ) { tag, latency ->
+                if (tag == outbound.tag) {
+                    temporaryServiceLatency = latency
+                }
+            }
+            return@withContext temporaryServiceLatency
         }
 
         val url = adjustUrlForMode(settings.latencyTestUrl, settings.latencyTestMethod)

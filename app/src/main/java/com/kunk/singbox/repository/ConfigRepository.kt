@@ -2002,31 +2002,28 @@ class ConfigRepository(private val context: Context) {
             return prev.await()
         }
 
-        val settings = SettingsRepository.getInstance(context).settings.first()
-        val totalTimeoutMs = settings.latencyTestTimeout.toLong()
-
         try {
             val result = withContext(Dispatchers.IO) {
-                withTimeoutOrNull(totalTimeoutMs) {
+                run {
                     try {
                         // 优先从 _nodes 查找，找不到则从 _allNodes 查找（支持非活跃配置的节点）
                         val node = _nodes.value.find { it.id == nodeId }
                             ?: _allNodes.value.find { it.id == nodeId }
                         if (node == null) {
                             Log.e(TAG, "Node not found: $nodeId")
-                            return@withTimeoutOrNull -1L
+                            return@withContext -1L
                         }
 
                         val config = loadConfig(node.sourceProfileId)
                         if (config == null) {
                             Log.e(TAG, "Config not found for profile: ${node.sourceProfileId}")
-                            return@withTimeoutOrNull -1L
+                            return@withContext -1L
                         }
 
                         val outbound = config.outbounds?.find { it.tag == node.name }
                         if (outbound == null) {
                             Log.e(TAG, "Outbound not found: ${node.name}")
-                            return@withTimeoutOrNull -1L
+                            return@withContext -1L
                         }
 
                         val fixedOutbound = buildOutboundForRuntime(outbound)
@@ -2056,10 +2053,6 @@ class ConfigRepository(private val context: Context) {
                         LogRepository.getInstance().addLog(context.getString(R.string.nodes_test_failed, nodeName ?: nodeId) + ": ${e.message}")
                         -1L
                     }
-                } ?: run {
-                    Log.w(TAG, "Latency test timeout for $nodeId (${totalTimeoutMs}ms)")
-                    updateNodeLatencyFull(nodeId, -1L)
-                    -1L
                 }
             }
             deferred.complete(result)
