@@ -245,6 +245,28 @@ KEY_PASSWORD=your_key_password
 
 编译完成后，`libbox.aar` 将自动放置到 `app/libs/` 目录。
 
+### 同步官方内核
+
+KunBox 使用固定分支 `kunbox-extensions` 管理内核扩展。该分支基于 sing-box 官方 tag，顶部叠加了 KunBox 扩展 commits。
+
+同步到新版本的流程：
+
+```powershell
+cd Kkunbox\singbox-core
+
+# 1. 拉取上游最新 tags
+git fetch upstream --tags
+
+# 2. Rebase 到新版本 tag（例如 v1.12.22）
+git rebase v1.12.22
+
+# 3. 回到项目根目录，重新编译内核
+cd ..\..
+.\Kkunbox\buildScript\tasks\build_libbox.ps1 -UseLocalSource -AutoReplace
+```
+
+> **说明**：rebase 时 KunBox 的扩展 commits 会自动保留在分支顶部。如遇冲突需手动解决后 `git rebase --continue`。
+
 ### 运行测试
 
 ```powershell

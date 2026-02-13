@@ -495,39 +495,38 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * 2025-fix-v7: 刷新 VPN 状态 (两阶段即时恢复)
+     * 2025-fix-v11: 刷新 VPN 状态 (两阶段即时恢复)
      *
      * Phase 1: 即时恢复 (< 1ms)
      * - 从 MMKV 读取 VPN 状态，立即更新 UI
-     * - 异步启动 IPC 重建（不阻塞）
+     * - 异步验证/重建 IPC（不阻塞，不强制 rebind）
      *
      * Phase 2: 异步精确同步 (后台完成，用户无感)
      * - 等待 IPC 绑定完成
-     * - 通过 AIDL 获取精确状态，覆盖乐观 UI
-     *
-     * 这彻底解决了 "后台恢复后 UI 卡加载" 的问题
+     * - 仅当 AIDL 返回的状态与 MMKV 一致或更可信时才覆盖 UI
+     * - 如果 IPC 超时未绑定但 MMKV 显示 active，保持 Connected 不回退
      */
     fun refreshState() {
         viewModelScope.launch {
             val context = getApplication<Application>()
 
-            // Phase 1: 即时恢复 (< 1ms，从 MMKV 读状态 + 异步启动 IPC)
+            // Phase 1: 即时恢复 (< 1ms，从 MMKV 读状态 + 异步验证 IPC)
             SingBoxRemote.instantRecovery(context)
 
             // 立即从 MMKV 状态更新 UI（不等 IPC）
             val isActive = VpnStateStore.getActive()
-            when {
-                isActive -> setConnectionState(ConnectionState.Connected)
-                SingBoxRemote.isStarting.value -> setConnectionState(ConnectionState.Connecting)
-                else -> setConnectionState(ConnectionState.Idle)
+            val phase1State = when {
+                isActive -> ConnectionState.Connected
+                SingBoxRemote.isStarting.value -> ConnectionState.Connecting
+                else -> ConnectionState.Idle
             }
+            setConnectionState(phase1State)
 
             // 确保状态收集器已启动
             startStateCollector()
 
             // Phase 2: IPC 就绪后精确同步（后台静默完成，用户无感）
             launch {
-                // 最多等 5 秒，但不阻塞 UI
                 var retries = 0
                 while (!SingBoxRemote.isBound() && retries < 50) {
                     delay(100)
@@ -535,17 +534,34 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
 
                 if (SingBoxRemote.isBound()) {
-                    // IPC 就绪，用 AIDL 精确同步（覆盖 MMKV 的乐观状态）
                     val state = SingBoxRemote.state.value
                     Log.i(TAG, "refreshState Phase 2: state=$state, bound=true, retries=$retries")
                     when (state) {
                         ServiceState.RUNNING -> setConnectionState(ConnectionState.Connected)
                         ServiceState.STARTING -> setConnectionState(ConnectionState.Connecting)
                         ServiceState.STOPPING -> setConnectionState(ConnectionState.Disconnecting)
-                        ServiceState.STOPPED -> setConnectionState(ConnectionState.Idle)
+                        ServiceState.STOPPED -> {
+                            // 关键保护：如果 MMKV 仍然显示 active，说明 AIDL 可能还没同步完成
+                            // （刚 rebind 后 onServiceConnected 的初始同步可能还没到达）
+                            // 此时不要回退到 Idle，等后续回调自然更新
+                            if (VpnStateStore.getActive()) {
+                                Log.w(
+                                    TAG,
+                                    "refreshState Phase 2: AIDL says STOPPED but MMKV says active, " +
+                                        "keeping Connected (wait for callback)"
+                                )
+                            } else {
+                                setConnectionState(ConnectionState.Idle)
+                            }
+                        }
                     }
                 } else {
-                    Log.w(TAG, "refreshState Phase 2: IPC still not bound after 5s")
+                    // IPC 超时未绑定，但如果 MMKV 显示 active，保持 Connected
+                    if (isActive) {
+                        Log.w(TAG, "refreshState Phase 2: IPC not bound but MMKV active, keeping Connected")
+                    } else {
+                        Log.w(TAG, "refreshState Phase 2: IPC not bound and MMKV inactive")
+                    }
                 }
             }
         }

@@ -147,15 +147,11 @@ fun SingBoxApp() {
     val settings by settingsRepository.settings.collectAsState(initial = null)
     val dashboardViewModel: DashboardViewModel = viewModel()
 
-    // 每次 Activity resume 时刷新 VPN 状态（仅刷新，不主动重绑 IPC）
+    // 前台恢复时统一走 refreshState（内部已包含 ensureBound + MMKV 即时恢复）
+    // 不再在 ON_START 单独调用 ensureBound，避免与 ON_RESUME 的 refreshState 竞争
+    // 导致 rebind 打断正在进行的连接，触发 STOPPED 闪烁
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         dashboardViewModel.refreshState()
-    }
-
-    // 前后台通知统一走 AppLifecycleObserver，避免与 ProcessLifecycleOwner 双路径竞争
-    // 这里仅确保 IPC 连接有效
-    LifecycleEventEffect(Lifecycle.Event.ON_START) {
-        SingBoxRemote.ensureBound(context)
     }
 
     // 当语言设置变化时,缓存到 SharedPreferences 供 attachBaseContext 使用

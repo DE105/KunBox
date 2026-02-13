@@ -245,6 +245,28 @@ If you need to modify the underlying core code, compile libbox:
 
 After compilation, `libbox.aar` will be automatically placed in the `app/libs/` directory.
 
+### Sync Upstream Kernel
+
+KunBox uses a fixed branch `kunbox-extensions` to manage kernel extensions. This branch is based on an official sing-box tag, with KunBox extension commits stacked on top.
+
+To sync to a new upstream version:
+
+```powershell
+cd Kkunbox\singbox-core
+
+# 1. Fetch latest upstream tags
+git fetch upstream --tags
+
+# 2. Rebase onto the new version tag (e.g. v1.12.22)
+git rebase v1.12.22
+
+# 3. Go back to project root and rebuild the kernel
+cd ..\..
+.\Kkunbox\buildScript\tasks\build_libbox.ps1 -UseLocalSource -AutoReplace
+```
+
+> **Note**: KunBox extension commits are automatically preserved on top of the branch during rebase. If conflicts occur, resolve them manually and run `git rebase --continue`.
+
 ### Run Tests
 
 ```powershell

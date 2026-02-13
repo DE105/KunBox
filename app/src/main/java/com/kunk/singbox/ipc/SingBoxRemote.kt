@@ -17,9 +17,6 @@ import com.kunk.singbox.aidl.ISingBoxServiceCallback
 import com.kunk.singbox.service.ServiceState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.asStateFlow
 import java.lang.ref.WeakReference
 
@@ -297,8 +294,16 @@ object SingBoxRemote {
             bound = false
 
             val ctx = contextRef?.get()
-            if (ctx != null && hasSystemVpn(ctx)) {
-                Log.i(TAG, "System VPN still active, keeping current state and reconnecting")
+            // 保护：如果系统 VPN 仍在运行，或 MMKV 记录 VPN 活跃，不要回退到 STOPPED
+            // 这避免了 rebind 过程中 disconnect→onServiceDisconnected 导致的状态闪烁
+            val mmkvActive = VpnStateStore.getActive()
+            val systemVpn = ctx != null && hasSystemVpn(ctx)
+            if (systemVpn || mmkvActive) {
+                Log.i(
+                    TAG,
+                    "Service disconnected but VPN likely active " +
+                        "(systemVpn=$systemVpn, mmkvActive=$mmkvActive), keeping state and reconnecting"
+                )
                 scheduleReconnect()
             } else {
                 updateState(ServiceState.STOPPED, "", "", false)
@@ -533,7 +538,7 @@ object SingBoxRemote {
     /**
      * 即时恢复 - 前台回来时调用
      * Phase 1: 同步从 MMKV 恢复状态 (< 1ms, 不依赖 IPC)
-     * Phase 2: 异步重建/验证 IPC (不阻塞 UI)
+     * Phase 2: 异步验证 IPC，仅在确认失效时才重连（避免不必要的 rebind 导致 STOPPED 闪烁）
      */
     fun instantRecovery(context: Context) {
         // Phase 1: 立即从 MMKV 读取状态（微秒级）
@@ -542,28 +547,40 @@ object SingBoxRemote {
 
         // Phase 2: 异步确保 IPC 可用（不阻塞调用者）
         contextRef = WeakReference(context.applicationContext)
-        if (!isBound() || service == null) {
-            Log.i(TAG, "instantRecovery: IPC not bound, triggering async rebind")
-            rebind(context)
-        } else {
-            // 连接看似存活，异步验证 + 同步
-            CoroutineScope(Dispatchers.IO).launch {
-                val s = service
-                if (s != null) {
-                    val ok = runCatching {
-                        syncStateFromService(s)
-                        true
-                    }.getOrDefault(false)
-                    if (!ok) {
-                        Log.w(TAG, "instantRecovery: AIDL verify failed, rebinding")
-                        rebind(context)
-                    } else {
-                        Log.i(TAG, "instantRecovery: Phase 2 AIDL verify ok")
-                    }
-                } else {
-                    rebind(context)
-                }
+
+        if (!connectionActive) {
+            // IPC 完全不存在，用 connect（不是 rebind）避免多余 disconnect
+            Log.i(TAG, "instantRecovery: IPC not active, connecting (not rebinding)")
+            connect(context)
+            return
+        }
+
+        if (!bound || service == null) {
+            // connectionActive 但 bound/service 丢失，说明正在重连中，不要打断
+            Log.i(TAG, "instantRecovery: connection in progress, skip rebind")
+            return
+        }
+
+        // 连接看似存活，异步验证 + 同步（在主线程 post 避免并发问题）
+        mainHandler.post {
+            val s = service ?: run {
+                Log.w(TAG, "instantRecovery: service became null, rebinding")
+                rebind(context)
+                return@post
             }
+
+            val ok = runCatching {
+                syncStateFromService(s)
+                true
+            }.getOrDefault(false)
+
+            if (ok) {
+                Log.i(TAG, "instantRecovery: Phase 2 AIDL verify ok")
+                return@post
+            }
+
+            Log.w(TAG, "instantRecovery: AIDL verify failed, rebinding")
+            rebind(context)
         }
     }
 
