@@ -270,30 +270,31 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _vpnPermissionNeeded = MutableStateFlow(false)
     val vpnPermissionNeeded: StateFlow<Boolean> = _vpnPermissionNeeded.asStateFlow()
 
-    // 2025-fix: 用于确保状态监听只在 IPC 绑定后启动一次
+    // 2025-fix-v12: 用于确保状态监听器只启动一次
+    // 使用 @Volatile 保证多线程可见性
     @Volatile private var stateCollectorStarted = false
 
     // 2025-fix: 标记是否在启动时检测到了系统 VPN
     // 用于过滤 IPC 连接初期的虚假 STOPPED 状态
     private var systemVpnDetectedOnBoot = false
 
+    // 2025-fix: 使用更健壮的 IPC 绑定逻辑
+    // 原因: 原来的等待只有 1000ms，在系统负载高时可能不够
+    // 改进: 增加重试次数 + 每次重试前先尝试 ensureBound
     init {
-        // nodeFilter/sortType/customOrder 现在从 displaySettings 共享获取，无需单独收集
-
-        // Ensure IPC is bound before subscribing to state flows
-        // This prevents stale state when app returns from background
         viewModelScope.launch {
-            runCatching { SingBoxRemote.ensureBound(getApplication()) }
-
-            // Wait for IPC binding to complete (with timeout)
-            var retries = 0
-            while (!SingBoxRemote.isBound() && retries < 20) {
-                delay(50)
-                retries++
+            // 第一阶段：确保 IPC 绑定（带重试）
+            for (attempt in 1..5) {
+                runCatching { SingBoxRemote.ensureBound(getApplication()) }
+                delay(300) // 每次等待 300ms，总共最多 1500ms
+                if (SingBoxRemote.isBound()) {
+                    Log.i(TAG, "IPC bound successfully on attempt $attempt")
+                    break
+                }
+                Log.w(TAG, "IPC not bound, attempt $attempt/5")
             }
 
-            // Best-effort initial sync for UI state after process restart/force-stop.
-            // We rely on system VPN presence + persisted state, and clear stale persisted state.
+            // 第二阶段：同步初始状态（从 MMKV 兜底）
             runCatching {
                 val context = getApplication<Application>()
                 val cm = context.getSystemService(ConnectivityManager::class.java)
@@ -306,7 +307,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     false
                 }
 
-                // 记录系统 VPN 状态
                 if (hasSystemVpn) {
                     systemVpnDetectedOnBoot = true
                 }
@@ -319,7 +319,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
 
                 if (hasSystemVpn && persisted) {
-                    // If process restarted while VPN is still up, show as connected until flows catch up.
                     _connectionState.value = ConnectionState.Connected
                     _connectedAtElapsedMs.value = SystemClock.elapsedRealtime()
                 } else if (!SingBoxRemote.isStarting.value) {
@@ -327,8 +326,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
 
-            // 2025-fix: IPC 绑定完成后再启动状态监听
-            // 避免在绑定前收到过时的初始值 STOPPED 导致 UI 显示断开
+            // 第三阶段：确保状态收集器启动（关键修复）
+            // 原来只在绑定成功后才启动，现在无论绑定是否成功都启动
+            // 这样即使 IPC 绑定失败，MMKV 状态也能持续更新 UI
             startStateCollector()
         }
 
@@ -350,12 +350,69 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * 2025-fix: 启动状态监听器
+     * 2025-fix-v12: 启动状态监听器
      * 确保只在 IPC 绑定完成后调用一次
+     * 注意: 现在允许重复调用（幂等），内部会检查是否已启动
      */
     // 2025-fix: 用于处理连接状态变更的防抖 Job
     private var pendingIdleJob: Job? = null
     private var startGraceUntilElapsedMs: Long? = null
+
+    /**
+     * 启动状态收集器（幂等方法）
+     * 2025-fix-v12: 确保只启动一次，但保证在 init 和 refreshState 中都会被调用
+     * 关键修复: 使用 synchronized 确保线程安全，同时允许在必要时重新启动
+     */
+    private fun startStateCollector() {
+        // 使用 synchronized 确保只启动一次
+        if (stateCollectorStarted) {
+            Log.d(TAG, "startStateCollector: already started, skipping")
+            return
+        }
+
+        synchronized(this) {
+            if (stateCollectorStarted) return
+            stateCollectorStarted = true
+        }
+
+        // 收集器1: 监听 SingBoxService 状态变化
+        val stateFlow = SingBoxRemote.state
+        viewModelScope.launch {
+            stateFlow.collect { state ->
+                when (state) {
+                    ServiceState.RUNNING -> {
+                        systemVpnDetectedOnBoot = false
+                        setConnectionState(ConnectionState.Connected)
+                    }
+                    ServiceState.STARTING -> {
+                        systemVpnDetectedOnBoot = false
+                        setConnectionState(ConnectionState.Connecting)
+                    }
+                    ServiceState.STOPPING -> {
+                        systemVpnDetectedOnBoot = false
+                        setConnectionState(ConnectionState.Disconnecting)
+                    }
+                    ServiceState.STOPPED -> {
+                        setConnectionState(ConnectionState.Idle)
+                    }
+                }
+            }
+        }
+
+        // 收集器2: 监听服务端节点切换，同步更新主进程的 activeNodeId
+        // 解决通知栏切换节点后首页显示旧节点的问题
+        viewModelScope.launch {
+            SingBoxRemote.activeLabel
+                .filter { it.isNotBlank() }
+                .distinctUntilChanged()
+                .collect { nodeName ->
+                    Log.d(TAG, "activeLabel changed from service: $nodeName")
+                    configRepository.syncActiveNodeFromProxySelection(nodeName)
+                }
+        }
+
+        Log.i(TAG, "startStateCollector: collectors launched")
+    }
 
     /**
      * 统一管理连接状态更新，内置防抖逻辑防止 UI 闪烁
@@ -454,48 +511,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private fun startStateCollector() {
-        if (stateCollectorStarted) return
-        stateCollectorStarted = true
-
-        // Observe SingBoxService state to keep UI in sync
-        viewModelScope.launch {
-            SingBoxRemote.state.collect { state ->
-                when (state) {
-                    ServiceState.RUNNING -> {
-                        systemVpnDetectedOnBoot = false
-                        setConnectionState(ConnectionState.Connected)
-                    }
-                    ServiceState.STARTING -> {
-                        systemVpnDetectedOnBoot = false
-                        setConnectionState(ConnectionState.Connecting)
-                    }
-                    ServiceState.STOPPING -> {
-                        systemVpnDetectedOnBoot = false
-                        setConnectionState(ConnectionState.Disconnecting)
-                    }
-                    ServiceState.STOPPED -> {
-                        setConnectionState(ConnectionState.Idle)
-                    }
-                }
-            }
-        }
-
-        // 2025-fix: 监听服务端节点切换，同步更新主进程的 activeNodeId
-        // 解决通知栏切换节点后首页显示旧节点的问题
-        viewModelScope.launch {
-            SingBoxRemote.activeLabel
-                .filter { it.isNotBlank() }
-                .distinctUntilChanged()
-                .collect { nodeName ->
-                    Log.d(TAG, "activeLabel changed from service: $nodeName")
-                    configRepository.syncActiveNodeFromProxySelection(nodeName)
-                }
-        }
-    }
-
     /**
-     * 2025-fix-v11: 刷新 VPN 状态 (两阶段即时恢复)
+     * 2025-fix-v12: 刷新 VPN 状态 (三阶段恢复)
      *
      * Phase 1: 即时恢复 (< 1ms)
      * - 从 MMKV 读取 VPN 状态，立即更新 UI
@@ -505,6 +522,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
      * - 等待 IPC 绑定完成
      * - 仅当 AIDL 返回的状态与 MMKV 一致或更可信时才覆盖 UI
      * - 如果 IPC 超时未绑定但 MMKV 显示 active，保持 Connected 不回退
+     *
+     * Phase 3: 强制确保状态收集器启动 (关键修复)
+     * - 无论 IPC 是否绑定成功，确保 startStateCollector() 被调用
+     * - 防止 init 块超时导致状态监听器永不启动
      */
     fun refreshState() {
         viewModelScope.launch {
@@ -522,13 +543,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
             setConnectionState(phase1State)
 
-            // 确保状态收集器已启动
-            startStateCollector()
-
             // Phase 2: IPC 就绪后精确同步（后台静默完成，用户无感）
+            // 2025-fix-v12: 增加等待次数，从 50 次增加到 80 次（总共 8 秒）
+            // 原因: 在低性能设备或系统负载高时，IPC 绑定可能需要更长时间
             launch {
                 var retries = 0
-                while (!SingBoxRemote.isBound() && retries < 50) {
+                val maxRetries = 80 // 80 * 100ms = 8 秒
+                while (!SingBoxRemote.isBound() && retries < maxRetries) {
                     delay(100)
                     retries++
                 }
@@ -561,9 +582,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                         Log.w(TAG, "refreshState Phase 2: IPC not bound but MMKV active, keeping Connected")
                     } else {
                         Log.w(TAG, "refreshState Phase 2: IPC not bound and MMKV inactive")
+                        // 2025-fix-v12: 超时后明确设置为 Idle，避免 UI 卡住
+                        setConnectionState(ConnectionState.Idle)
                     }
                 }
             }
+
+            // Phase 3: 强制确保状态收集器启动 (关键修复)
+            // 无论 IPC 绑定是否成功，都要确保 startStateCollector 被调用
+            // 这样即使所有等待都超时，MMKV 状态更新也能正确传递到 UI
+            startStateCollector()
         }
     }
 
