@@ -419,7 +419,7 @@ class SingBoxCore private constructor(private val context: Context) {
     /**
      * 尝试使用 libbox 原生 urlTest 方法进行延迟测试
      *
-     * KunBox 扩展内核 (v1.1.0+) 包含 URLTestOutbound 和 URLTestStandalone 方法:
+     * 扩展内核 (v1.1.0+) 包含 URLTestOutbound 和 URLTestStandalone 方法:
      * - URLTestOutbound: VPN 运行时，使用当前 BoxService 实例测试
      * - URLTestStandalone: VPN 未运行时，创建临时实例测试
      *

@@ -77,7 +77,7 @@ class SingBoxParser(private val gson: Gson) : SubscriptionParser {
 }
 
 /**
- * Base64 订阅格式解析器 (V2Ray/Shadowrocket)
+ * Base64 订阅格式解析器（通用链接）
  */
 class Base64Parser(private val nodeParser: (String) -> Outbound?) : SubscriptionParser {
     private val LINK_PREFIXES = listOf(

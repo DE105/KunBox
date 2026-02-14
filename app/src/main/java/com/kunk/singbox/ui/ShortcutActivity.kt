@@ -7,7 +7,7 @@ import com.kunk.singbox.manager.VpnServiceManager
 
 /**
  * 透明 Activity 用于处理快捷方式操作 (开关 VPN)
- * 参考 v2rayNG 的 ScSwitchActivity 实现
+ * 参考同类实现的快速切换流程
  *
  * 优化要点:
  * 1. 运行在 :bg 进程,与服务同进程,消除 IPC 延迟
@@ -27,7 +27,7 @@ class ShortcutActivity : ComponentActivity() {
         // 步骤 1: 立即移到后台,避免显示在前台
         moveTaskToBack(true)
 
-        // 步骤 2: 设置空布局 (与 v2rayNG 一致)
+        // 步骤 2: 设置空布局 (与快速切换流程一致)
         setContentView(R.layout.activity_none)
 
         // 步骤 3: 执行 VPN 切换

@@ -205,7 +205,7 @@ object ProbeManager {
         targets: List<ProbeTarget> = DEFAULT_PROBE_TARGETS,
         timeoutMs: Long = DEFAULT_TIMEOUT_MS
     ): ProbeResult.Success? = withContext(Dispatchers.IO) {
-        Log.i(TAG, "probeFirstSuccessViaVpn: starting quick probe")
+        Log.i(TAG, "probeFirstSuccessViaVpn: starting quick probe (parallel)")
 
         val vpnNetwork = findVpnNetwork(context)
         if (vpnNetwork == null) {
@@ -213,17 +213,31 @@ object ProbeManager {
             return@withContext null
         }
 
-        // 串行探测，任一成功即返回
-        for (target in targets) {
-            val result = probeTarget(vpnNetwork, target, timeoutMs)
-            if (result is ProbeResult.Success) {
-                Log.i(TAG, "probeFirstSuccessViaVpn: success on ${target.name}, latency=${result.latencyMs}ms")
-                return@withContext result
+        // 2026-fix: 并行探测所有目标，任一成功即返回
+        // 避免串行探测时前面的目标超时导致整体耗时过长
+        val result = coroutineScope {
+            val deferred = targets.map { target ->
+                async { probeTarget(vpnNetwork, target, timeoutMs) }
             }
+            var firstSuccess: ProbeResult.Success? = null
+            for (d in deferred) {
+                val r = d.await()
+                if (r is ProbeResult.Success) {
+                    firstSuccess = r
+                    // 取消剩余探测
+                    deferred.forEach { it.cancel() }
+                    break
+                }
+            }
+            firstSuccess
         }
 
-        Log.w(TAG, "probeFirstSuccessViaVpn: all targets failed")
-        null
+        if (result != null) {
+            Log.i(TAG, "probeFirstSuccessViaVpn: success on ${result.target.name}, latency=${result.latencyMs}ms")
+        } else {
+            Log.w(TAG, "probeFirstSuccessViaVpn: all targets failed")
+        }
+        result
     }
 
     /**

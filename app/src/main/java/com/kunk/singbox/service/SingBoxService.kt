@@ -145,7 +145,7 @@ class SingBoxService : VpnService() {
             return try {
                 val network = connectManager.getCurrentNetwork()
                 val result = coreManager.openTun(options, network, reuseExisting = true)
-                result.onSuccess { fd ->
+                result.onSuccess { _ ->
                     vpnInterface = coreManager.vpnInterface
                     if (network != null) {
                         lastKnownNetwork = network
@@ -1035,7 +1035,7 @@ class SingBoxService : VpnService() {
         }
     }
 
-    @Suppress("CognitiveComplexMethod")
+    @Suppress("CognitiveComplexMethod", "LongMethod")
     private fun submitRecoveryRequest(request: RecoveryRequest) {
         synchronized(this) {
             // 2025-fix-v7: APP_FOREGROUND + force 走快车道，不进合并窗口
@@ -1290,8 +1290,12 @@ class SingBoxService : VpnService() {
     private fun executeForegroundFastRecovery(request: RecoveryRequest) {
         val startMs = SystemClock.elapsedRealtime()
 
-        // 直接 wake + resetNetwork，不做探测
+        // 2026-fix: wake + 清理僵死连接 + resetNetwork
+        // 息屏/后台期间 TCP 连接已超时，必须清理旧连接引用
+        // 否则前台应用复用旧连接会一直 loading
         BoxWrapperManager.wake()
+        BoxWrapperManager.closeAllTrackedConnections()
+        BoxWrapperManager.resetAllConnections(true)
         BoxWrapperManager.resetNetwork()
 
         val elapsedMs = SystemClock.elapsedRealtime() - startMs
@@ -1557,15 +1561,15 @@ class SingBoxService : VpnService() {
         DOZE_EXIT(priority = 90, sourceDebounceMs = 3000L, isFastLane = true),
         NETWORK_VALIDATED(priority = 80, sourceDebounceMs = 3000L, isFastLane = false),
         VPN_HEALTH(priority = 70, sourceDebounceMs = 30000L, isFastLane = false),
-        APP_FOREGROUND(priority = 50, sourceDebounceMs = 3000L, isFastLane = true),
-        SCREEN_ON(priority = 50, sourceDebounceMs = 3000L, isFastLane = true),
+        APP_FOREGROUND(priority = 50, sourceDebounceMs = 1500L, isFastLane = true),
+        SCREEN_ON(priority = 50, sourceDebounceMs = 1500L, isFastLane = true),
         UNKNOWN(priority = 10, sourceDebounceMs = 3000L, isFastLane = false)
     }
 
     private val recoveryGlobalDebounceMs: Long = 1200L
     private val recoveryFastLaneGlobalDebounceMs: Long = 250L
     private val recoveryFastLaneSourceDebounceCapMs: Long = 600L
-    private val recoveryMergeWindowMs: Long = 800L
+    private val recoveryMergeWindowMs: Long = 400L
 
     @Volatile private var recoveryInFlight: Boolean = false
     @Volatile private var pendingRecoveryRequest: RecoveryRequest? = null
@@ -1584,7 +1588,7 @@ class SingBoxService : VpnService() {
 
     private val recoveryReasonLastAtMs = ConcurrentHashMap<String, Long>()
 
-    private val foregroundRecoveryGraceMs: Long = 5000L
+    private val foregroundRecoveryGraceMs: Long = 3000L
     private var foregroundHardFallbackJob: Job? = null
     private val lastForegroundHardFallbackAtMs = AtomicLong(0L)
     private val foregroundHardFallbackDebounceMs: Long = 15000L
@@ -1659,7 +1663,7 @@ class SingBoxService : VpnService() {
 
         // 监听活动节点变化，更新通知
         serviceScope.launch {
-            ConfigRepository.getInstance(this@SingBoxService).activeNodeId.collect { activeNodeId ->
+            ConfigRepository.getInstance(this@SingBoxService).activeNodeId.collect { _ ->
                 if (isRunning) {
                     requestNotificationUpdate(force = false)
                     requestRemoteStateUpdate(force = false)
@@ -1712,7 +1716,7 @@ class SingBoxService : VpnService() {
                 // 性能优化: 预创建 TUN Builder (非阻塞)
                 coreManager.preallocateTunBuilder()
 
-                var configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
+                val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
                 val cleanCache = intent.getBooleanExtra(EXTRA_CLEAN_CACHE, false)
 
                 // P0 Optimization: If config path is missing (Shortcut/Headless), generate it inside Service
@@ -1745,44 +1749,42 @@ class SingBoxService : VpnService() {
                     return START_STICKY
                 }
 
-                if (configPath != null) {
-                    updateServiceState(ServiceState.STARTING)
-                    synchronized(this) {
-                        // FIX: Ensure pendingCleanCache is set from intent even for cold start
-                        if (cleanCache) pendingCleanCache = true
+                updateServiceState(ServiceState.STARTING)
+                synchronized(this) {
+                    // FIX: Ensure pendingCleanCache is set from intent even for cold start
+                    if (cleanCache) pendingCleanCache = true
 
-                        if (isStarting) {
-                            pendingStartConfigPath = configPath
-                            stopSelfRequested = false
-                            lastConfigPath = configPath
-                            // Return STICKY to allow system to restart VPN if killed due to memory pressure
-                            return START_STICKY
-                        }
-                        if (isStopping) {
-                            pendingStartConfigPath = configPath
-                            stopSelfRequested = false
-                            lastConfigPath = configPath
-                            // Return STICKY to allow system to restart VPN if killed due to memory pressure
-                            return START_STICKY
-                        }
-                        // If already running, do a clean restart to avoid half-broken tunnel state
-                        if (isRunning) {
-                            pendingStartConfigPath = configPath
-                            stopSelfRequested = false
-                            lastConfigPath = configPath
-                        }
+                    if (isStarting) {
+                        pendingStartConfigPath = configPath
+                        stopSelfRequested = false
+                        lastConfigPath = configPath
+                        // Return STICKY to allow system to restart VPN if killed due to memory pressure
+                        return START_STICKY
                     }
+                    if (isStopping) {
+                        pendingStartConfigPath = configPath
+                        stopSelfRequested = false
+                        lastConfigPath = configPath
+                        // Return STICKY to allow system to restart VPN if killed due to memory pressure
+                        return START_STICKY
+                    }
+                    // If already running, do a clean restart to avoid half-broken tunnel state
                     if (isRunning) {
-                        // 2025-fix: 优先尝试热切换节点，避免重启 VPN 导致连接断开
-                        // 只有当需要更改核心配置（如路由规则、DNS 等）时才重启
-                        // 目前所有切换都视为可能包含核心变更，但我们可以尝试检测
-                        // 暂时保持重启逻辑作为兜底，但在此之前尝试热切换
-                        // 注意：如果只是切换节点，并不需要重启 VPN，直接 selectOutbound 即可
-                        // 但我们需要一种机制来通知 Service 是在切换节点还是完全重载
-                        stopVpn(stopService = false)
-                    } else {
-                        startVpn(configPath)
+                        pendingStartConfigPath = configPath
+                        stopSelfRequested = false
+                        lastConfigPath = configPath
                     }
+                }
+                if (isRunning) {
+                    // 2025-fix: 优先尝试热切换节点，避免重启 VPN 导致连接断开
+                    // 只有当需要更改核心配置（如路由规则、DNS 等）时才重启
+                    // 目前所有切换都视为可能包含核心变更，但我们可以尝试检测
+                    // 暂时保持重启逻辑作为兜底，但在此之前尝试热切换
+                    // 注意：如果只是切换节点，并不需要重启 VPN，直接 selectOutbound 即可
+                    // 但我们需要一种机制来通知 Service 是在切换节点还是完全重载
+                    stopVpn(stopService = false)
+                } else {
+                    startVpn(configPath)
                 }
             }
             ACTION_STOP -> {

@@ -224,7 +224,7 @@ class RuleSetRepository(private val context: Context) {
         var rawUrl = url
 
         // 1. 如果是 jsDelivr 格式，还原为 raw 格式
-        // 示例: https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs
+        // 示例: https://cdn.jsdelivr.net/gh/{owner}/{repo}@rule-set/geosite-cn.srs
         if (rawUrl.startsWith(cdnPrefix)) {
             val path = rawUrl.removePrefix(cdnPrefix)
             // 提取 user/repo
@@ -237,8 +237,8 @@ class RuleSetRepository(private val context: Context) {
         }
 
         // 2. 如果包含 raw.githubusercontent.com，无论是否有其他前缀，都提取出原始路径
-        // 示例: https://ghproxy.com/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs
-        // 或者: https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs
+        // 示例: https://ghproxy.com/https://raw.githubusercontent.com/{owner}/{repo}/rule-set/geosite-cn.srs
+        // 或者: https://raw.githubusercontent.com/{owner}/{repo}/rule-set/geosite-cn.srs
         if (rawUrl.contains("raw.githubusercontent.com")) {
             // 关键修复: 这里不应该只看 substringAfter，还要看 path 是否已经是完整的 URL
             // rawUrl: https://raw.githubusercontent.com/https://raw.githubusercontent.com/... 这种错误情况

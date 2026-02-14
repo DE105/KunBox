@@ -1,25 +1,25 @@
 import java.util.Properties
 import java.util.zip.ZipFile
+import com.android.build.api.dsl.ApplicationExtension
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("io.gitlab.arturbosch.detekt")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 val libboxInputAar = file("libs/libbox.aar")
-val libboxStrippedAarId = providers.gradleProperty("libboxStrippedAarId").orNull
-    ?: System.currentTimeMillis().toString()
-val libboxStrippedAar = layout.buildDirectory.file("stripped-libs/libbox-stripped-$libboxStrippedAarId.aar")
+val libboxStrippedAar = layout.buildDirectory.file("stripped-libs/libbox-stripped.aar")
 
-val enableSfaLibboxReplacement = (project.findProperty("enableSfaLibboxReplacement") as String?)
+val enableSfaLibboxReplacement = providers.gradleProperty("enableSfaLibboxReplacement")
+    .orNull
     ?.toBoolean()
     ?: false
 
 val isBundleBuild = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
 
-val abiOnly = (project.findProperty("abiOnly") as String?)
+val abiOnly = providers.gradleProperty("abiOnly").orNull
     ?.trim()
     ?.takeIf { it.isNotBlank() }
 
@@ -50,6 +50,9 @@ val defaultAbis = preferredDefaultAbis.filter { it in availableLibboxAbis }.ifEm
 }
 val apkAbis = abiOnly?.let { listOf(it) } ?: defaultAbis
 
+val sfaApkArm64Path = providers.gradleProperty("sfaApkArm64").orNull?.takeIf { it.isNotBlank() }
+val sfaApkArmPath = providers.gradleProperty("sfaApkArm").orNull?.takeIf { it.isNotBlank() }
+
 val autoSfaUniversalDir = rootProject.projectDir
     .listFiles()
     ?.filter { it.isDirectory && it.name.startsWith("SFA-") && it.name.endsWith("-universal") }
@@ -58,8 +61,7 @@ val autoSfaUniversalDir = rootProject.projectDir
 
 val stripLibboxAar = tasks.register("stripLibboxAar") {
     inputs.file(libboxInputAar)
-    inputs.property("stripLibboxAarVersion", "2")
-    inputs.property("libboxStrippedAarId", libboxStrippedAarId)
+    inputs.property("stripLibboxAarVersion", "3")
     inputs.property("enableSfaLibboxReplacement", enableSfaLibboxReplacement.toString())
     inputs.property("abiOnly", abiOnly ?: "")
     inputs.property("sfaApkArm64", providers.gradleProperty("sfaApkArm64").orNull ?: "")
@@ -183,19 +185,8 @@ val stripLibboxAar = tasks.register("stripLibboxAar") {
             }
         }
 
-        val enableReplacement = (project.findProperty("enableSfaLibboxReplacement") as String?)
-            ?.toBoolean()
-            ?: false
-
-        val sfaApkArm64Prop = (project.findProperty("sfaApkArm64") as String?)
-            ?.takeIf { it.isNotBlank() }
-            ?.let { File(it) }
-        val sfaApkArmProp = (project.findProperty("sfaApkArm") as String?)
-            ?.takeIf { it.isNotBlank() }
-            ?.let { File(it) }
-
-        val sfaArm64Source = if (enableReplacement) (sfaApkArm64Prop ?: autoSfaUniversalDir) else null
-        val sfaArmSource = if (enableReplacement) (sfaApkArmProp ?: autoSfaUniversalDir) else null
+        val sfaArm64Source = if (enableSfaLibboxReplacement) (sfaApkArm64Path?.let(::File) ?: autoSfaUniversalDir) else null
+        val sfaArmSource = if (enableSfaLibboxReplacement) (sfaApkArmPath?.let(::File) ?: autoSfaUniversalDir) else null
 
         val keepAbis = mutableSetOf<String>()
 
@@ -222,9 +213,9 @@ val stripLibboxAar = tasks.register("stripLibboxAar") {
             jniDir.walkTopDown()
                 .filter { it.isFile && it.name == "libbox.so" }
                 .forEach { so ->
-                    exec {
+                    providers.exec {
                         commandLine(stripExe.absolutePath, "--strip-unneeded", so.absolutePath)
-                    }
+                    }.result.get()
                 }
 
             jniDir.listFiles()
@@ -245,14 +236,14 @@ val stripLibboxAar = tasks.register("stripLibboxAar") {
     }
 }
 
-android {
+configure<ApplicationExtension> {
     namespace = "com.kunk.singbox"
     compileSdk = 36
 
-    ndkVersion = (project.findProperty("ndkVersion") as String?) ?: "29.0.14206865"
+    ndkVersion = providers.gradleProperty("ndkVersion").orNull ?: "29.0.14206865"
 
-    // NekoBox 风格：优先压缩 APK 体积 (useLegacyPackaging = true)
-    val preferCompressedApk = (project.findProperty("preferCompressedApk") as String?)?.toBoolean() ?: true
+    // 体积优先：优先压缩 APK 体积 (useLegacyPackaging = true)
+    val preferCompressedApk = providers.gradleProperty("preferCompressedApk").orNull?.toBoolean() ?: true
 
     defaultConfig {
         applicationId = "com.kunk.singbox"
@@ -260,15 +251,18 @@ android {
         targetSdk = 36
         
         // Dynamic versioning
-        val cmd = "git rev-list --count HEAD"
-        val process = Runtime.getRuntime().exec(cmd)
-        val gitCommitCount = process.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 1
+        val gitCommitCountOutput = providers.exec {
+            commandLine("git", "rev-list", "--count", "HEAD")
+        }.standardOutput.asText.get().trim()
+        val gitCommitCount = gitCommitCountOutput.toIntOrNull() ?: 1
+        
         // Offset to ensure versionCode > previous hardcoded value (5946)
         val gitVersionCode = 6000 + gitCommitCount
 
         val gitVersionName = System.getenv("VERSION_NAME") ?: run {
-             val p = Runtime.getRuntime().exec("git describe --tags --always")
-             p.inputStream.bufferedReader().readText().trim()
+             providers.exec {
+                 commandLine("git", "describe", "--tags", "--always")
+             }.standardOutput.asText.get().trim()
         }
 
         versionCode = gitVersionCode
@@ -279,7 +273,9 @@ android {
             useSupportLibrary = true
         }
 
-        resConfigs("zh", "en") // 仅保留中文和英文资源，减少体积
+        androidResources {
+            localeFilters += listOf("zh", "en") // 仅保留中文和英文资源，减少体积
+        }
     }
 
     signingConfigs {
@@ -341,15 +337,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
-    kotlinOptions {
-        jvmTarget = "1.8"
-    }
+
     buildFeatures {
         aidl = true
         compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.4"
     }
     packaging {
         resources {
@@ -362,7 +353,7 @@ android {
             excludes += "META-INF/proguard/*"
         }
         // 优化 JNI 库打包方式
-        // useLegacyPackaging = true 会压缩 APK 中的 .so，使下载体积最小（类似 NekoBox）
+        // useLegacyPackaging = true 会压缩 APK 中的 .so，使下载体积最小（体积优先策略）
         // 但安装后会解压到 lib 目录，增加安装后占用。
         jniLibs {
             useLegacyPackaging = preferCompressedApk
@@ -370,8 +361,8 @@ android {
     }
     
     // 避免压缩规则集文件，提高读取效率
-    aaptOptions {
-        noCompress("srs")
+    androidResources {
+        noCompress += "srs"
     }
     
     // 单元测试配置：返回 Android API 默认值，避免 android.util.* 抛异常
@@ -380,8 +371,19 @@ android {
     }
 }
 
+// JVM Target Configuration for Kotlin
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+    }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 // 如果 libbox.aar 已经是精简版（只包含目标架构），可以跳过 strip 任务
-val skipLibboxStrip = (project.findProperty("skipLibboxStrip") as String?)?.toBoolean() ?: true
+val skipLibboxStrip = providers.gradleProperty("skipLibboxStrip").orNull?.toBoolean() ?: true
 
 if (!skipLibboxStrip) {
     tasks.named("preBuild") {
@@ -390,9 +392,7 @@ if (!skipLibboxStrip) {
 }
 
 dependencies {
-    // Sing-box 核心库 (libbox) - 本地 AAR 文件
-    // 请从 sing-box 官方仓库下载或编译 libbox AAR 并放置在 app/libs 目录
-    // 参见: https://github.com/SagerNet/sing-box
+    // 核心库 (libbox) - 本地 AAR 文件
     if (skipLibboxStrip) {
         implementation(files(libboxInputAar))
     } else {
@@ -400,53 +400,30 @@ dependencies {
     }
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
 
-    // 优化: 更新核心依赖版本
-    implementation("androidx.core:core-ktx:1.13.1")  // 从 1.12.0 更新
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")  // 从 2.7.0 更新
-    implementation("androidx.appcompat:appcompat:1.7.0")  // 从 1.6.1 更新
-    implementation("androidx.activity:activity-compose:1.9.3")  // 从 1.9.0 更新
-    implementation(platform("androidx.compose:compose-bom:2024.11.00"))  // 从 2024.06.00 更新（修正：2024.12.00不存在）
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation(platform("androidx.compose:compose-bom:2024.11.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.navigation:navigation-compose:2.8.0")
     
-    // Icons
     implementation("androidx.compose.material:material-icons-extended")
-
-    // DataStore for settings persistence
     implementation("androidx.datastore:datastore-preferences:1.0.0")
-    
-    // ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")  // 从 2.7.0 更新
-
-    // ProcessLifecycleOwner - 用于检测应用前后台状态
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
-
-    // Network - OkHttp
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")  // 已是最新版本
-
-    // JSON parsing - Gson
-    implementation("com.google.code.gson:gson:2.11.0")  // 从 2.10.1 更新
-
-    // YAML parsing
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.yaml:snakeyaml:2.2")
-
-    // MMKV - 高性能跨进程 KV 存储
     implementation("com.tencent:mmkv:1.3.2")
-
-    // QR Code scanning - ZXing
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-    
-    // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-
-    // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
-    // Room Database
-    val roomVersion = "2.6.1"
+    val roomVersion = "2.7.2"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")

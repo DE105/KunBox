@@ -13,6 +13,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -309,7 +318,9 @@ fun SingBoxApp() {
         // Get current destination
         val navBackStackEntry = navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry.value?.destination?.route
-        val showBottomBar = currentRoute != null
+        val showBottomBar = currentRoute in listOf(
+            "dashboard", "nodes", "profiles", "settings"
+        )
 
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
@@ -365,7 +376,23 @@ fun SingBoxApp() {
                     )
                 },
                 bottomBar = {
-                    if (showBottomBar) {
+                    AnimatedVisibility(
+                        visible = showBottomBar,
+                        enter = slideInVertically(
+                            initialOffsetY = { it },
+                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+                        ) + expandVertically(
+                            expandFrom = Alignment.Bottom,
+                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(durationMillis = 400)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it },
+                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+                        ) + shrinkVertically(
+                            shrinkTowards = Alignment.Bottom,
+                            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 400))
+                    ) {
                         AppNavBar(navController = navController)
                     }
                 },

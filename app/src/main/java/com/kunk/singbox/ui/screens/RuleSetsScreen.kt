@@ -389,6 +389,7 @@ fun RuleSetsScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -447,8 +448,13 @@ fun RuleSetsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 16.dp,
+                end = 16.dp,
+                bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            ),
             state = listState,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {

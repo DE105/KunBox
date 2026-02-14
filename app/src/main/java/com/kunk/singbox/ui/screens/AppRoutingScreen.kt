@@ -173,6 +173,7 @@ fun AppRoutingScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Column {
@@ -225,8 +226,13 @@ fun AppRoutingScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 16.dp,
+                end = 16.dp,
+                bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (selectedTab == 0) {

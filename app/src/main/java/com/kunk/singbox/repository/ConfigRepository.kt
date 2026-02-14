@@ -182,6 +182,7 @@ class ConfigRepository(private val context: Context) {
         return minOf(configuredMtu, recommendedMtu)
     }
 
+    @Suppress("DEPRECATION")
     private fun getNetworkCapabilities(): NetworkCapabilities? {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return null
@@ -526,20 +527,6 @@ class ConfigRepository(private val context: Context) {
                 Log.w(TAG, "Failed to persist latency for $nodeId", e)
             }
         }
-    }
-
-    private fun updateNodeLatencyFull(nodeId: String, latency: Long) {
-        val latencyValue = if (latency > 0) latency else -1L
-        _nodes.update { list ->
-            list.map { if (it.id == nodeId) it.copy(latencyMs = latencyValue) else it }
-        }
-        val node = _nodes.value.find { it.id == nodeId }
-        if (node != null) {
-            profileNodes[node.sourceProfileId] = profileNodes[node.sourceProfileId]?.map {
-                if (it.id == nodeId) it.copy(latencyMs = latencyValue) else it
-            } ?: emptyList()
-        }
-        updateLatencyInAllNodes(nodeId, latency)
     }
 
     /**
@@ -1314,7 +1301,7 @@ class ConfigRepository(private val context: Context) {
             // 继续尝试其他格式
         }
 
-        // 1.5 尝试解析 Clash YAML
+        // 1.5 尝试解析 YAML
         try {
             val yamlConfig = parseClashYamlConfig(normalizedContent)
             if (yamlConfig?.outbounds != null && yamlConfig.outbounds.isNotEmpty()) {
@@ -2027,7 +2014,7 @@ class ConfigRepository(private val context: Context) {
                         }
 
                         val fixedOutbound = buildOutboundForRuntime(outbound)
-                        val allOutbounds = config.outbounds?.map { buildOutboundForRuntime(it) } ?: emptyList()
+                        val allOutbounds = config.outbounds.map { buildOutboundForRuntime(it) }
                         val latency = singBoxCore.testOutboundLatency(fixedOutbound, allOutbounds)
 
                         _nodes.update { list ->
@@ -2592,9 +2579,6 @@ class ConfigRepository(private val context: Context) {
         validRuleSets: List<RuleSetConfig>
     ): List<RouteRule> {
         val rules = mutableListOf<RouteRule>()
-
-        // 记录所有可用的 outbound tags，用于调试
-        val availableTags = outbounds.map { it.tag }
 
         val validTags = validRuleSets.mapNotNull { it.tag }.toSet()
 
@@ -3257,9 +3241,9 @@ class ConfigRepository(private val context: Context) {
             if (value.isNullOrBlank()) return null
             val parts = value.split("::", limit = 2)
             if (parts.size == 2) {
-                val profileId = parts[0]
+                val refProfileId = parts[0]
                 val nodeName = parts[1]
-                return allNodes.firstOrNull { it.sourceProfileId == profileId && it.name == nodeName }?.id
+                return allNodes.firstOrNull { it.sourceProfileId == refProfileId && it.name == nodeName }?.id
             }
             if (allNodes.any { it.id == value }) return value
             val node = if (activeProfileId != null) {
@@ -3306,8 +3290,8 @@ class ConfigRepository(private val context: Context) {
         activeNode?.let { requiredNodeIds.add(it.id) }
 
         // 将所需配置中的所有节点 ID 也加入到 requiredNodeIds
-        requiredProfileIds.forEach { profileId ->
-            allNodes.filter { it.sourceProfileId == profileId }.forEach { node ->
+        requiredProfileIds.forEach { requiredProfileId ->
+            allNodes.filter { it.sourceProfileId == requiredProfileId }.forEach { node ->
                 requiredNodeIds.add(node.id)
             }
         }
@@ -3409,10 +3393,10 @@ class ConfigRepository(private val context: Context) {
         }
 
         // 3. 处理需要的配置 (Create Profile selectors)
-        requiredProfileIds.forEach { profileId ->
-            val profileNodes = allNodes.filter { it.sourceProfileId == profileId }
+        requiredProfileIds.forEach { requiredProfileId ->
+            val profileNodes = allNodes.filter { it.sourceProfileId == requiredProfileId }
             val nodeTags = profileNodes.mapNotNull { nodeTagMap[it.id] }
-            val profileName = _profiles.value.find { it.id == profileId }?.name ?: "Profile_$profileId"
+            val profileName = _profiles.value.find { it.id == requiredProfileId }?.name ?: "Profile_$requiredProfileId"
             val tag = "P:$profileName" // 使用 P: 前缀区分配置选择器
 
             if (nodeTags.isNotEmpty()) {

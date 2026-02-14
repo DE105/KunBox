@@ -190,7 +190,7 @@ object OutboundFixer {
             val up = result.upMbps
             val down = result.downMbps
             val defaultMbps = 50
-            // 清理空的 serverPorts 列表，并将 Clash 格式 (40000-50000) 转换为 sing-box 格式 (40000:50000)
+            // 清理空的 serverPorts 列表，并将短横线端口范围 (40000-50000) 转换为 sing-box 格式 (40000:50000)
             val cleanedServerPorts = result.serverPorts
                 ?.filter { it.isNotBlank() }
                 ?.map { convertPortRangeFormat(it) }
@@ -431,7 +431,7 @@ object OutboundFixer {
     }
 
     /**
-     * 将端口范围从 Clash 格式 (40000-50000) 转换为 sing-box 格式 (40000:50000)
+     * 将端口范围从短横线格式 (40000-50000) 转换为 sing-box 格式 (40000:50000)
      * 支持逗号分隔的多个范围，如 "40000-50000,60000-70000"
      */
     private fun convertPortRangeFormat(portSpec: String): String {

@@ -3,8 +3,10 @@ package com.kunk.singbox.ui.screens
 import com.kunk.singbox.R
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -70,6 +72,7 @@ fun DiagnosticsScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
@@ -87,8 +90,9 @@ fun DiagnosticsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
                 .verticalScroll(scrollState)
+                .padding(16.dp)
+                .navigationBarsPadding()
         ) {
             StandardCard {
                 SettingItem(

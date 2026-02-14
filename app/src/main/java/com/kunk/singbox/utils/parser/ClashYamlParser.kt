@@ -10,7 +10,7 @@ import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.error.YAMLException
 
 /**
- * Clash / Clash Meta (Mihomo) YAML 订阅格式解析器
+ * YAML 订阅格式解析器
  */
 class ClashYamlParser : SubscriptionParser {
     override fun canParse(content: String): Boolean {
@@ -42,10 +42,10 @@ class ClashYamlParser : SubscriptionParser {
         val rootMap = (root as? Map<*, *>) ?: return null
         val proxiesRaw = rootMap["proxies"] as? List<*> ?: return null
 
-        // 读取全局客户端指纹 (Clash Meta 特性)
+        // 读取全局客户端指纹（扩展 YAML 特性）
         val globalClientFingerprint = asString(rootMap["global-client-fingerprint"])
 
-        // 读取全局 TLS 版本限制 (Clash Meta 特性)
+        // 读取全局 TLS 版本限制（扩展 YAML 特性）
         // 格式: tls-version: "1.3" 或 min-tls-version: "1.3"
         val globalTlsMinVersion = asString(rootMap["tls-version"])
             ?: asString(rootMap["min-tls-version"])
@@ -414,7 +414,7 @@ class ClashYamlParser : SubscriptionParser {
     /**
      * SS + ShadowTLS/obfs 插件解析
      *
-     * Clash 格式 (plugin: shadow-tls):
+     * YAML 格式 (plugin: shadow-tls):
      *   - type: ss
      *     plugin: shadow-tls
      *     plugin-opts:
@@ -996,7 +996,7 @@ class ClashYamlParser : SubscriptionParser {
 
     /**
      * 解析 smux 多路复用配置
-     * Clash Meta 格式:
+     * 扩展 YAML 格式:
      * smux:
      *   enabled: true
      *   protocol: smux  # smux/yamux/h2mux

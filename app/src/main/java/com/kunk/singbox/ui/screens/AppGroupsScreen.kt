@@ -107,6 +107,7 @@ fun AppGroupsScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
@@ -135,9 +136,14 @@ fun AppGroupsScreen(
         } else {
             LazyColumn(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 16.dp,
+                end = 16.dp,
+                bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item {

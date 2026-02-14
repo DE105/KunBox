@@ -10,7 +10,7 @@ import okhttp3.OkHttpClient
 /**
  * Proxy-aware OkHttp client provider.
  *
- * Important: In KunBox VPN (TUN) mode we intentionally exclude this app package from VPN routing
+ * Important: In VPN (TUN) mode we intentionally exclude this app package from VPN routing
  * (see VpnTunManager.configurePerAppVpn -> addDisallowedApplication(selfPackage)).
  *
  * Therefore:

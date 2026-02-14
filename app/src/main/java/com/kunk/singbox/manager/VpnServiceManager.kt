@@ -15,7 +15,7 @@ import com.kunk.singbox.service.SingBoxService
  * 统一管理 SingBoxService 和 ProxyOnlyService 的启停操作
  * 提供智能缓存机制,优化快捷方式/Widget/QS Tile 的响应速度
  *
- * 参考 v2rayNG 的 V2RayServiceManager 实现
+ * 参考同类服务管理器实现
  */
 object VpnServiceManager {
     private const val TAG = "VpnServiceManager"

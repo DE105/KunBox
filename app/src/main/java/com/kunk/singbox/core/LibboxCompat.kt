@@ -50,13 +50,13 @@ object LibboxCompat {
         }
         resetAllConnectionsChecked = true
 
-        // 检测扩展 API (KunBox 自定义方法)
+        // 检测扩展 API (自定义方法)
         hasExtensionApi = try {
             Libbox::class.java.getMethod("getKunBoxVersion")
-            Log.i(TAG, "Detected KunBox Extension API")
+            Log.i(TAG, "Detected extension API")
             true
         } catch (e: Exception) {
-            Log.d(TAG, "KunBox Extension API not available")
+            Log.d(TAG, "Extension API not available")
             false
         }
     }
@@ -106,7 +106,7 @@ object LibboxCompat {
     fun hasExtendedLibbox(): Boolean = hasResetAllConnections
 
     /**
-     * 检查是否支持 KunBox 扩展 API
+     * 检查是否支持扩展 API
      */
     fun hasKunBoxExtension(): Boolean = hasExtensionApi
 

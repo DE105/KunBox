@@ -64,7 +64,7 @@
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
         <!-- 快捷方式切换 Activity (透明，不显示 UI) -->
-        <!-- 运行在 :bg 进程,与服务同进程,消除 IPC 延迟 (参考 v2rayNG) -->
+        <!-- 运行在 :bg 进程,与服务同进程,消除 IPC 延迟 -->
         <activity
             android:name=".ui.ShortcutActivity"
             android:exported="true"

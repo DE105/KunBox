@@ -3,7 +3,9 @@ package com.kunk.singbox.ui.screens
 import com.kunk.singbox.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -64,6 +66,7 @@ fun ProfileEditorScreen(navController: NavController) {
     ) }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
@@ -90,6 +93,7 @@ fun ProfileEditorScreen(navController: NavController) {
                 .fillMaxSize()
                 .padding(padding)
                 .padding(16.dp)
+                .navigationBarsPadding()
         ) {
             BasicTextField(
                 value = content,

@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicLong
  * 连接管理器
  * 负责网络状态监控、底层网络绑定、连接重置等
  *
- * 2025-fix-v17: 添加接口名变化检测，参考 NekoBox 的 upstreamInterfaceName 逻辑
+ * 2025-fix-v17: 添加接口名变化检测，参考上游接口名追踪逻辑
  * 只有在网络接口真正变化时（如 WiFi ↔ 移动数据切换）才重置连接，
  * 避免在同一网络上频繁重置导致的性能问题
  */
@@ -42,7 +42,7 @@ class ConnectManager(
 
     /**
      * 2025-fix-v17: 跟踪上游网络接口名称
-     * 参考 NekoBox BaseService.kt 的 upstreamInterfaceName 逻辑
+     * 参考通用 upstreamInterfaceName 逻辑
      * 用于检测真正的网络切换（如 wlan0 -> rmnet0）
      */
     @Volatile
@@ -196,8 +196,8 @@ class ConnectManager(
     }
 
     /**
-     * 设置底层网络 (无防抖，参考 v2rayNG)
-     * 2025-fix-v16: v2rayNG 在每次网络回调时都立即调用，不做防抖
+     * 设置底层网络 (无防抖，参考即时回调策略)
+     * 2025-fix-v16: 在每次网络回调时都立即调用，不做防抖
      */
     fun setUnderlyingNetworks(
         networks: Array<Network>?,
@@ -210,7 +210,7 @@ class ConnectManager(
                 return@runCatching false
             }
 
-            // 2025-fix-v16: 移除防抖，参考 v2rayNG 立即执行
+            // 2025-fix-v16: 移除防抖，立即执行
             setUnderlyingFn(networks)
             Log.i(TAG, "setUnderlyingNetworks: ${networks?.size ?: 0} networks")
             true
@@ -368,7 +368,7 @@ class ConnectManager(
 
     /**
      * 检测网络接口名变化并在需要时重置连接
-     * 参考 NekoBox BaseService.kt preInit() 中的实现
+     * 参考常见 preInit 阶段的处理方式
      */
     private fun checkAndResetOnInterfaceChange(network: Network) {
         val linkProps = connectivityManager?.getLinkProperties(network)

@@ -67,6 +67,7 @@ fun RuleSetHubScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -147,7 +148,13 @@ fun RuleSetHubScreen(
                 // Grid Content
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 300.dp),
-                    contentPadding = PaddingValues(16.dp),
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        top = 16.dp,
+                        end = 16.dp,
+                        bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    ),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {

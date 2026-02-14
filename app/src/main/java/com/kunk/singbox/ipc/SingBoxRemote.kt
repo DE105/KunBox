@@ -31,6 +31,7 @@ import java.lang.ref.WeakReference
  * 3. 强制重连机制 - rebind() 时直接断开再重连，不尝试复用
  * 4. 状态同步超时 - 如果回调超过阈值未更新，主动从 VpnStateStore 恢复
  */
+@Suppress("TooManyFunctions")
 object SingBoxRemote {
     private const val TAG = "SingBoxRemote"
     private const val RECONNECT_DELAY_MS = 300L
@@ -331,6 +332,7 @@ object SingBoxRemote {
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun hasSystemVpn(context: Context): Boolean {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -418,7 +420,7 @@ object SingBoxRemote {
     }
 
     /**
-     * v2rayNG 风格: 主动查询并同步状态
+     * 主动查询并同步状态
      * 用于 Activity onResume 时确保 UI 与服务状态一致
      *
      * 2025-fix-v5: 增强版 - 如果连接 stale 则强制重连
