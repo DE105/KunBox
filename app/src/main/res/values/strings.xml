@@ -488,6 +488,7 @@
 
     <!-- App List -->
     <string name="app_list_loading">正在加载应用列表...</string>
+    <string name="app_list_load_failed">应用列表加载失败</string>
     <string name="app_list_loaded">已加载 %1$d / %2$d 个应用</string>
     <string name="app_list_search_hint">搜索应用或包名</string>
     <string name="app_list_show_system">显示系统应用</string>

@@ -54,7 +54,7 @@ fun AppGroupsScreen(
     // 使用 InstalledAppsViewModel 获取应用列表
     val installedApps by installedAppsViewModel.installedApps.collectAsState()
     val loadingState by installedAppsViewModel.loadingState.collectAsState()
-    val isLoading = loadingState !is InstalledAppsRepository.LoadingState.Loaded
+    val isLoading = loadingState is InstalledAppsRepository.LoadingState.Loading
 
     // 触发加载
     LaunchedEffect(Unit) {
@@ -62,7 +62,11 @@ fun AppGroupsScreen(
     }
 
     // 显示加载对话框
-    AppListLoadingDialog(loadingState = loadingState)
+    AppListLoadingDialog(
+        loadingState = loadingState,
+        onRetry = { installedAppsViewModel.reloadApps() },
+        onDismissError = { installedAppsViewModel.clearLoadingError() }
+    )
 
     if (showAddDialog) {
         AppGroupEditorDialog(

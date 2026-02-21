@@ -117,6 +117,15 @@ class InstalledAppsRepository private constructor(private val context: Context) 
     }
 
     /**
+     * 清除错误状态，返回空闲态，供 UI 关闭错误提示后手动重试。
+     */
+    fun clearError() {
+        if (_loadingState.value is LoadingState.Error) {
+            _loadingState.value = LoadingState.Idle
+        }
+    }
+
+    /**
      * 检查是否需要加载
      */
     fun needsLoading(): Boolean {

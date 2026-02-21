@@ -193,6 +193,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             if (!force && now - lastRootAuthAttemptAtMs < 15_000L) return@launch
             lastRootAuthAttemptAtMs = now
 
+            val hasSu = withContext(Dispatchers.IO) {
+                RootCommandExecutor.hasSuBinary()
+            }
+            if (!hasSu) {
+                LogRepository.getInstance().addLog(
+                    "INFO Settings: root auth check skipped, su binary not found"
+                )
+                return@launch
+            }
+
             val rootResult = withContext(Dispatchers.IO) {
                 RootCommandExecutor.requestRootAccess()
             }

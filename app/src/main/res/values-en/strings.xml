@@ -476,6 +476,7 @@
 
     <!-- App List -->
     <string name="app_list_loading">Loading app list...</string>
+    <string name="app_list_load_failed">Failed to load app list</string>
     <string name="app_list_loaded">Loaded %1$d / %2$d apps</string>
     <string name="app_list_search_hint">Search app or package name</string>
     <string name="app_list_show_system">Show system apps</string>

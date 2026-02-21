@@ -55,6 +55,15 @@ class BootCompletedReceiver : BroadcastReceiver() {
         private var lastStartAttemptElapsedMs: Long = 0L
     }
 
+    private data class ServiceRuntimeState(
+        val running: Boolean,
+        val starting: Boolean,
+        val bgProcessAlive: Boolean
+    ) {
+        val active: Boolean
+            get() = (running || starting) && bgProcessAlive
+    }
+
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
         if (!isBootAction(action)) return
@@ -104,28 +113,26 @@ class BootCompletedReceiver : BroadcastReceiver() {
                     return@launch
                 }
 
-                val runningFlag = VpnServiceManager.isRunning(appContext)
-                val startingFlag = VpnServiceManager.isStarting()
-                val bgProcessAlive = isBackgroundProcessAlive(appContext)
-                if ((runningFlag || startingFlag) && bgProcessAlive) {
+                val state = readServiceRuntimeState(appContext)
+                if (state.active) {
                     Log.i(TAG, "VPN already running/starting, skip")
                     cancelRetryAlarms(appContext)
                     appendBootTrace(
                         appContext,
-                        "skip active running=$runningFlag starting=$startingFlag bgAlive=$bgProcessAlive"
+                        "skip active running=${state.running} starting=${state.starting} bgAlive=${state.bgProcessAlive}"
                     )
                     runCatching {
                         LogRepository.getInstance().addLog(
-                            "INFO BootCompletedReceiver: skip already active running=$runningFlag starting=$startingFlag bgAlive=$bgProcessAlive"
+                            "INFO BootCompletedReceiver: skip already active running=${state.running} starting=${state.starting} bgAlive=${state.bgProcessAlive}"
                         )
                     }
                     return@launch
                 }
-                if (runningFlag || startingFlag) {
+                if (state.running || state.starting) {
                     Log.w(TAG, "Detected stale VPN state without :bg process, continue auto-start")
                     runCatching {
                         LogRepository.getInstance().addLog(
-                            "WARN BootCompletedReceiver: stale state running=$runningFlag starting=$startingFlag bgAlive=$bgProcessAlive"
+                            "WARN BootCompletedReceiver: stale state running=${state.running} starting=${state.starting} bgAlive=${state.bgProcessAlive}"
                         )
                     }
                 }
@@ -159,19 +166,17 @@ class BootCompletedReceiver : BroadcastReceiver() {
                     action == ACTION_HTC_QUICKBOOT_POWERON
                 ) {
                     delay(BOOT_START_DELAY_MS)
-                    val delayedRunningFlag = VpnServiceManager.isRunning(appContext)
-                    val delayedStartingFlag = VpnServiceManager.isStarting()
-                    val delayedBgAlive = isBackgroundProcessAlive(appContext)
-                    if ((delayedRunningFlag || delayedStartingFlag) && delayedBgAlive) {
+                    val delayedState = readServiceRuntimeState(appContext)
+                    if (delayedState.active) {
                         Log.i(TAG, "VPN became running/starting during boot delay, skip")
                         runCatching {
                             LogRepository.getInstance().addLog(
-                                "INFO BootCompletedReceiver: skip active during delay running=$delayedRunningFlag starting=$delayedStartingFlag bgAlive=$delayedBgAlive"
+                                "INFO BootCompletedReceiver: skip active during delay running=${delayedState.running} starting=${delayedState.starting} bgAlive=${delayedState.bgProcessAlive}"
                             )
                         }
                         appendBootTrace(
                             appContext,
-                            "skip active during delay running=$delayedRunningFlag starting=$delayedStartingFlag bgAlive=$delayedBgAlive"
+                            "skip active during delay running=${delayedState.running} starting=${delayedState.starting} bgAlive=${delayedState.bgProcessAlive}"
                         )
                         return@launch
                     }
@@ -189,10 +194,8 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
                 if (rootStartResult.success) {
                     delay(ROOT_START_VERIFY_DELAY_MS)
-                    val verifyRunning = VpnServiceManager.isRunning(appContext)
-                    val verifyStarting = VpnServiceManager.isStarting()
-                    val verifyBgAlive = isBackgroundProcessAlive(appContext)
-                    if ((verifyRunning || verifyStarting) && verifyBgAlive) {
+                    val verifyState = readServiceRuntimeState(appContext)
+                    if (verifyState.active) {
                         Log.i(TAG, "Auto-start triggered via root, tunEnabled=${settings.tunEnabled}")
                         cancelRetryAlarms(appContext)
                         appendBootTrace(appContext, "auto-start via root tunEnabled=${settings.tunEnabled}")
@@ -215,14 +218,12 @@ class BootCompletedReceiver : BroadcastReceiver() {
                     LogRepository.getInstance().addLog("INFO BootCompletedReceiver: auto-start triggered tunEnabled=${settings.tunEnabled}")
                 }
                 delay(1_200L)
-                val finalRunning = VpnServiceManager.isRunning(appContext)
-                val finalStarting = VpnServiceManager.isStarting()
-                val finalBgAlive = isBackgroundProcessAlive(appContext)
-                if ((finalRunning || finalStarting) && finalBgAlive) {
+                val finalState = readServiceRuntimeState(appContext)
+                if (finalState.active) {
                     cancelRetryAlarms(appContext)
                     appendBootTrace(
                         appContext,
-                        "final verify running=$finalRunning starting=$finalStarting bgAlive=$finalBgAlive"
+                        "final verify running=${finalState.running} starting=${finalState.starting} bgAlive=${finalState.bgProcessAlive}"
                     )
                 }
             } catch (e: Exception) {
@@ -255,6 +256,14 @@ class BootCompletedReceiver : BroadcastReceiver() {
             ?: return false
         val bgProcessName = "${context.packageName}:bg"
         return activityManager.runningAppProcesses?.any { it.processName == bgProcessName } == true
+    }
+
+    private fun readServiceRuntimeState(context: Context): ServiceRuntimeState {
+        return ServiceRuntimeState(
+            running = VpnServiceManager.isRunning(context),
+            starting = VpnServiceManager.isStarting(),
+            bgProcessAlive = isBackgroundProcessAlive(context)
+        )
     }
 
     private fun scheduleRetryAlarms(context: Context) {

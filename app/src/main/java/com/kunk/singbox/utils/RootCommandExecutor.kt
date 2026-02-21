@@ -19,6 +19,7 @@ object RootCommandExecutor {
     private const val TAG = "RootCommandExecutor"
     private const val ROOT_TIMEOUT_MS = 8_000L
     private const val MAX_OUTPUT_LENGTH = 400
+    private const val PER_USER_RANGE = 100_000
 
     @Volatile
     private var cachedSuAvailable: Boolean? = null
@@ -60,11 +61,15 @@ object RootCommandExecutor {
         }
         val component = "$packageName/$className"
         val action = SingBoxService.ACTION_START
-
-        val commands = listOf(
-            "am start-foreground-service --user 0 -n $component -a $action",
-            "am startservice --user 0 -n $component -a $action"
-        )
+        val currentUserId = resolveCurrentUserId()
+        val targetUserIds = linkedSetOf(currentUserId, 0)
+        val commands = mutableListOf<String>()
+        targetUserIds.forEach { userId ->
+            commands += "am start-foreground-service --user $userId -n $component -a $action"
+            commands += "am startservice --user $userId -n $component -a $action"
+        }
+        commands += "am start-foreground-service -n $component -a $action"
+        commands += "am startservice -n $component -a $action"
 
         var lastResult = RootCommandResult(attempted = true, success = false, output = "not executed")
         for (command in commands) {
@@ -124,5 +129,10 @@ object RootCommandExecutor {
                 output = e.message ?: "unknown error"
             )
         }
+    }
+
+    private fun resolveCurrentUserId(): Int {
+        val uid = android.os.Process.myUid()
+        return (uid / PER_USER_RANGE).coerceAtLeast(0)
     }
 }

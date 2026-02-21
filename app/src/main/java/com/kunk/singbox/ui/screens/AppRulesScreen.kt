@@ -62,7 +62,11 @@ fun AppRulesScreen(
         installedAppsViewModel.loadAppsIfNeeded()
     }
 
-    AppListLoadingDialog(loadingState = loadingState)
+    AppListLoadingDialog(
+        loadingState = loadingState,
+        onRetry = { installedAppsViewModel.reloadApps() },
+        onDismissError = { installedAppsViewModel.clearLoadingError() }
+    )
 
     if (showAddDialog) {
         AppRuleEditorDialog(

@@ -22,7 +22,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,12 +49,6 @@ fun ConnectionSettingsScreen(
     val scrollState = rememberScrollState()
     val settings by settingsViewModel.settings.collectAsState()
     var showPowerSavingDelayDialog by remember { mutableStateOf(false) }
-
-    LaunchedEffect(settings.autoStartOnBoot) {
-        if (settings.autoStartOnBoot) {
-            settingsViewModel.ensureRootAuthForBootAutoStart()
-        }
-    }
 
     if (showPowerSavingDelayDialog) {
         SingleSelectDialog(

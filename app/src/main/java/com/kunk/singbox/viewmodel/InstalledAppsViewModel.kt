@@ -42,6 +42,10 @@ class InstalledAppsViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    fun clearLoadingError() {
+        repository.clearError()
+    }
+
     /**
      * 检查是否已加载完成
      */

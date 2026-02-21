@@ -67,8 +67,11 @@ fun AppRoutingScreen(
         installedAppsViewModel.loadAppsIfNeeded()
     }
 
-    // 仅在加载中时显示
-    AppListLoadingDialog(loadingState = loadingState)
+    AppListLoadingDialog(
+        loadingState = loadingState,
+        onRetry = { installedAppsViewModel.reloadApps() },
+        onDismissError = { installedAppsViewModel.clearLoadingError() }
+    )
 
     if (showAddGroupDialog) {
         AppGroupEditorDialog(

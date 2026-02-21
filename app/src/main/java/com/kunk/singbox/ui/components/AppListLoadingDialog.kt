@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -33,62 +35,91 @@ import com.kunk.singbox.ui.theme.TextSecondary
  */
 @Composable
 fun AppListLoadingDialog(
-    loadingState: InstalledAppsRepository.LoadingState
+    loadingState: InstalledAppsRepository.LoadingState,
+    onRetry: (() -> Unit)? = null,
+    onDismissError: (() -> Unit)? = null
 ) {
-    // 只在加载中状态显示对话框
-    if (loadingState !is InstalledAppsRepository.LoadingState.Loading) return
+    when (loadingState) {
+        is InstalledAppsRepository.LoadingState.Loading -> {
+            Dialog(
+                onDismissRequest = { /* 不可取消 */ },
+                properties = DialogProperties(
+                    dismissOnBackPress = false,
+                    dismissOnClickOutside = false
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SurfaceCard, RoundedCornerShape(28.dp))
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // 圆形进度指示器（带进度）
+                    CircularProgressIndicator(
+                        progress = { loadingState.progress },
+                        modifier = Modifier.size(72.dp),
+                        color = PureWhite,
+                        strokeWidth = 6.dp,
+                        trackColor = Divider
+                    )
 
-    Dialog(
-        onDismissRequest = { /* 不可取消 */ },
-        properties = DialogProperties(
-            dismissOnBackPress = false,
-            dismissOnClickOutside = false
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(SurfaceCard, RoundedCornerShape(28.dp))
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // 圆形进度指示器（带进度）
-            CircularProgressIndicator(
-                progress = { loadingState.progress },
-                modifier = Modifier.size(72.dp),
-                color = PureWhite,
-                strokeWidth = 6.dp,
-                trackColor = Divider
-            )
+                    Spacer(modifier = Modifier.height(24.dp))
 
-            Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        text = stringResource(R.string.app_list_loading),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary
+                    )
 
-            Text(
-                text = stringResource(R.string.app_list_loading),
-                style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary
-            )
+                    Spacer(modifier = Modifier.height(8.dp))
 
-            Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.app_list_loaded, loadingState.current, loadingState.total),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
 
-            Text(
-                text = stringResource(R.string.app_list_loaded, loadingState.current, loadingState.total),
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary
-            )
+                    Spacer(modifier = Modifier.height(20.dp))
 
-            Spacer(modifier = Modifier.height(20.dp))
+                    // 线性进度条
+                    LinearProgressIndicator(
+                        progress = { loadingState.progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp),
+                        color = PureWhite,
+                        trackColor = Divider
+                    )
+                }
+            }
+        }
 
-            // 线性进度条
-            LinearProgressIndicator(
-                progress = { loadingState.progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp),
-                color = PureWhite,
-                trackColor = Divider
+        is InstalledAppsRepository.LoadingState.Error -> {
+            if (onRetry == null && onDismissError == null) return
+
+            AlertDialog(
+                onDismissRequest = { onDismissError?.invoke() },
+                title = { Text(text = stringResource(R.string.app_list_load_failed)) },
+                text = { Text(text = loadingState.message) },
+                confirmButton = {
+                    if (onRetry != null) {
+                        TextButton(onClick = onRetry) {
+                            Text(text = stringResource(R.string.common_retry))
+                        }
+                    }
+                },
+                dismissButton = {
+                    if (onDismissError != null) {
+                        TextButton(onClick = onDismissError) {
+                            Text(text = stringResource(R.string.common_cancel))
+                        }
+                    }
+                }
             )
         }
+
+        else -> Unit
     }
 }
 
