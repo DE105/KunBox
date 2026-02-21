@@ -124,6 +124,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setActiveNode(nodeId: String) {
+        // 用户手动切换节点：记录时间戳，用于自动选优锁定窗口
+        VpnStateStore.markManualNodeSwitch()
+
         // 2025-fix: 先同步更新 activeNodeId，避免竞态条件
         configRepository.setActiveNodeIdOnly(nodeId)
 

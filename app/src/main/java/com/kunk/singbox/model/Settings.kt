@@ -11,6 +11,13 @@ data class AppSettings(
     // 通用设置
     @SerializedName("autoConnect") val autoConnect: Boolean = false,
     @SerializedName("autoStartOnBoot") val autoStartOnBoot: Boolean = false,
+    // 自动选优开关：定期测速并切到更优节点（基于客户端策略，不依赖订阅分组规范）
+    @SerializedName("autoSelectByLatency") val autoSelectByLatency: Boolean = true,
+    // 自动选优参数
+    @SerializedName("autoSelectIntervalMinutes") val autoSelectIntervalMinutes: Int = 10,
+    @SerializedName("autoSelectToleranceMs") val autoSelectToleranceMs: Int = 30,
+    @SerializedName("autoSelectManualLockMinutes") val autoSelectManualLockMinutes: Int = 30,
+    @SerializedName("autoSelectFallbackMode") val autoSelectFallbackMode: Boolean = true,
     @SerializedName("excludeFromRecent") val excludeFromRecent: Boolean = false,
     @SerializedName("appTheme") val appTheme: AppThemeMode = AppThemeMode.SYSTEM,
     @SerializedName("appLanguage") val appLanguage: AppLanguage = AppLanguage.SYSTEM,

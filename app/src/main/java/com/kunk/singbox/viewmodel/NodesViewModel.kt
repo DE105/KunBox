@@ -246,6 +246,9 @@ class NodesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setActiveNode(nodeId: String) {
+        // 用户手动切换节点：记录时间戳，用于自动选优锁定窗口
+        VpnStateStore.markManualNodeSwitch()
+
         // 2025-fix: 先同步更新 activeNodeId，避免竞态条件
         // 场景：用户在节点页面连续快速切换节点后立即到首页启动 VPN
         // 如果不同步更新，generateConfigFile() 可能读取到旧的节点 ID

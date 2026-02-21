@@ -104,6 +104,29 @@ class SettingsRepository(private val context: Context) {
         settingsStore.updateSettingsAndWait { it.copy(autoStartOnBoot = value) }
     }
 
+    suspend fun setAutoSelectByLatency(value: Boolean) {
+        settingsStore.updateSettingsAndWait { it.copy(autoSelectByLatency = value) }
+    }
+
+    suspend fun setAutoSelectIntervalMinutes(value: Int) {
+        val interval = value.coerceIn(1, 120)
+        settingsStore.updateSettingsAndWait { it.copy(autoSelectIntervalMinutes = interval) }
+    }
+
+    suspend fun setAutoSelectToleranceMs(value: Int) {
+        val tolerance = value.coerceIn(5, 2000)
+        settingsStore.updateSettingsAndWait { it.copy(autoSelectToleranceMs = tolerance) }
+    }
+
+    suspend fun setAutoSelectManualLockMinutes(value: Int) {
+        val manualLock = value.coerceIn(0, 180)
+        settingsStore.updateSettingsAndWait { it.copy(autoSelectManualLockMinutes = manualLock) }
+    }
+
+    suspend fun setAutoSelectFallbackMode(value: Boolean) {
+        settingsStore.updateSettingsAndWait { it.copy(autoSelectFallbackMode = value) }
+    }
+
     suspend fun setExcludeFromRecent(value: Boolean) {
         settingsStore.updateSettingsAndWait { it.copy(excludeFromRecent = value) }
     }

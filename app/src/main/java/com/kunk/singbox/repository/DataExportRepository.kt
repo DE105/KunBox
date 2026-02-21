@@ -334,6 +334,12 @@ class DataExportRepository(private val context: Context) {
     private suspend fun importSettings(settings: AppSettings) {
         // 通用设置
         settingsRepository.setAutoConnect(settings.autoConnect)
+        settingsRepository.setAutoStartOnBoot(settings.autoStartOnBoot)
+        settingsRepository.setAutoSelectByLatency(settings.autoSelectByLatency)
+        settingsRepository.setAutoSelectIntervalMinutes(settings.autoSelectIntervalMinutes)
+        settingsRepository.setAutoSelectToleranceMs(settings.autoSelectToleranceMs)
+        settingsRepository.setAutoSelectManualLockMinutes(settings.autoSelectManualLockMinutes)
+        settingsRepository.setAutoSelectFallbackMode(settings.autoSelectFallbackMode)
         settingsRepository.setExcludeFromRecent(settings.excludeFromRecent)
         settingsRepository.setAppTheme(settings.appTheme)
 

@@ -184,6 +184,26 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun setAutoSelectByLatency(value: Boolean) {
+        viewModelScope.launch { repository.setAutoSelectByLatency(value) }
+    }
+
+    fun setAutoSelectIntervalMinutes(value: Int) {
+        viewModelScope.launch { repository.setAutoSelectIntervalMinutes(value) }
+    }
+
+    fun setAutoSelectToleranceMs(value: Int) {
+        viewModelScope.launch { repository.setAutoSelectToleranceMs(value) }
+    }
+
+    fun setAutoSelectManualLockMinutes(value: Int) {
+        viewModelScope.launch { repository.setAutoSelectManualLockMinutes(value) }
+    }
+
+    fun setAutoSelectFallbackMode(value: Boolean) {
+        viewModelScope.launch { repository.setAutoSelectFallbackMode(value) }
+    }
+
     fun ensureRootAuthForBootAutoStart(force: Boolean = false) {
         viewModelScope.launch {
             val enabled = repository.settings.value.autoStartOnBoot

@@ -29,6 +29,7 @@ object VpnStateStore {
     // Sender-side throttle for ACTION_PREPARE_RESTART to reduce repeated network oscillations.
     private const val KEY_LAST_PREPARE_RESTART_AT_MS = "last_prepare_restart_at_ms"
     private const val KEY_TRAFFIC_CLEAR_TIMESTAMP = "traffic_clear_timestamp"
+    private const val KEY_LAST_MANUAL_NODE_SWITCH_AT_MS = "last_manual_node_switch_at_ms"
 
     enum class CoreMode {
         NONE,
@@ -185,6 +186,14 @@ object VpnStateStore {
 
     fun setTrafficClearTimestamp(timestamp: Long) {
         mmkv.encode(KEY_TRAFFIC_CLEAR_TIMESTAMP, timestamp)
+    }
+
+    fun markManualNodeSwitch(timestampMs: Long = System.currentTimeMillis()) {
+        mmkv.encode(KEY_LAST_MANUAL_NODE_SWITCH_AT_MS, timestampMs)
+    }
+
+    fun getLastManualNodeSwitchAtMs(): Long {
+        return mmkv.decodeLong(KEY_LAST_MANUAL_NODE_SWITCH_AT_MS, 0L)
     }
 
     /**

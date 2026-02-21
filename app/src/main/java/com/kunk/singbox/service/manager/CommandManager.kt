@@ -43,6 +43,8 @@ class CommandManager(
         private const val MAX_LOG_LINES = 300
         private const val PORT_RELEASE_TIMEOUT_MS = 10000L
         private const val PORT_CHECK_INTERVAL_MS = 50L
+        private const val PROXY_SELECTOR_TAG = "PROXY"
+        private const val AUTO_ALL_SELECTOR_TAG = "AUTO_ALL"
     }
 
     // Command Server/Client
@@ -628,6 +630,7 @@ class CommandManager(
 
         collectGroupTestResults(group, tag, pendingGroup, testResults)
         changed = updateProxyGroupSelection(tag, selected, configRepo) || changed
+        changed = updateAutoAllSelectionBridge(tag, selected, configRepo) || changed
 
         return changed
     }
@@ -663,9 +666,40 @@ class CommandManager(
         selected: String?,
         configRepo: ConfigRepository
     ): Boolean {
-        if (!tag.equals("PROXY", ignoreCase = true)) return false
-        if (selected.isNullOrBlank() || selected == realTimeNodeName) return false
+        if (!tag.equals(PROXY_SELECTOR_TAG, ignoreCase = true)) return false
+        val effectiveSelected = resolveEffectiveProxySelection(selected) ?: return false
+        return applyRealTimeSelection(effectiveSelected, configRepo)
+    }
 
+    /**
+     * 当 PROXY 处于 AUTO_ALL 自动模式时，AUTO_ALL 自身选择变化也应反映到实时节点展示。
+     */
+    private fun updateAutoAllSelectionBridge(
+        tag: String?,
+        selected: String?,
+        configRepo: ConfigRepository
+    ): Boolean {
+        if (!tag.equals(AUTO_ALL_SELECTOR_TAG, ignoreCase = true) || selected.isNullOrBlank()) return false
+        val currentProxySelected = groupSelectedOutbounds.entries
+            .firstOrNull { it.key.equals(PROXY_SELECTOR_TAG, ignoreCase = true) }
+            ?.value
+        if (!currentProxySelected.equals(AUTO_ALL_SELECTOR_TAG, ignoreCase = true)) return false
+
+        val effectiveSelected = resolveEffectiveProxySelection(currentProxySelected) ?: return false
+        return applyRealTimeSelection(effectiveSelected, configRepo)
+    }
+
+    private fun resolveEffectiveProxySelection(selected: String?): String? {
+        if (selected.isNullOrBlank()) return null
+        if (!selected.equals(AUTO_ALL_SELECTOR_TAG, ignoreCase = true)) return selected
+        return groupSelectedOutbounds.entries
+            .firstOrNull { it.key.equals(AUTO_ALL_SELECTOR_TAG, ignoreCase = true) }
+            ?.value
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun applyRealTimeSelection(selected: String, configRepo: ConfigRepository): Boolean {
+        if (selected == realTimeNodeName) return false
         realTimeNodeName = selected
         VpnStateStore.setActiveLabel(selected)
         Log.i(TAG, "Real-time node update: $selected")

@@ -23,6 +23,26 @@ fun SettingsStore.setAutoStartOnBoot(value: Boolean) {
     updateSettings { it.copy(autoStartOnBoot = value) }
 }
 
+fun SettingsStore.setAutoSelectByLatency(value: Boolean) {
+    updateSettings { it.copy(autoSelectByLatency = value) }
+}
+
+fun SettingsStore.setAutoSelectIntervalMinutes(value: Int) {
+    updateSettings { it.copy(autoSelectIntervalMinutes = value) }
+}
+
+fun SettingsStore.setAutoSelectToleranceMs(value: Int) {
+    updateSettings { it.copy(autoSelectToleranceMs = value) }
+}
+
+fun SettingsStore.setAutoSelectManualLockMinutes(value: Int) {
+    updateSettings { it.copy(autoSelectManualLockMinutes = value) }
+}
+
+fun SettingsStore.setAutoSelectFallbackMode(value: Boolean) {
+    updateSettings { it.copy(autoSelectFallbackMode = value) }
+}
+
 fun SettingsStore.setExcludeFromRecent(value: Boolean) {
     updateSettings { it.copy(excludeFromRecent = value) }
 }

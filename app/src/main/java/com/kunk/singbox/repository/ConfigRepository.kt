@@ -53,6 +53,8 @@ class ConfigRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "ConfigRepository"
+        private const val MAIN_PROXY_SELECTOR_TAG = "PROXY"
+        private const val AUTO_ALL_SELECTOR_TAG = "AUTO_ALL"
 
         // 并行处理的默认并发数
         private const val PARALLEL_CONCURRENCY = 8
@@ -294,7 +296,11 @@ class ConfigRepository(private val context: Context) {
 
     fun resolveNodeNameFromOutboundTag(tag: String?): String? {
         if (tag.isNullOrBlank()) return null
-        if (tag.equals("PROXY", ignoreCase = true)) return null
+        if (tag.equals(MAIN_PROXY_SELECTOR_TAG, ignoreCase = true) ||
+            tag.equals(AUTO_ALL_SELECTOR_TAG, ignoreCase = true)
+        ) {
+            return null
+        }
         return when (tag) {
             "direct" -> context.getString(R.string.outbound_tag_direct)
             "block" -> context.getString(R.string.outbound_tag_block)
@@ -3429,15 +3435,18 @@ class ConfigRepository(private val context: Context) {
             )
         }.map { it.tag }.toMutableList()
 
-        // 创建一个主 Selector
-        val selectorTag = "PROXY"
+        // 系统级自动分组:
+        // 1) AUTO_ALL: 只包含所有叶子代理节点，供自动选优逻辑使用
+        // 2) PROXY: 主入口，默认指向 AUTO_ALL，兼容手动切换到具体节点
+        val selectorTag = MAIN_PROXY_SELECTOR_TAG
+        val autoSelectorTag = AUTO_ALL_SELECTOR_TAG
 
         // 确保代理列表不为空，否则 Selector/URLTest 会崩溃
         if (proxyTags.isEmpty()) {
             proxyTags.add("direct")
         }
 
-        val selectorDefault = activeNode
+        val autoSelectorDefault = activeNode
             ?.let { nodeTagMap[it.id] ?: it.name }
             ?.takeIf { it in proxyTags }
             ?: proxyTags.firstOrNull()
@@ -3445,7 +3454,12 @@ class ConfigRepository(private val context: Context) {
         // 2025-fix: 调试日志，帮助定位 selector default 设置问题
         if (activeNode != null) {
             val mappedTag = nodeTagMap[activeNode.id]
-            Log.d(TAG, "Selector default: activeNode=${activeNode.name}, id=${activeNode.id}, mappedTag=$mappedTag, selectorDefault=$selectorDefault, inProxyTags=${selectorDefault in proxyTags}")
+            Log.d(
+                TAG,
+                "Auto selector default: activeNode=${activeNode.name}, id=${activeNode.id}, " +
+                    "mappedTag=$mappedTag, autoSelectorDefault=$autoSelectorDefault, " +
+                    "inProxyTags=${autoSelectorDefault in proxyTags}"
+            )
             if (mappedTag == null && activeNode.name !in proxyTags) {
                 Log.w(TAG, "⚠️ Active node not in nodeTagMap and name not in proxyTags! Node may not be selected correctly.")
                 Log.w(TAG, "  Available proxyTags (first 10): ${proxyTags.take(10)}")
@@ -3453,18 +3467,35 @@ class ConfigRepository(private val context: Context) {
             }
         }
 
+        val autoSelectorOutbound = Outbound(
+            type = "selector",
+            tag = autoSelectorTag,
+            outbounds = proxyTags,
+            default = autoSelectorDefault,
+            interruptExistConnections = false
+        )
+
+        val proxySelectorOutbounds = buildList {
+            add(autoSelectorTag)
+            addAll(proxyTags)
+        }.distinct()
+
+        val selectorDefault = autoSelectorTag
+            .takeIf { it in proxySelectorOutbounds }
+            ?: proxySelectorOutbounds.firstOrNull()
+
         val selectorOutbound = Outbound(
             type = "selector",
             tag = selectorTag,
-            outbounds = proxyTags,
-            default = selectorDefault, // 设置默认选中项（确保存在于 outbounds 中）
+            outbounds = proxySelectorOutbounds,
+            default = selectorDefault,
             interruptExistConnections = true // 切换节点时断开现有连接，确保立即生效
         )
 
-        // 避免重复 tag：订阅配置通常已自带 PROXY selector
-        // 若已存在同 tag outbound，直接替换（并删除多余重复项）
+        // 避免重复 tag：订阅配置可能已自带同名系统组
+        val systemSelectorTags = setOf(selectorTag, autoSelectorTag)
         val existingProxyIndexes = fixedOutbounds.withIndex()
-            .filter { it.value.tag == selectorTag }
+            .filter { it.value.tag in systemSelectorTags }
             .map { it.index }
         if (existingProxyIndexes.isNotEmpty()) {
             existingProxyIndexes.asReversed().forEach { idx ->
@@ -3472,7 +3503,8 @@ class ConfigRepository(private val context: Context) {
             }
         }
 
-        // 将 Selector 添加到 outbounds 列表的最前面（或者合适的位置）
+        fixedOutbounds.add(0, autoSelectorOutbound)
+        // 将主 Selector 添加到最前面
         fixedOutbounds.add(0, selectorOutbound)
 
         // 定义节点标签解析器

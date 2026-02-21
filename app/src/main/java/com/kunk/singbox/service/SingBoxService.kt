@@ -1802,6 +1802,7 @@ class SingBoxService : VpnService() {
             }
             ACTION_SWITCH_NODE -> {
                 Log.i(TAG, "Received ACTION_SWITCH_NODE -> switching node")
+                VpnStateStore.markManualNodeSwitch()
                 // 从 Intent 中获取目标节点 ID，如果未提供则切换下一个
                 val targetNodeId = intent.getStringExtra("node_id")
                 val outboundTag = intent.getStringExtra("outbound_tag")

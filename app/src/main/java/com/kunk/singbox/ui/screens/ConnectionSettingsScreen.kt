@@ -100,6 +100,20 @@ fun ConnectionSettingsScreen(
                     onCheckedChange = { settingsViewModel.setAutoStartOnBoot(it) }
                 )
                 SettingSwitchItem(
+                    title = stringResource(R.string.connection_settings_auto_select_by_latency),
+                    subtitle = stringResource(R.string.connection_settings_auto_select_by_latency_subtitle),
+                    checked = settings.autoSelectByLatency,
+                    onCheckedChange = { settingsViewModel.setAutoSelectByLatency(it) }
+                )
+                if (settings.autoSelectByLatency) {
+                    SettingSwitchItem(
+                        title = stringResource(R.string.connection_settings_auto_select_fallback_mode),
+                        subtitle = stringResource(R.string.connection_settings_auto_select_fallback_mode_subtitle),
+                        checked = settings.autoSelectFallbackMode,
+                        onCheckedChange = { settingsViewModel.setAutoSelectFallbackMode(it) }
+                    )
+                }
+                SettingSwitchItem(
                     title = stringResource(R.string.connection_settings_hide_recent),
                     subtitle = stringResource(R.string.connection_settings_hide_recent_subtitle),
                     checked = settings.excludeFromRecent,
@@ -174,6 +188,32 @@ fun ConnectionSettingsScreen(
                         it.toIntOrNull()?.let { ms -> settingsViewModel.updateLatencyTestTimeout(ms) }
                     }
                 )
+                if (settings.autoSelectByLatency) {
+                    EditableTextItem(
+                        title = stringResource(R.string.connection_settings_auto_select_interval),
+                        subtitle = stringResource(R.string.connection_settings_auto_select_interval_subtitle),
+                        value = settings.autoSelectIntervalMinutes.toString(),
+                        onValueChange = {
+                            it.toIntOrNull()?.let { minutes -> settingsViewModel.setAutoSelectIntervalMinutes(minutes) }
+                        }
+                    )
+                    EditableTextItem(
+                        title = stringResource(R.string.connection_settings_auto_select_tolerance),
+                        subtitle = stringResource(R.string.connection_settings_auto_select_tolerance_subtitle),
+                        value = settings.autoSelectToleranceMs.toString(),
+                        onValueChange = {
+                            it.toIntOrNull()?.let { ms -> settingsViewModel.setAutoSelectToleranceMs(ms) }
+                        }
+                    )
+                    EditableTextItem(
+                        title = stringResource(R.string.connection_settings_auto_select_manual_lock),
+                        subtitle = stringResource(R.string.connection_settings_auto_select_manual_lock_subtitle),
+                        value = settings.autoSelectManualLockMinutes.toString(),
+                        onValueChange = {
+                            it.toIntOrNull()?.let { minutes -> settingsViewModel.setAutoSelectManualLockMinutes(minutes) }
+                        }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))

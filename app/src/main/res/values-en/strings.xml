@@ -140,6 +140,16 @@
     <string name="connection_settings_auto_connect_subtitle">Automatically connect VPN on app launch</string>
     <string name="connection_settings_auto_start_on_boot">Auto Start on Boot</string>
     <string name="connection_settings_auto_start_on_boot_subtitle">Automatically attempt to start VPN/proxy service after device boot</string>
+    <string name="connection_settings_auto_select_by_latency">Auto Switch Lowest Latency Node</string>
+    <string name="connection_settings_auto_select_by_latency_subtitle">Periodically test latency in background and switch to a better node automatically</string>
+    <string name="connection_settings_auto_select_fallback_mode">Fallback Mode</string>
+    <string name="connection_settings_auto_select_fallback_mode_subtitle">Prefer switching to any healthy node when current node degrades or fails</string>
+    <string name="connection_settings_auto_select_interval">Auto Select Interval (min)</string>
+    <string name="connection_settings_auto_select_interval_subtitle">How often to run auto test and selection (1-120)</string>
+    <string name="connection_settings_auto_select_tolerance">Switch Tolerance (ms)</string>
+    <string name="connection_settings_auto_select_tolerance_subtitle">Minimum latency improvement required before switching (5-2000)</string>
+    <string name="connection_settings_auto_select_manual_lock">Manual Lock Duration (min)</string>
+    <string name="connection_settings_auto_select_manual_lock_subtitle">Pause auto-switch after manual node selection (0-180, 0 disables)</string>
     <string name="connection_settings_hide_recent">Hide from Recent Tasks</string>
     <string name="connection_settings_hide_recent_subtitle">When enabled, app will not appear in recent tasks list</string>
     <string name="connection_settings_proxy_port">Proxy Port</string>

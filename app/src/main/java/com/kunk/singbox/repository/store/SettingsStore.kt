@@ -133,6 +133,23 @@ class SettingsStore private constructor(context: Context) {
             result = result.copy(localDns = newLocal, remoteDns = newRemote)
         }
 
+        // v4: 引入自动延迟选优开关。
+        // 旧版本默认启用（此前功能无开关且行为为启用），避免升级后体验突变。
+        if (version < 4) {
+            result = result.copy(autoSelectByLatency = true)
+        }
+
+        // v5: 引入自动选优参数。
+        // 由于 Gson 反序列化缺失 Int 字段时可能落为 0，这里统一兜底到安全默认值。
+        if (version < 5) {
+            result = result.copy(
+                autoSelectIntervalMinutes = if (result.autoSelectIntervalMinutes > 0) result.autoSelectIntervalMinutes else 10,
+                autoSelectToleranceMs = if (result.autoSelectToleranceMs > 0) result.autoSelectToleranceMs else 30,
+                autoSelectManualLockMinutes = result.autoSelectManualLockMinutes.coerceAtLeast(0),
+                autoSelectFallbackMode = true
+            )
+        }
+
         return result
     }
 

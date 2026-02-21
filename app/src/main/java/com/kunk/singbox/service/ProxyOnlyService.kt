@@ -404,6 +404,7 @@ class ProxyOnlyService : Service() {
                 stopCore(stopService = true)
             }
             ACTION_SWITCH_NODE -> {
+                VpnStateStore.markManualNodeSwitch()
                 val configPath = intent.getStringExtra(EXTRA_CONFIG_PATH)
                 if (!configPath.isNullOrBlank()) {
                     serviceScope.launch {

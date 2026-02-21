@@ -141,6 +141,16 @@
     <string name="connection_settings_auto_connect_subtitle">启动应用时自动连接 VPN</string>
     <string name="connection_settings_auto_start_on_boot">开机自启动</string>
     <string name="connection_settings_auto_start_on_boot_subtitle">设备开机后自动尝试启动 VPN/代理服务</string>
+    <string name="connection_settings_auto_select_by_latency">自动切换最低延迟节点</string>
+    <string name="connection_settings_auto_select_by_latency_subtitle">后台定期测速并自动切换到更优节点（不依赖订阅分组）</string>
+    <string name="connection_settings_auto_select_fallback_mode">故障回退模式</string>
+    <string name="connection_settings_auto_select_fallback_mode_subtitle">当前节点不可用或显著恶化时，优先切到可用节点</string>
+    <string name="connection_settings_auto_select_interval">自动选优间隔（分钟）</string>
+    <string name="connection_settings_auto_select_interval_subtitle">每隔多久执行一轮自动测速与选优（1-120）</string>
+    <string name="connection_settings_auto_select_tolerance">切换容差（ms）</string>
+    <string name="connection_settings_auto_select_tolerance_subtitle">新节点需至少快于当前节点多少毫秒才切换（5-2000）</string>
+    <string name="connection_settings_auto_select_manual_lock">手动选择锁定（分钟）</string>
+    <string name="connection_settings_auto_select_manual_lock_subtitle">手动切节点后暂停自动切换的时长（0-180，0 为关闭）</string>
     <string name="connection_settings_hide_recent">在最近任务中隐藏</string>
     <string name="connection_settings_hide_recent_subtitle">开启后，应用将不会出现在手机的最近任务列表中</string>
     <string name="connection_settings_proxy_port">代理端口</string>
