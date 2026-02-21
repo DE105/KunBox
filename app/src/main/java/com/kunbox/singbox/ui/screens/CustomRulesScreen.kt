@@ -262,11 +262,12 @@ fun CustomRuleEditorDialog(
                     value = value,
                     onValueChange = { value = it },
                     placeholder = when (type) {
-                        RuleType.DOMAIN -> "example.com"
-                        RuleType.DOMAIN_SUFFIX -> "example.com"
-                        RuleType.IP_CIDR -> "192.168.0.0/16"
+                        RuleType.DOMAIN -> "example.com\n支持逗号或换行输入多个"
+                        RuleType.DOMAIN_SUFFIX -> "example.com\n支持逗号或换行输入多个"
+                        RuleType.IP_CIDR -> "192.168.0.0/16\n支持逗号或换行输入多个"
                         else -> stringResource(R.string.custom_rules_content_hint)
-                    }
+                    },
+                    singleLine = false
                 )
 
                 ClickableDropdownField(

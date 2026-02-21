@@ -424,7 +424,8 @@ private fun DomainRuleEditorDialog(
                     label = stringResource(R.string.custom_rules_content),
                     value = value,
                     onValueChange = { value = it },
-                    placeholder = "google.com / =exact.com / *keyword*"
+                    placeholder = "google.com / =exact.com / *keyword*\n支持逗号或换行输入多个",
+                    singleLine = false
                 )
 
                 val smartHint = getSmartTypeHint(value)
