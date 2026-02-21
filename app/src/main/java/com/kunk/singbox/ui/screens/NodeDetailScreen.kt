@@ -2,14 +2,28 @@ package com.kunk.singbox.ui.screens
 
 import com.kunk.singbox.R
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -17,6 +31,8 @@ import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CallSplit
 import androidx.compose.material.icons.rounded.CompareArrows
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Language
@@ -26,6 +42,8 @@ import androidx.compose.material.icons.rounded.Merge
 import androidx.compose.material.icons.rounded.Numbers
 import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.RadioButtonChecked
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Router
 import androidx.compose.material.icons.rounded.Save
@@ -38,25 +56,31 @@ import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Waves
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
 import com.kunk.singbox.model.EchConfig
 import com.kunk.singbox.model.MultiplexConfig
@@ -87,12 +111,23 @@ fun NodeDetailScreen(
 
     val isCreateMode = nodeId.isEmpty() && createProtocol.isNotEmpty()
 
+    DisposableEffect(configRepository) {
+        configRepository.setAllNodesUiActive(true)
+        onDispose {
+            configRepository.setAllNodesUiActive(false)
+        }
+    }
+
     val nodes by configRepository.nodes.collectAsState(initial = emptyList())
+    val allNodes by configRepository.allNodes.collectAsState(initial = emptyList())
+    val activeProfileId by configRepository.activeProfileId.collectAsState(initial = null)
     val node = if (!isCreateMode) nodes.find { it.id == nodeId } else null
     val profiles by configRepository.profiles.collectAsState(initial = emptyList())
 
     var editingOutbound by remember { mutableStateOf<Outbound?>(null) }
     var showSelectProfileDialog by remember { mutableStateOf(false) }
+    var showDetourNodeDialog by remember { mutableStateOf(false) }
+    var pendingDetourRef by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(nodeId, createProtocol) {
         if (editingOutbound == null) {
@@ -106,6 +141,19 @@ fun NodeDetailScreen(
             }
         }
     }
+
+    fun resolveNodeByStoredValue(value: String?) = run {
+        if (value.isNullOrBlank()) return@run null
+        val parts = value.split("::", limit = 2)
+        if (parts.size == 2) {
+            val profileId = parts[0]
+            val name = parts[1]
+            return@run allNodes.find { it.sourceProfileId == profileId && it.name == name }
+        }
+        allNodes.find { it.id == value } ?: allNodes.find { it.name == value }
+    }
+
+    fun toNodeRef(sourceProfileId: String, name: String): String = "$sourceProfileId::$name"
 
     val createdMsg = stringResource(R.string.node_created)
     if (showSelectProfileDialog) {
@@ -936,10 +984,58 @@ fun NodeDetailScreen(
                 // --- Common Settings for all protocols ---
                 SectionHeader(stringResource(R.string.node_detail_common_settings))
                 StandardCard {
+                    val noneText = stringResource(R.string.common_none)
+                    val selectedNode = resolveNodeByStoredValue(outbound.detour)
+                    val detourSelectionText = when {
+                        outbound.detour.isNullOrBlank() -> noneText
+                        selectedNode != null -> {
+                            val profileName = profiles.firstOrNull { it.id == selectedNode.sourceProfileId }?.name
+                            if (profileName.isNullOrBlank()) {
+                                selectedNode.name
+                            } else {
+                                "${selectedNode.name} · $profileName"
+                            }
+                        }
+                        else -> outbound.detour ?: noneText
+                    }
+                    val detourNodesForSelection = (allNodes.takeIf { it.isNotEmpty() } ?: nodes)
+                        .filterNot {
+                            it.name == outbound.tag &&
+                                it.sourceProfileId == (node?.sourceProfileId ?: activeProfileId)
+                        }
+
+                    val selectedRef = selectedNode?.let { toNodeRef(it.sourceProfileId, it.name) }
+
+                    SettingItem(
+                        title = "前置代理",
+                        value = detourSelectionText,
+                        subtitle = "可选择所有配置下的节点",
+                        icon = Icons.Rounded.Route,
+                        onClick = {
+                            pendingDetourRef = selectedRef
+                            showDetourNodeDialog = true
+                        }
+                    )
+
+                    if (showDetourNodeDialog) {
+                        DetourNodeSelectDialog(
+                            profiles = profiles,
+                            nodesForSelection = detourNodesForSelection,
+                            selectedNodeRef = pendingDetourRef,
+                            onSelect = { ref -> pendingDetourRef = ref },
+                            onConfirm = {
+                                editingOutbound = outbound.copy(detour = pendingDetourRef)
+                                showDetourNodeDialog = false
+                            },
+                            onDismiss = { showDetourNodeDialog = false }
+                        )
+                    }
+
                     EditableTextItem(
-                        title = stringResource(R.string.common_outbound) + " (Detour)",
+                        title = "前置代理标签（高级）",
                         value = outbound.detour ?: "",
                         icon = Icons.Rounded.Route,
+                        subtitle = "可手动输入标签；留空为不使用",
                         onValueChange = { editingOutbound = outbound.copy(detour = if (it.isEmpty()) null else it) }
                     )
                     SettingSwitchItem(
@@ -964,6 +1060,207 @@ fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(bottom = 8.dp, start = 8.dp)
     )
+}
+
+@Suppress("LongMethod", "CognitiveComplexMethod", "CyclomaticComplexMethod", "LongParameterList")
+@Composable
+private fun DetourNodeSelectDialog(
+    profiles: List<com.kunk.singbox.model.ProfileUi>,
+    nodesForSelection: List<com.kunk.singbox.model.NodeUi>,
+    selectedNodeRef: String?,
+    onSelect: (String?) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    fun toNodeRef(node: com.kunk.singbox.model.NodeUi): String = "${node.sourceProfileId}::${node.name}"
+
+    val groupedNodes = remember(nodesForSelection, profiles) {
+        val profileNameMap = profiles.associate { it.id to it.name }
+        nodesForSelection
+            .groupBy { it.sourceProfileId }
+            .toList()
+            .sortedBy { (profileId, _) -> profileNameMap[profileId] ?: profileId }
+    }
+    var expandedProfileId by remember { mutableStateOf<String?>(null) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
+                .padding(24.dp)
+        ) {
+            Text(
+                text = "选择前置代理节点",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            LazyColumn(modifier = Modifier.height(460.dp)) {
+                item {
+                    val isNoneSelected = selectedNodeRef == null
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(null) }
+                            .background(
+                                if (isNoneSelected) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                } else {
+                                    MaterialTheme.colorScheme.surface
+                                },
+                                RoundedCornerShape(10.dp)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (isNoneSelected) {
+                                Icons.Rounded.RadioButtonChecked
+                            } else {
+                                Icons.Rounded.RadioButtonUnchecked
+                            },
+                            contentDescription = null,
+                            tint = if (isNoneSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(text = stringResource(R.string.common_none), color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                groupedNodes.forEach { (profileId, profileNodes) ->
+                    val profileName = profiles.firstOrNull { it.id == profileId }?.name
+                        ?: "未知配置($profileId)"
+                    val isExpanded = expandedProfileId == profileId
+
+                    item(key = "group_$profileId") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .animateContentSize(animationSpec = tween(durationMillis = 220))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        expandedProfileId = if (isExpanded) null else profileId
+                                    }
+                                    .padding(vertical = 10.dp, horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "$profileName (${profileNodes.size})",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    imageVector = if (isExpanded) {
+                                        Icons.Rounded.ExpandLess
+                                    } else {
+                                        Icons.Rounded.ExpandMore
+                                    },
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            AnimatedVisibility(
+                                visible = isExpanded,
+                                enter = fadeIn(animationSpec = tween(180)),
+                                exit = fadeOut(animationSpec = tween(120))
+                            ) {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 280.dp)
+                                ) {
+                                    items(profileNodes, key = { it.id }) { detourNode ->
+                                        val ref = toNodeRef(detourNode)
+                                        val selected = selectedNodeRef == ref
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { onSelect(ref) }
+                                                .background(
+                                                    if (selected) {
+                                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                                    } else {
+                                                        MaterialTheme.colorScheme.surface
+                                                    },
+                                                    RoundedCornerShape(10.dp)
+                                                )
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = if (selected) {
+                                                    Icons.Rounded.RadioButtonChecked
+                                                } else {
+                                                    Icons.Rounded.RadioButtonUnchecked
+                                                },
+                                                contentDescription = null,
+                                                tint = if (selected) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                }
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(text = detourNode.name, color = MaterialTheme.colorScheme.onSurface)
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                ) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Button(
+                    onClick = onConfirm,
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(25.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.common_ok),
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
 }
 
 private fun createEmptyOutbound(protocol: String): Outbound {

@@ -3286,6 +3286,11 @@ class ConfigRepository(private val context: Context) {
             }
         }
 
+        // 收集 detour 引用的节点（支持 profileId::nodeName）
+        fixedOutbounds.mapNotNull { it.detour }.forEach { detourValue ->
+            resolveNodeRefToId(detourValue)?.let { requiredNodeIds.add(it) }
+        }
+
         // 确保当前选中的节点始终可用
         activeNode?.let { requiredNodeIds.add(it.id) }
 
@@ -3481,9 +3486,23 @@ class ConfigRepository(private val context: Context) {
             }
         }
 
-        // Final safety check: Filter out non-existent references in Selector/URLTest
-        val allOutboundTags = fixedOutbounds.map { it.tag }.toSet()
-        val safeOutbounds = fixedOutbounds.map { outbound ->
+        // Final safety check:
+        // 1) Normalize detour node refs to runtime tag
+        // 2) Filter out non-existent references in Selector/URLTest
+        // 3) Validate detour target exists (or clear detour)
+        val detourNormalizedOutbounds = fixedOutbounds.map { outbound ->
+            val detourValue = outbound.detour
+            if (detourValue.isNullOrBlank()) return@map outbound
+            val mappedDetourTag = nodeTagResolver(detourValue)
+            if (mappedDetourTag != null && mappedDetourTag != detourValue) {
+                outbound.copy(detour = mappedDetourTag)
+            } else {
+                outbound
+            }
+        }
+
+        val allOutboundTags = detourNormalizedOutbounds.map { it.tag }.toSet()
+        val selectorSafeOutbounds = detourNormalizedOutbounds.map { outbound ->
             if (outbound.type == "selector" || outbound.type == "urltest" || outbound.type == "url-test") {
                 val validRefs = outbound.outbounds?.filter { allOutboundTags.contains(it) } ?: emptyList()
                 val safeRefs = if (validRefs.isEmpty()) listOf("direct") else validRefs
@@ -3492,7 +3511,6 @@ class ConfigRepository(private val context: Context) {
                     Log.w(TAG, "Filtered invalid refs in ${outbound.tag}: ${outbound.outbounds} -> $safeRefs")
                 }
 
-                // Ensure default is valid
                 val currentDefault = outbound.default
                 val safeDefault = if (currentDefault != null && safeRefs.contains(currentDefault)) {
                     currentDefault
@@ -3501,6 +3519,20 @@ class ConfigRepository(private val context: Context) {
                 }
 
                 outbound.copy(outbounds = safeRefs, default = safeDefault)
+            } else {
+                outbound
+            }
+        }
+
+        val finalTags = selectorSafeOutbounds.map { it.tag }.toSet()
+        val safeOutbounds = selectorSafeOutbounds.map { outbound ->
+            val detourTag = outbound.detour
+            if (detourTag.isNullOrBlank()) return@map outbound
+
+            val isInvalidDetour = detourTag == outbound.tag || detourTag !in finalTags
+            if (isInvalidDetour) {
+                Log.w(TAG, "Cleared invalid detour for ${outbound.tag}: detour=$detourTag")
+                outbound.copy(detour = null)
             } else {
                 outbound
             }

@@ -48,7 +48,8 @@ fun EditableSelectionItem(
     options: List<String>,
     onValueChange: (String) -> Unit,
     icon: ImageVector? = null,
-    subtitle: String? = null
+    subtitle: String? = null,
+    optionsHeight: androidx.compose.ui.unit.Dp? = null
 ) {
     var showDialog by remember { mutableStateOf(false) }
 
@@ -57,6 +58,7 @@ fun EditableSelectionItem(
             title = stringResource(R.string.common_select_title, title),
             options = options,
             selectedIndex = options.indexOf(value).coerceAtLeast(0),
+            optionsHeight = optionsHeight,
             onSelect = { index ->
                 onValueChange(options[index])
                 showDialog = false
