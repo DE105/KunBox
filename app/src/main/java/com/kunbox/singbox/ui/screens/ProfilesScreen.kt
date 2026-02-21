@@ -527,35 +527,48 @@ fun ProfilesScreen(
 
 private enum class ProfileImportType { Subscription, File, Clipboard, QRCode }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun ImportSelectionDialog(
     onDismiss: () -> Unit,
     onTypeSelected: (ProfileImportType) -> Unit
 ) {
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = { androidx.compose.material3.BottomSheetDefaults.DragHandle() }
+    ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp)
         ) {
-            ImportOptionCard(
+            Text(
+                text = stringResource(R.string.profiles_add_subscription),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
+            )
+            ImportOptionItem(
                 icon = Icons.Rounded.Link,
                 title = stringResource(R.string.profiles_subscription_link),
                 subtitle = stringResource(R.string.common_import),
                 onClick = { onTypeSelected(ProfileImportType.Subscription) }
             )
-            ImportOptionCard(
+            ImportOptionItem(
                 icon = Icons.Rounded.Description,
                 title = stringResource(R.string.profiles_local_file),
                 subtitle = stringResource(R.string.profiles_local_file_subtitle),
                 onClick = { onTypeSelected(ProfileImportType.File) }
             )
-            ImportOptionCard(
+            ImportOptionItem(
                 icon = Icons.Rounded.ContentPaste,
                 title = stringResource(R.string.profiles_clipboard),
                 subtitle = stringResource(R.string.profiles_clipboard_subtitle),
                 onClick = { onTypeSelected(ProfileImportType.Clipboard) }
             )
-            ImportOptionCard(
+            ImportOptionItem(
                 icon = Icons.Rounded.QrCodeScanner,
                 title = stringResource(R.string.profiles_scan_qrcode),
                 subtitle = stringResource(R.string.profiles_scan_qrcode_subtitle),
@@ -627,39 +640,38 @@ private fun ImportLoadingDialog(message: String, onCancel: () -> Unit = {}) {
 }
 
 @Composable
-private fun ImportOptionCard(
+private fun ImportOptionItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
     onClick: () -> Unit
 ) {
-    StandardCard(onClick = onClick) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(32.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(28.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
