@@ -139,6 +139,8 @@
     <string name="connection_settings_title">连接与启动</string>
     <string name="connection_settings_auto_connect">自动连接</string>
     <string name="connection_settings_auto_connect_subtitle">启动应用时自动连接 VPN</string>
+    <string name="connection_settings_auto_start_on_boot">开机自启动</string>
+    <string name="connection_settings_auto_start_on_boot_subtitle">设备开机后自动尝试启动 VPN/代理服务</string>
     <string name="connection_settings_hide_recent">在最近任务中隐藏</string>
     <string name="connection_settings_hide_recent_subtitle">开启后，应用将不会出现在手机的最近任务列表中</string>
     <string name="connection_settings_proxy_port">代理端口</string>

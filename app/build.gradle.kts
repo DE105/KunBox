@@ -384,8 +384,10 @@ ksp {
 
 // 如果 libbox.aar 已经是精简版（只包含目标架构），可以跳过 strip 任务
 val skipLibboxStrip = providers.gradleProperty("skipLibboxStrip").orNull?.toBoolean() ?: true
+val isIdeSync = providers.systemProperty("idea.sync.active").orNull?.toBoolean() ?: false
+val useStrippedLibbox = !skipLibboxStrip && !isIdeSync
 
-if (!skipLibboxStrip) {
+if (useStrippedLibbox) {
     tasks.named("preBuild") {
         dependsOn(stripLibboxAar)
     }
@@ -393,10 +395,10 @@ if (!skipLibboxStrip) {
 
 dependencies {
     // 核心库 (libbox) - 本地 AAR 文件
-    if (skipLibboxStrip) {
-        implementation(files(libboxInputAar))
-    } else {
+    if (useStrippedLibbox) {
         implementation(files(libboxStrippedAar))
+    } else {
+        implementation(files(libboxInputAar))
     }
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
 
@@ -418,7 +420,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.yaml:snakeyaml:2.2")
-    implementation("com.tencent:mmkv:1.3.2")
+    implementation("com.tencent:mmkv:1.3.14")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.work:work-runtime-ktx:2.9.0")

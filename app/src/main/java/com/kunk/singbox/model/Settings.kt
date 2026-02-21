@@ -10,6 +10,7 @@ import com.kunk.singbox.R
 data class AppSettings(
     // 通用设置
     @SerializedName("autoConnect") val autoConnect: Boolean = false,
+    @SerializedName("autoStartOnBoot") val autoStartOnBoot: Boolean = false,
     @SerializedName("excludeFromRecent") val excludeFromRecent: Boolean = false,
     @SerializedName("appTheme") val appTheme: AppThemeMode = AppThemeMode.SYSTEM,
     @SerializedName("appLanguage") val appLanguage: AppLanguage = AppLanguage.SYSTEM,

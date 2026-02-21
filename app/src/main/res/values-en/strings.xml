@@ -138,6 +138,8 @@
     <string name="connection_settings_title">Connection &amp; Startup</string>
     <string name="connection_settings_auto_connect">Auto Connect</string>
     <string name="connection_settings_auto_connect_subtitle">Automatically connect VPN on app launch</string>
+    <string name="connection_settings_auto_start_on_boot">Auto Start on Boot</string>
+    <string name="connection_settings_auto_start_on_boot_subtitle">Automatically attempt to start VPN/proxy service after device boot</string>
     <string name="connection_settings_hide_recent">Hide from Recent Tasks</string>
     <string name="connection_settings_hide_recent_subtitle">When enabled, app will not appear in recent tasks list</string>
     <string name="connection_settings_proxy_port">Proxy Port</string>
@@ -495,7 +497,7 @@
     <string name="notification_switch_node">Switch Node</string>
     <string name="notification_reset_connections">Reset</string>
     <string name="notification_disconnect">Disconnect</string>
-    <string name="notification_speed_format">↑ %s  ↓ %s</string>
+    <string name="notification_speed_format">↑ %1$s  ↓ %2$s</string>
 
     <!-- Connection Settings -->
     <string name="connection_settings_show_notification_speed">Show Speed in Notification</string>

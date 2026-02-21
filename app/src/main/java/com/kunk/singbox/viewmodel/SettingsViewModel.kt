@@ -3,6 +3,7 @@ package com.kunk.singbox.viewmodel
 import com.kunk.singbox.R
 import android.app.Application
 import android.net.Uri
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kunk.singbox.model.AppSettings
@@ -27,10 +28,13 @@ import com.kunk.singbox.model.VpnRouteMode
 import com.kunk.singbox.model.GhProxyMirror
 import com.kunk.singbox.model.BackgroundPowerSavingDelay
 import com.kunk.singbox.repository.DataExportRepository
+import com.kunk.singbox.repository.LogRepository
 import com.kunk.singbox.repository.RuleSetRepository
 import com.kunk.singbox.repository.SettingsRepository
 import com.kunk.singbox.service.RuleSetAutoUpdateWorker
+import com.kunk.singbox.utils.RootCommandExecutor
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,6 +44,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class DefaultRuleSetDownloadState(
     val isActive: Boolean = false,
@@ -60,6 +65,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val _defaultRuleSetDownloadState = MutableStateFlow(DefaultRuleSetDownloadState())
     val defaultRuleSetDownloadState: StateFlow<DefaultRuleSetDownloadState> = _defaultRuleSetDownloadState.asStateFlow()
+    private var lastRootAuthAttemptAtMs: Long = 0L
 
     private var defaultRuleSetDownloadJob: Job? = null
     private val defaultRuleSetDownloadTags = mutableSetOf<String>()
@@ -166,6 +172,34 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     // 通用设置
     fun setAutoConnect(value: Boolean) {
         viewModelScope.launch { repository.setAutoConnect(value) }
+    }
+
+    fun setAutoStartOnBoot(value: Boolean) {
+        viewModelScope.launch {
+            repository.setAutoStartOnBoot(value)
+
+            if (!value) return@launch
+
+            ensureRootAuthForBootAutoStart(force = true)
+        }
+    }
+
+    fun ensureRootAuthForBootAutoStart(force: Boolean = false) {
+        viewModelScope.launch {
+            val enabled = repository.settings.value.autoStartOnBoot
+            if (!enabled) return@launch
+
+            val now = SystemClock.elapsedRealtime()
+            if (!force && now - lastRootAuthAttemptAtMs < 15_000L) return@launch
+            lastRootAuthAttemptAtMs = now
+
+            val rootResult = withContext(Dispatchers.IO) {
+                RootCommandExecutor.requestRootAccess()
+            }
+            LogRepository.getInstance().addLog(
+                "INFO Settings: root auth check attempted=${rootResult.attempted}, success=${rootResult.success}, exit=${rootResult.exitCode}, timeout=${rootResult.timedOut}, out=${rootResult.output}"
+            )
+        }
     }
 
     fun setExcludeFromRecent(value: Boolean) {

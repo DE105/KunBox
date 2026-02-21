@@ -19,6 +19,10 @@ fun SettingsStore.setAutoConnect(value: Boolean) {
     updateSettings { it.copy(autoConnect = value) }
 }
 
+fun SettingsStore.setAutoStartOnBoot(value: Boolean) {
+    updateSettings { it.copy(autoStartOnBoot = value) }
+}
+
 fun SettingsStore.setExcludeFromRecent(value: Boolean) {
     updateSettings { it.copy(excludeFromRecent = value) }
 }

@@ -100,6 +100,10 @@ class SettingsRepository(private val context: Context) {
         settingsStore.updateSettingsAndWait { it.copy(autoConnect = value) }
     }
 
+    suspend fun setAutoStartOnBoot(value: Boolean) {
+        settingsStore.updateSettingsAndWait { it.copy(autoStartOnBoot = value) }
+    }
+
     suspend fun setExcludeFromRecent(value: Boolean) {
         settingsStore.updateSettingsAndWait { it.copy(excludeFromRecent = value) }
     }
