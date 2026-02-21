@@ -534,6 +534,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             // Phase 1: 即时恢复 (< 1ms，从 MMKV 读状态 + 异步验证 IPC)
             SingBoxRemote.instantRecovery(context)
 
+            // 2026-fix: 如果 VPN 正在运行，立即强制 rebind + 通知前台
+            // 这样可以更快触发 :bg 进程的网络恢复，减少加载等待时间
+            if (VpnStateStore.getActive()) {
+                SingBoxRemote.rebindAndNotifyForeground(context)
+            }
+
             // 立即从 MMKV 状态更新 UI（不等 IPC）
             val isActive = VpnStateStore.getActive()
             val phase1State = when {

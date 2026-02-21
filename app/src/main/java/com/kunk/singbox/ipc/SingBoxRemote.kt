@@ -34,12 +34,11 @@ import java.lang.ref.WeakReference
 @Suppress("TooManyFunctions")
 object SingBoxRemote {
     private const val TAG = "SingBoxRemote"
-    private const val RECONNECT_DELAY_MS = 300L
-    private const val MAX_RECONNECT_ATTEMPTS = 5
-    // 2025-fix-v6: 回调超时阈值，超过此时间未收到回调则认为回调通道失效
-    private const val CALLBACK_TIMEOUT_MS = 10_000L
-    // 2025-fix-v6: 强制从 VpnStateStore 同步的阈值
-    private const val FORCE_STORE_SYNC_THRESHOLD_MS = 5_000L
+    // 降低重连延迟以更快恢复前台通知（100ms * 10次 = 1s 最多）
+    private const val RECONNECT_DELAY_MS = 100L
+    private const val MAX_RECONNECT_ATTEMPTS = 10
+    // 回调超时阈值，超过此时间未收到回调则认为回调通道失效
+    private const val CALLBACK_TIMEOUT_MS = 8_000L
 
     private val _state = MutableStateFlow(ServiceState.STOPPED)
     val state: StateFlow<ServiceState> = _state.asStateFlow()

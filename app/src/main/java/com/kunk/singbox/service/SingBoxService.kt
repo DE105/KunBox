@@ -1566,10 +1566,10 @@ class SingBoxService : VpnService() {
         UNKNOWN(priority = 10, sourceDebounceMs = 3000L, isFastLane = false)
     }
 
-    private val recoveryGlobalDebounceMs: Long = 1200L
-    private val recoveryFastLaneGlobalDebounceMs: Long = 250L
-    private val recoveryFastLaneSourceDebounceCapMs: Long = 600L
-    private val recoveryMergeWindowMs: Long = 400L
+    private val recoveryGlobalDebounceMs: Long = 800L
+    private val recoveryFastLaneGlobalDebounceMs: Long = 150L
+    private val recoveryFastLaneSourceDebounceCapMs: Long = 400L
+    private val recoveryMergeWindowMs: Long = 250L
 
     @Volatile private var recoveryInFlight: Boolean = false
     @Volatile private var pendingRecoveryRequest: RecoveryRequest? = null

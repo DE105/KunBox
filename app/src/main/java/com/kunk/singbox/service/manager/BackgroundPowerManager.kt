@@ -29,8 +29,8 @@ class BackgroundPowerManager(
         /** 最大阈值: 2 小时 */
         const val MAX_THRESHOLD_MS = 2 * 60 * 60 * 1000L
 
-        /** 恢复触发最小离开时长: 3 秒（避免过度触发） */
-        private const val MIN_RECOVERY_AWAY_MS = 3_000L
+        /** 恢复触发最小离开时长: 1 秒（降低以更快响应网络变化） */
+        private const val MIN_RECOVERY_AWAY_MS = 1_000L
     }
 
     /**
@@ -242,10 +242,10 @@ class BackgroundPowerManager(
 
         logState(
             "$eventLabel after ${eventDurationMs / 1000}s, " +
-                "request recovery(source=$source, force=${awayDurationMs > 30_000L}, away=${awayDurationMs}ms)"
+                "request recovery(source=$source, force=${awayDurationMs > 15_000L}, away=${awayDurationMs}ms)"
         )
-        // 离开超过 30 秒，强制恢复（跳过所有防抖），避免恢复被合并/跳过
-        val forceRecovery = awayDurationMs > 30_000L
+        // 离开超过 15 秒，强制恢复（跳过所有防抖），避免恢复被合并/跳过
+        val forceRecovery = awayDurationMs > 15_000L
         cb.requestCoreNetworkRecovery(source, force = forceRecovery)
     }
 
