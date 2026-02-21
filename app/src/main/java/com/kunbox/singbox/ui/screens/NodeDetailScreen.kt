@@ -1065,14 +1065,14 @@ fun SectionHeader(title: String) {
 @Suppress("LongMethod", "CognitiveComplexMethod", "CyclomaticComplexMethod", "LongParameterList")
 @Composable
 private fun DetourNodeSelectDialog(
-    profiles: List<com.kunk.singbox.model.ProfileUi>,
-    nodesForSelection: List<com.kunk.singbox.model.NodeUi>,
+    profiles: List<com.kunbox.singbox.model.ProfileUi>,
+    nodesForSelection: List<com.kunbox.singbox.model.NodeUi>,
     selectedNodeRef: String?,
     onSelect: (String?) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    fun toNodeRef(node: com.kunk.singbox.model.NodeUi): String = "${node.sourceProfileId}::${node.name}"
+    fun toNodeRef(node: com.kunbox.singbox.model.NodeUi): String = "${node.sourceProfileId}::${node.name}"
 
     val groupedNodes = remember(nodesForSelection, profiles) {
         val profileNameMap = profiles.associate { it.id to it.name }
