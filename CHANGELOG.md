@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.9.0](https://github.com/roseforljh/KunBox/compare/v2.8.1...v2.9.0) (2026-02-21)
+
+
+### Features
+
+* Add DashboardViewModel and UI screens for app groups, domain rules, and logs. ([1ec9993](https://github.com/roseforljh/KunBox/commit/1ec9993b4f1c528e55e18fe7727ef56ee1282e05))
+* Implement `ConfigRepository` for profile and node management, alongside `EditableSettingItem` and `NodeDetailScreen` UI. ([876a1b1](https://github.com/roseforljh/KunBox/commit/876a1b1a44c159020916300c9ce38d652d5da71d))
+* Implement the foundational SingBox application with its primary UI screens and core services. ([b6af8c5](https://github.com/roseforljh/KunBox/commit/b6af8c5e54eff03b4bc0a0ea8ca6358de85fcabd))
+* Integrate SingBox core library and service, introducing a state-recording background power manager. ([aaeca96](https://github.com/roseforljh/KunBox/commit/aaeca9603dd2dddaaa284aba31b72f9423679948))
+
 ## [2.8.1](https://github.com/roseforljh/KunBox/compare/v2.8.0...v2.8.1) (2026-02-13)
 
 
