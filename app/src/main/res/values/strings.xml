@@ -286,6 +286,9 @@
     <string name="nodes_filter_cleared">已清除筛选</string>
     <string name="nodes_unsupported_format">不支持的链接格式</string>
     <string name="nodes_add_failed">添加失败</string>
+    <string name="nodes_delete_confirm">确认删除节点“%1$s”？删除后将从当前配置移除，后续订阅更新也会自动过滤同名节点。</string>
+    <string name="nodes_deleted">已删除节点：%1$s</string>
+    <string name="nodes_delete_failed">删除节点失败</string>
     <string name="nodes_group_auto_generated">分组由配置自动生成，如需删除请前往\'配置管理\'删除对应配置</string>
 
     <!-- Node Sort -->

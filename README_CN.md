@@ -131,7 +131,7 @@
 
 ```
 KunBox-Android/
-├── app/src/main/java/com/kunk/singbox/
+├── app/src/main/java/com/kunbox/singbox/
 │   ├── core/              # libbox JNI 封装 (BoxWrapperManager, SingBoxCore)
 │   ├── database/          # Room 数据库 (dao/, entity/)
 │   ├── ipc/               # VPN 跨进程通信 (SingBoxIpcHub, VpnStateStore)
@@ -274,10 +274,10 @@ cd ..\..
 .\gradlew testDebugUnitTest
 
 # 运行特定测试类
-.\gradlew testDebugUnitTest --tests "com.kunk.singbox.utils.parser.NodeLinkParserTest"
+.\gradlew testDebugUnitTest --tests "com.kunbox.singbox.utils.parser.NodeLinkParserTest"
 
 # 运行特定测试方法
-.\gradlew testDebugUnitTest --tests "com.kunk.singbox.utils.parser.NodeLinkParserTest.testVmessLink"
+.\gradlew testDebugUnitTest --tests "com.kunbox.singbox.utils.parser.NodeLinkParserTest.testVmessLink"
 
 # 运行 Detekt 代码检查
 .\gradlew detekt

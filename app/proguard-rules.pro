@@ -28,23 +28,23 @@
 # ====================================================================
 
 # Application
--keep class com.kunk.singbox.SingBoxApplication { *; }
+-keep class com.kunbox.singbox.SingBoxApplication { *; }
 
 # MainActivity - 应用入口点
--keep class com.kunk.singbox.MainActivity { *; }
+-keep class com.kunbox.singbox.MainActivity { *; }
 
 # Services - Android 系统通过 AndroidManifest 注册的服务
--keep class com.kunk.singbox.service.SingBoxService { *; }
--keep class com.kunk.singbox.service.ProxyOnlyService { *; }
--keep class com.kunk.singbox.service.SingBoxIpcService { *; }
--keep class com.kunk.singbox.service.VpnTileService { *; }
+-keep class com.kunbox.singbox.service.SingBoxService { *; }
+-keep class com.kunbox.singbox.service.ProxyOnlyService { *; }
+-keep class com.kunbox.singbox.service.SingBoxIpcService { *; }
+-keep class com.kunbox.singbox.service.VpnTileService { *; }
 
 # BroadcastReceivers - 动态注册的 Receiver
--keep class com.kunk.singbox.service.SingBoxService$*Receiver { *; }
+-keep class com.kunbox.singbox.service.SingBoxService$*Receiver { *; }
 
 # WorkManager Workers - 后台任务调度
--keep class com.kunk.singbox.service.*Worker { *; }
--keepclassmembers class com.kunk.singbox.service.*Worker {
+-keep class com.kunbox.singbox.service.*Worker { *; }
+-keepclassmembers class com.kunbox.singbox.service.*Worker {
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
 
@@ -54,30 +54,30 @@
 
 # Sing-box 配置模型 - Gson 通过反射访问字段
 # 保留所有字段名和 @SerializedName 注解,但允许混淆方法
--keep class com.kunk.singbox.model.** {
+-keep class com.kunbox.singbox.model.** {
     <fields>;
     <init>(...);
 }
--keepclassmembers class com.kunk.singbox.model.** {
+-keepclassmembers class com.kunbox.singbox.model.** {
     @com.google.gson.annotations.SerializedName <fields>;
 }
 # 禁止 repackage model 类，避免包名丢失导致的初始化错误
--keeppackagenames com.kunk.singbox.model.**
+-keeppackagenames com.kunbox.singbox.model.**
 
 # TrafficRepository 数据类 - Gson 序列化需要保留字段名
--keep class com.kunk.singbox.repository.NodeTrafficStats {
+-keep class com.kunbox.singbox.repository.NodeTrafficStats {
     <fields>;
     <init>(...);
 }
--keep class com.kunk.singbox.repository.DailyTrafficRecord {
+-keep class com.kunbox.singbox.repository.DailyTrafficRecord {
     <fields>;
     <init>(...);
 }
--keep class com.kunk.singbox.repository.TrafficSummary {
+-keep class com.kunbox.singbox.repository.TrafficSummary {
     <fields>;
     <init>(...);
 }
--keep class com.kunk.singbox.repository.TrafficPeriod {
+-keep class com.kunbox.singbox.repository.TrafficPeriod {
     <fields>;
     <init>(...);
 }
@@ -87,9 +87,9 @@
 # ====================================================================
 
 # AIDL 生成的接口和 Stub 类必须完整保留
--keep interface com.kunk.singbox.ipc.** { *; }
--keep class com.kunk.singbox.ipc.**$Stub { *; }
--keep class com.kunk.singbox.ipc.**$Stub$Proxy { *; }
+-keep interface com.kunbox.singbox.ipc.** { *; }
+-keep class com.kunbox.singbox.ipc.**$Stub { *; }
+-keep class com.kunbox.singbox.ipc.**$Stub$Proxy { *; }
 
 # ====================================================================
 # Gson (JSON 序列化库)
@@ -148,7 +148,7 @@
 # 注意：排除关键包避免 Package.getName() 返回 null 导致崩溃
 # 完全禁用 repackage 以彻底解决包名丢失问题（增加约1-2MB APK大小）
 # -repackageclasses ''
-# -keeppackagenames com.kunk.singbox.**
+# -keeppackagenames com.kunbox.singbox.**
 # -keeppackagenames com.google.gson.**
 # -keeppackagenames kotlin.**
 # -keeppackagenames kotlinx.**

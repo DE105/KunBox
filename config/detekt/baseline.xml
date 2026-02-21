@@ -62,7 +62,7 @@
     <ID>CognitiveComplexMethod:DiagnosticsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun DiagnosticsScreen( navController: NavController, viewModel: DiagnosticsViewModel = viewModel() )</ID>
     <ID>CognitiveComplexMethod:DiagnosticsViewModel.kt$DiagnosticsViewModel$private fun findMatch(config: SingBoxConfig, domain: String): MatchResult</ID>
     <ID>CognitiveComplexMethod:DnsSettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun DnsSettingsScreen( navController: NavController, settingsViewModel: SettingsViewModel = viewModel() )</ID>
-    <ID>CognitiveComplexMethod:DomainRulesScreen.kt$@Composable private fun DomainRuleEditorDialog( initialRule: CustomRule? = null, nodes: List&lt;com.kunk.singbox.model.NodeUi&gt;, nodesForSelection: List&lt;com.kunk.singbox.model.NodeUi&gt;? = null, profiles: List&lt;com.kunk.singbox.model.ProfileUi&gt;, onDismiss: () -&gt; Unit, onConfirm: (CustomRule) -&gt; Unit, onDelete: (() -&gt; Unit)? = null )</ID>
+    <ID>CognitiveComplexMethod:DomainRulesScreen.kt$@Composable private fun DomainRuleEditorDialog( initialRule: CustomRule? = null, nodes: List&lt;com.kunbox.singbox.model.NodeUi&gt;, nodesForSelection: List&lt;com.kunbox.singbox.model.NodeUi&gt;? = null, profiles: List&lt;com.kunbox.singbox.model.ProfileUi&gt;, onDismiss: () -&gt; Unit, onConfirm: (CustomRule) -&gt; Unit, onDelete: (() -&gt; Unit)? = null )</ID>
     <ID>CognitiveComplexMethod:ExportImportDialogs.kt$@Composable fun ImportPreviewDialog( summary: ExportDataSummary, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
     <ID>CognitiveComplexMethod:ExportImportDialogs.kt$@Composable fun ImportProgressDialog( state: ImportState, onDismiss: () -&gt; Unit )</ID>
     <ID>CognitiveComplexMethod:LocalResolverImpl.kt$LocalResolverImpl$override fun lookup(ctx: ExchangeContext, network: String, domain: String)</ID>
@@ -73,7 +73,7 @@
     <ID>CognitiveComplexMethod:MainActivity.kt$@Composable fun SingBoxApp()</ID>
     <ID>CognitiveComplexMethod:NetworkHelper.kt$NetworkHelper$fun findBestPhysicalNetworkFallback(): Network?</ID>
     <ID>CognitiveComplexMethod:NetworkHelper.kt$NetworkHelper$fun updateDefaultInterface( network: Network, vpnStartedAtMs: Long, startupWindowMs: Long, defaultInterfaceName: String, lastKnownNetwork: Network?, lastSetUnderlyingAtMs: Long, debounceMs: Long, isRunning: Boolean, settings: AppSettings?, setUnderlyingNetworks: (Array&lt;Network&gt;) -&gt; Unit, updateInterfaceListener: (String, Int, Boolean, Boolean) -&gt; Unit, updateState: (Network, String, Long) -&gt; Unit, requestCoreReset: (String, Boolean) -&gt; Unit, resetConnections: (String, Boolean) -&gt; Unit )</ID>
-    <ID>CognitiveComplexMethod:NetworkHelper.kt$NetworkHelper$suspend fun waitForUsablePhysicalNetwork( lastKnownNetwork: Network?, networkManager: com.kunk.singbox.service.network.NetworkManager?, findBestPhysicalNetwork: () -&gt; Network?, timeoutMs: Long ): Network?</ID>
+    <ID>CognitiveComplexMethod:NetworkHelper.kt$NetworkHelper$suspend fun waitForUsablePhysicalNetwork( lastKnownNetwork: Network?, networkManager: com.kunbox.singbox.service.network.NetworkManager?, findBestPhysicalNetwork: () -&gt; Network?, timeoutMs: Long ): Network?</ID>
     <ID>CognitiveComplexMethod:NetworkManager.kt$NetworkManager$fun findBestPhysicalNetwork(): Network?</ID>
     <ID>CognitiveComplexMethod:NetworkManager.kt$NetworkManager$fun updateDefaultInterface(network: Network, vpnStartedAtMs: Long, vpnStartupWindowMs: Long): Boolean</ID>
     <ID>CognitiveComplexMethod:NodeCard.kt$@Composable fun NodeCard( name: String, type: String, latency: Long? = null, isSelected: Boolean, isTesting: Boolean = false, regionFlag: String? = null, trafficUsed: Long = 0, onClick: () -&gt; Unit, onEdit: () -&gt; Unit, onExport: () -&gt; Unit, onLatency: () -&gt; Unit, onDelete: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
@@ -93,7 +93,7 @@
     <ID>CognitiveComplexMethod:PlatformInterfaceImpl.kt$PlatformInterfaceImpl$private fun updateDefaultInterface(network: Network)</ID>
     <ID>CognitiveComplexMethod:PreciseLatencyTester.kt$PreciseLatencyTester$suspend fun test( proxyPort: Int, url: String, timeoutMs: Int, standard: Standard = Standard.RTT, warmup: Boolean = true ): LatencyResult</ID>
     <ID>CognitiveComplexMethod:ProfileCard.kt$@Composable fun ProfileCard( name: String, type: String, isSelected: Boolean, isEnabled: Boolean, isUpdating: Boolean, updateStatus: UpdateStatus = UpdateStatus.Idle, expireDate: Long = 0, totalTraffic: Long = 0, usedTraffic: Long = 0, lastUpdated: Long = 0, onClick: () -&gt; Unit, onUpdate: () -&gt; Unit, onEdit: () -&gt; Unit, onDelete: () -&gt; Unit, onToggle: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
-    <ID>CognitiveComplexMethod:ProfilesScreen.kt$@Composable fun ProfilesScreen( navController: NavController, viewModel: com.kunk.singbox.viewmodel.ProfilesViewModel = androidx.lifecycle.viewmodel.compose.viewModel() )</ID>
+    <ID>CognitiveComplexMethod:ProfilesScreen.kt$@Composable fun ProfilesScreen( navController: NavController, viewModel: com.kunbox.singbox.viewmodel.ProfilesViewModel = androidx.lifecycle.viewmodel.compose.viewModel() )</ID>
     <ID>CognitiveComplexMethod:ProfilesScreen.kt$@Composable private fun SubscriptionInputDialog( initialName: String = "", initialUrl: String = "", initialAutoUpdateInterval: Int = 0, title: String = stringResource(R.string.profiles_add_subscription), onDismiss: () -&gt; Unit, onConfirm: (String, String, Int) -&gt; Unit )</ID>
     <ID>CognitiveComplexMethod:ProxyOnlyService.kt$ProxyOnlyService$override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int</ID>
     <ID>CognitiveComplexMethod:ProxyOnlyService.kt$ProxyOnlyService.&lt;no name provided&gt;$override fun getInterfaces(): NetworkInterfaceIterator?</ID>
@@ -186,7 +186,7 @@
     <ID>CyclomaticComplexMethod:DashboardViewModel.kt$DashboardViewModel$private fun startTrafficMonitor()</ID>
     <ID>CyclomaticComplexMethod:DataExportRepository.kt$DataExportRepository$suspend fun importData(jsonData: String, options: ImportOptions = ImportOptions()): Result&lt;ImportResult&gt;</ID>
     <ID>CyclomaticComplexMethod:DiagnosticsViewModel.kt$DiagnosticsViewModel$private fun findMatch(config: SingBoxConfig, domain: String): MatchResult</ID>
-    <ID>CyclomaticComplexMethod:DomainRulesScreen.kt$@Composable private fun DomainRuleEditorDialog( initialRule: CustomRule? = null, nodes: List&lt;com.kunk.singbox.model.NodeUi&gt;, nodesForSelection: List&lt;com.kunk.singbox.model.NodeUi&gt;? = null, profiles: List&lt;com.kunk.singbox.model.ProfileUi&gt;, onDismiss: () -&gt; Unit, onConfirm: (CustomRule) -&gt; Unit, onDelete: (() -&gt; Unit)? = null )</ID>
+    <ID>CyclomaticComplexMethod:DomainRulesScreen.kt$@Composable private fun DomainRuleEditorDialog( initialRule: CustomRule? = null, nodes: List&lt;com.kunbox.singbox.model.NodeUi&gt;, nodesForSelection: List&lt;com.kunbox.singbox.model.NodeUi&gt;? = null, profiles: List&lt;com.kunbox.singbox.model.ProfileUi&gt;, onDismiss: () -&gt; Unit, onConfirm: (CustomRule) -&gt; Unit, onDelete: (() -&gt; Unit)? = null )</ID>
     <ID>CyclomaticComplexMethod:ExportImportDialogs.kt$@Composable fun ImportProgressDialog( state: ImportState, onDismiss: () -&gt; Unit )</ID>
     <ID>CyclomaticComplexMethod:MainActivity.kt$@Composable fun SingBoxApp()</ID>
     <ID>CyclomaticComplexMethod:NetworkHelper.kt$NetworkHelper$fun findBestPhysicalNetworkFallback(): Network?</ID>
@@ -206,7 +206,7 @@
     <ID>CyclomaticComplexMethod:PlatformInterfaceImpl.kt$PlatformInterfaceImpl$private fun updateDefaultInterface(network: Network)</ID>
     <ID>CyclomaticComplexMethod:PreciseLatencyTester.kt$PreciseLatencyTester$suspend fun test( proxyPort: Int, url: String, timeoutMs: Int, standard: Standard = Standard.RTT, warmup: Boolean = true ): LatencyResult</ID>
     <ID>CyclomaticComplexMethod:ProfileCard.kt$@Composable fun ProfileCard( name: String, type: String, isSelected: Boolean, isEnabled: Boolean, isUpdating: Boolean, updateStatus: UpdateStatus = UpdateStatus.Idle, expireDate: Long = 0, totalTraffic: Long = 0, usedTraffic: Long = 0, lastUpdated: Long = 0, onClick: () -&gt; Unit, onUpdate: () -&gt; Unit, onEdit: () -&gt; Unit, onDelete: () -&gt; Unit, onToggle: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
-    <ID>CyclomaticComplexMethod:ProfilesScreen.kt$@Composable fun ProfilesScreen( navController: NavController, viewModel: com.kunk.singbox.viewmodel.ProfilesViewModel = androidx.lifecycle.viewmodel.compose.viewModel() )</ID>
+    <ID>CyclomaticComplexMethod:ProfilesScreen.kt$@Composable fun ProfilesScreen( navController: NavController, viewModel: com.kunbox.singbox.viewmodel.ProfilesViewModel = androidx.lifecycle.viewmodel.compose.viewModel() )</ID>
     <ID>CyclomaticComplexMethod:ProfilesScreen.kt$@Composable private fun SubscriptionInputDialog( initialName: String = "", initialUrl: String = "", initialAutoUpdateInterval: Int = 0, title: String = stringResource(R.string.profiles_add_subscription), onDismiss: () -&gt; Unit, onConfirm: (String, String, Int) -&gt; Unit )</ID>
     <ID>CyclomaticComplexMethod:ProxyOnlyService.kt$ProxyOnlyService$override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int</ID>
     <ID>CyclomaticComplexMethod:RouteGroupSelector.kt$RouteGroupSelector$private suspend fun selectBestForRouteGroups(configContent: String)</ID>
@@ -228,53 +228,53 @@
     <ID>DestructuringDeclarationWithTooManyEntries:DashboardViewModel.kt$DashboardViewModel$val (tx, rx, totalTx, totalRx) = if (BoxWrapperManager.isAvailable()) { // 使用 BoxWrapper 内核级流量统计 (更准确) val wrapperUp = BoxWrapperManager.getUploadTotal() val wrapperDown = BoxWrapperManager.getDownloadTotal() if (wrapperUp &gt;= 0 &amp;&amp; wrapperDown &gt;= 0) { // 计算本次会话流量 val sessionUp = (wrapperUp - wrapperBaseUpload).coerceAtLeast(0L) val sessionDown = (wrapperDown - wrapperBaseDownload).coerceAtLeast(0L) Quadruple(wrapperUp, wrapperDown, sessionUp, sessionDown) } else { // BoxWrapper 返回无效值，回退到 TrafficStats val sysTx = TrafficStats.getUidTxBytes(uid).let { if (it &gt; 0) it else 0L } val sysRx = TrafficStats.getUidRxBytes(uid).let { if (it &gt; 0) it else 0L } Quadruple(sysTx, sysRx, (sysTx - trafficBaseTxBytes).coerceAtLeast(0L), (sysRx - trafficBaseRxBytes).coerceAtLeast(0L)) } } else { // BoxWrapper 不可用，使用 TrafficStats val sysTx = TrafficStats.getUidTxBytes(uid).let { if (it &gt; 0) it else 0L } val sysRx = TrafficStats.getUidRxBytes(uid).let { if (it &gt; 0) it else 0L } Quadruple(sysTx, sysRx, (sysTx - trafficBaseTxBytes).coerceAtLeast(0L), (sysRx - trafficBaseRxBytes).coerceAtLeast(0L)) }</ID>
     <ID>EmptyFunctionBlock:SingBoxCore.kt$SingBoxCore${ }</ID>
     <ID>EmptyIfBlock:ProxyOnlyService.kt$ProxyOnlyService.&lt;no name provided&gt;${ }</ID>
-    <ID>Filename:StructuredLogger.kt$com.kunk.singbox.utils.StructuredLogger.kt</ID>
-    <ID>FinalNewline:AppListLoadingDialog.kt$com.kunk.singbox.ui.components.AppListLoadingDialog.kt</ID>
-    <ID>FinalNewline:AppNavBar.kt$com.kunk.singbox.ui.components.AppNavBar.kt</ID>
-    <ID>FinalNewline:AppNavigation.kt$com.kunk.singbox.ui.navigation.AppNavigation.kt</ID>
-    <ID>FinalNewline:Color.kt$com.kunk.singbox.ui.theme.Color.kt</ID>
-    <ID>FinalNewline:CommonDialogs.kt$com.kunk.singbox.ui.components.CommonDialogs.kt</ID>
-    <ID>FinalNewline:CustomRulesScreen.kt$com.kunk.singbox.ui.screens.CustomRulesScreen.kt</ID>
-    <ID>FinalNewline:DataExportRepository.kt$com.kunk.singbox.repository.DataExportRepository.kt</ID>
-    <ID>FinalNewline:DiagnosticsScreen.kt$com.kunk.singbox.ui.screens.DiagnosticsScreen.kt</ID>
-    <ID>FinalNewline:DiagnosticsViewModel.kt$com.kunk.singbox.viewmodel.DiagnosticsViewModel.kt</ID>
-    <ID>FinalNewline:DnsSettingsScreen.kt$com.kunk.singbox.ui.screens.DnsSettingsScreen.kt</ID>
-    <ID>FinalNewline:EditableSettingItem.kt$com.kunk.singbox.ui.components.EditableSettingItem.kt</ID>
-    <ID>FinalNewline:ExportData.kt$com.kunk.singbox.model.ExportData.kt</ID>
-    <ID>FinalNewline:ExportImportDialogs.kt$com.kunk.singbox.ui.components.ExportImportDialogs.kt</ID>
-    <ID>FinalNewline:FakeRepository.kt$com.kunk.singbox.repository.FakeRepository.kt</ID>
-    <ID>FinalNewline:InfoCard.kt$com.kunk.singbox.ui.components.InfoCard.kt</ID>
-    <ID>FinalNewline:InstalledAppsRepository.kt$com.kunk.singbox.repository.InstalledAppsRepository.kt</ID>
-    <ID>FinalNewline:InstalledAppsViewModel.kt$com.kunk.singbox.viewmodel.InstalledAppsViewModel.kt</ID>
-    <ID>FinalNewline:LibboxNativeSupport.kt$com.kunk.singbox.core.LibboxNativeSupport.kt</ID>
-    <ID>FinalNewline:LocalResolverImpl.kt$com.kunk.singbox.core.LocalResolverImpl.kt</ID>
-    <ID>FinalNewline:LocaleHelper.kt$com.kunk.singbox.utils.LocaleHelper.kt</ID>
-    <ID>FinalNewline:LogsScreen.kt$com.kunk.singbox.ui.screens.LogsScreen.kt</ID>
-    <ID>FinalNewline:MainActivity.kt$com.kunk.singbox.MainActivity.kt</ID>
-    <ID>FinalNewline:NodeFilter.kt$com.kunk.singbox.model.NodeFilter.kt</ID>
-    <ID>FinalNewline:NodeSortType.kt$com.kunk.singbox.model.NodeSortType.kt</ID>
-    <ID>FinalNewline:ProfileCard.kt$com.kunk.singbox.ui.components.ProfileCard.kt</ID>
-    <ID>FinalNewline:ProfileEditorScreen.kt$com.kunk.singbox.ui.screens.ProfileEditorScreen.kt</ID>
-    <ID>FinalNewline:ProfilesViewModel.kt$com.kunk.singbox.viewmodel.ProfilesViewModel.kt</ID>
-    <ID>FinalNewline:QrScannerActivity.kt$com.kunk.singbox.ui.scanner.QrScannerActivity.kt</ID>
-    <ID>FinalNewline:RoutingModels.kt$com.kunk.singbox.model.RoutingModels.kt</ID>
-    <ID>FinalNewline:RoutingSettingsScreen.kt$com.kunk.singbox.ui.screens.RoutingSettingsScreen.kt</ID>
-    <ID>FinalNewline:RuleSetAutoUpdateWorker.kt$com.kunk.singbox.service.RuleSetAutoUpdateWorker.kt</ID>
-    <ID>FinalNewline:RuleSetRepository.kt$com.kunk.singbox.repository.RuleSetRepository.kt</ID>
-    <ID>FinalNewline:RuleSetUpdateWorker.kt$com.kunk.singbox.worker.RuleSetUpdateWorker.kt</ID>
-    <ID>FinalNewline:RuleSetsScreen.kt$com.kunk.singbox.ui.screens.RuleSetsScreen.kt</ID>
-    <ID>FinalNewline:SettingItem.kt$com.kunk.singbox.ui.components.SettingItem.kt</ID>
-    <ID>FinalNewline:SettingsScreen.kt$com.kunk.singbox.ui.screens.SettingsScreen.kt</ID>
-    <ID>FinalNewline:SquareViewFinderView.kt$com.kunk.singbox.ui.scanner.SquareViewFinderView.kt</ID>
-    <ID>FinalNewline:StandardCard.kt$com.kunk.singbox.ui.components.StandardCard.kt</ID>
-    <ID>FinalNewline:StatusChip.kt$com.kunk.singbox.ui.components.StatusChip.kt</ID>
-    <ID>FinalNewline:SubscriptionAutoUpdateWorker.kt$com.kunk.singbox.service.SubscriptionAutoUpdateWorker.kt</ID>
-    <ID>FinalNewline:TcpPing.kt$com.kunk.singbox.utils.TcpPing.kt</ID>
-    <ID>FinalNewline:Theme.kt$com.kunk.singbox.ui.theme.Theme.kt</ID>
-    <ID>FinalNewline:TrafficRepository.kt$com.kunk.singbox.repository.TrafficRepository.kt</ID>
-    <ID>FinalNewline:TunSettingsScreen.kt$com.kunk.singbox.ui.screens.TunSettingsScreen.kt</ID>
-    <ID>FinalNewline:Type.kt$com.kunk.singbox.ui.theme.Type.kt</ID>
-    <ID>FinalNewline:VersionInfo.kt$com.kunk.singbox.utils.VersionInfo.kt</ID>
+    <ID>Filename:StructuredLogger.kt$com.kunbox.singbox.utils.StructuredLogger.kt</ID>
+    <ID>FinalNewline:AppListLoadingDialog.kt$com.kunbox.singbox.ui.components.AppListLoadingDialog.kt</ID>
+    <ID>FinalNewline:AppNavBar.kt$com.kunbox.singbox.ui.components.AppNavBar.kt</ID>
+    <ID>FinalNewline:AppNavigation.kt$com.kunbox.singbox.ui.navigation.AppNavigation.kt</ID>
+    <ID>FinalNewline:Color.kt$com.kunbox.singbox.ui.theme.Color.kt</ID>
+    <ID>FinalNewline:CommonDialogs.kt$com.kunbox.singbox.ui.components.CommonDialogs.kt</ID>
+    <ID>FinalNewline:CustomRulesScreen.kt$com.kunbox.singbox.ui.screens.CustomRulesScreen.kt</ID>
+    <ID>FinalNewline:DataExportRepository.kt$com.kunbox.singbox.repository.DataExportRepository.kt</ID>
+    <ID>FinalNewline:DiagnosticsScreen.kt$com.kunbox.singbox.ui.screens.DiagnosticsScreen.kt</ID>
+    <ID>FinalNewline:DiagnosticsViewModel.kt$com.kunbox.singbox.viewmodel.DiagnosticsViewModel.kt</ID>
+    <ID>FinalNewline:DnsSettingsScreen.kt$com.kunbox.singbox.ui.screens.DnsSettingsScreen.kt</ID>
+    <ID>FinalNewline:EditableSettingItem.kt$com.kunbox.singbox.ui.components.EditableSettingItem.kt</ID>
+    <ID>FinalNewline:ExportData.kt$com.kunbox.singbox.model.ExportData.kt</ID>
+    <ID>FinalNewline:ExportImportDialogs.kt$com.kunbox.singbox.ui.components.ExportImportDialogs.kt</ID>
+    <ID>FinalNewline:FakeRepository.kt$com.kunbox.singbox.repository.FakeRepository.kt</ID>
+    <ID>FinalNewline:InfoCard.kt$com.kunbox.singbox.ui.components.InfoCard.kt</ID>
+    <ID>FinalNewline:InstalledAppsRepository.kt$com.kunbox.singbox.repository.InstalledAppsRepository.kt</ID>
+    <ID>FinalNewline:InstalledAppsViewModel.kt$com.kunbox.singbox.viewmodel.InstalledAppsViewModel.kt</ID>
+    <ID>FinalNewline:LibboxNativeSupport.kt$com.kunbox.singbox.core.LibboxNativeSupport.kt</ID>
+    <ID>FinalNewline:LocalResolverImpl.kt$com.kunbox.singbox.core.LocalResolverImpl.kt</ID>
+    <ID>FinalNewline:LocaleHelper.kt$com.kunbox.singbox.utils.LocaleHelper.kt</ID>
+    <ID>FinalNewline:LogsScreen.kt$com.kunbox.singbox.ui.screens.LogsScreen.kt</ID>
+    <ID>FinalNewline:MainActivity.kt$com.kunbox.singbox.MainActivity.kt</ID>
+    <ID>FinalNewline:NodeFilter.kt$com.kunbox.singbox.model.NodeFilter.kt</ID>
+    <ID>FinalNewline:NodeSortType.kt$com.kunbox.singbox.model.NodeSortType.kt</ID>
+    <ID>FinalNewline:ProfileCard.kt$com.kunbox.singbox.ui.components.ProfileCard.kt</ID>
+    <ID>FinalNewline:ProfileEditorScreen.kt$com.kunbox.singbox.ui.screens.ProfileEditorScreen.kt</ID>
+    <ID>FinalNewline:ProfilesViewModel.kt$com.kunbox.singbox.viewmodel.ProfilesViewModel.kt</ID>
+    <ID>FinalNewline:QrScannerActivity.kt$com.kunbox.singbox.ui.scanner.QrScannerActivity.kt</ID>
+    <ID>FinalNewline:RoutingModels.kt$com.kunbox.singbox.model.RoutingModels.kt</ID>
+    <ID>FinalNewline:RoutingSettingsScreen.kt$com.kunbox.singbox.ui.screens.RoutingSettingsScreen.kt</ID>
+    <ID>FinalNewline:RuleSetAutoUpdateWorker.kt$com.kunbox.singbox.service.RuleSetAutoUpdateWorker.kt</ID>
+    <ID>FinalNewline:RuleSetRepository.kt$com.kunbox.singbox.repository.RuleSetRepository.kt</ID>
+    <ID>FinalNewline:RuleSetUpdateWorker.kt$com.kunbox.singbox.worker.RuleSetUpdateWorker.kt</ID>
+    <ID>FinalNewline:RuleSetsScreen.kt$com.kunbox.singbox.ui.screens.RuleSetsScreen.kt</ID>
+    <ID>FinalNewline:SettingItem.kt$com.kunbox.singbox.ui.components.SettingItem.kt</ID>
+    <ID>FinalNewline:SettingsScreen.kt$com.kunbox.singbox.ui.screens.SettingsScreen.kt</ID>
+    <ID>FinalNewline:SquareViewFinderView.kt$com.kunbox.singbox.ui.scanner.SquareViewFinderView.kt</ID>
+    <ID>FinalNewline:StandardCard.kt$com.kunbox.singbox.ui.components.StandardCard.kt</ID>
+    <ID>FinalNewline:StatusChip.kt$com.kunbox.singbox.ui.components.StatusChip.kt</ID>
+    <ID>FinalNewline:SubscriptionAutoUpdateWorker.kt$com.kunbox.singbox.service.SubscriptionAutoUpdateWorker.kt</ID>
+    <ID>FinalNewline:TcpPing.kt$com.kunbox.singbox.utils.TcpPing.kt</ID>
+    <ID>FinalNewline:Theme.kt$com.kunbox.singbox.ui.theme.Theme.kt</ID>
+    <ID>FinalNewline:TrafficRepository.kt$com.kunbox.singbox.repository.TrafficRepository.kt</ID>
+    <ID>FinalNewline:TunSettingsScreen.kt$com.kunbox.singbox.ui.screens.TunSettingsScreen.kt</ID>
+    <ID>FinalNewline:Type.kt$com.kunbox.singbox.ui.theme.Type.kt</ID>
+    <ID>FinalNewline:VersionInfo.kt$com.kunbox.singbox.utils.VersionInfo.kt</ID>
     <ID>FunctionOnlyReturningConstant:SubscriptionFetcher.kt$SubscriptionFetcher$private fun parseUserInfoFromBody(body: String): SubscriptionUserInfo?</ID>
     <ID>ImplicitDefaultLocale:NetworkClient.kt$NetworkClient.PoolStatus$String.format("%.1f", successRate)</ID>
     <ID>Indentation:AddNodeDialog.kt$ </ID>
@@ -372,7 +372,7 @@
     <ID>LongMethod:DataExportRepository.kt$DataExportRepository$suspend fun importData(jsonData: String, options: ImportOptions = ImportOptions()): Result&lt;ImportResult&gt;</ID>
     <ID>LongMethod:DiagnosticsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun DiagnosticsScreen( navController: NavController, viewModel: DiagnosticsViewModel = viewModel() )</ID>
     <ID>LongMethod:DnsSettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun DnsSettingsScreen( navController: NavController, settingsViewModel: SettingsViewModel = viewModel() )</ID>
-    <ID>LongMethod:DomainRulesScreen.kt$@Composable private fun DomainRuleEditorDialog( initialRule: CustomRule? = null, nodes: List&lt;com.kunk.singbox.model.NodeUi&gt;, nodesForSelection: List&lt;com.kunk.singbox.model.NodeUi&gt;? = null, profiles: List&lt;com.kunk.singbox.model.ProfileUi&gt;, onDismiss: () -&gt; Unit, onConfirm: (CustomRule) -&gt; Unit, onDelete: (() -&gt; Unit)? = null )</ID>
+    <ID>LongMethod:DomainRulesScreen.kt$@Composable private fun DomainRuleEditorDialog( initialRule: CustomRule? = null, nodes: List&lt;com.kunbox.singbox.model.NodeUi&gt;, nodesForSelection: List&lt;com.kunbox.singbox.model.NodeUi&gt;? = null, profiles: List&lt;com.kunbox.singbox.model.ProfileUi&gt;, onDismiss: () -&gt; Unit, onConfirm: (CustomRule) -&gt; Unit, onDelete: (() -&gt; Unit)? = null )</ID>
     <ID>LongMethod:DomainRulesScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun DomainRulesScreen( navController: NavController, settingsViewModel: SettingsViewModel = viewModel(), nodesViewModel: NodesViewModel = viewModel(), profilesViewModel: ProfilesViewModel = viewModel() )</ID>
     <ID>LongMethod:ExportImportDialogs.kt$@Composable fun ExportProgressDialog( state: ExportState, onDismiss: () -&gt; Unit )</ID>
     <ID>LongMethod:ExportImportDialogs.kt$@Composable fun ImportPreviewDialog( summary: ExportDataSummary, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
@@ -394,7 +394,7 @@
     <ID>LongMethod:PreciseLatencyTester.kt$PreciseLatencyTester$suspend fun test( proxyPort: Int, url: String, timeoutMs: Int, standard: Standard = Standard.RTT, warmup: Boolean = true ): LatencyResult</ID>
     <ID>LongMethod:ProfileCard.kt$@Composable fun ProfileCard( name: String, type: String, isSelected: Boolean, isEnabled: Boolean, isUpdating: Boolean, updateStatus: UpdateStatus = UpdateStatus.Idle, expireDate: Long = 0, totalTraffic: Long = 0, usedTraffic: Long = 0, lastUpdated: Long = 0, onClick: () -&gt; Unit, onUpdate: () -&gt; Unit, onEdit: () -&gt; Unit, onDelete: () -&gt; Unit, onToggle: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
     <ID>LongMethod:ProfileEditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ProfileEditorScreen(navController: NavController)</ID>
-    <ID>LongMethod:ProfilesScreen.kt$@Composable fun ProfilesScreen( navController: NavController, viewModel: com.kunk.singbox.viewmodel.ProfilesViewModel = androidx.lifecycle.viewmodel.compose.viewModel() )</ID>
+    <ID>LongMethod:ProfilesScreen.kt$@Composable fun ProfilesScreen( navController: NavController, viewModel: com.kunbox.singbox.viewmodel.ProfilesViewModel = androidx.lifecycle.viewmodel.compose.viewModel() )</ID>
     <ID>LongMethod:ProfilesScreen.kt$@Composable private fun SubscriptionInputDialog( initialName: String = "", initialUrl: String = "", initialAutoUpdateInterval: Int = 0, title: String = stringResource(R.string.profiles_add_subscription), onDismiss: () -&gt; Unit, onConfirm: (String, String, Int) -&gt; Unit )</ID>
     <ID>LongMethod:ProxyOnlyService.kt$ProxyOnlyService$override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int</ID>
     <ID>LongMethod:ProxyOnlyService.kt$ProxyOnlyService$private fun startCore(configPath: String)</ID>
@@ -419,7 +419,7 @@
     <ID>LongParameterList:AppRoutingComponents.kt$( initialRule: AppRule? = null, installedApps: List&lt;InstalledApp&gt;, existingPackages: Set&lt;String&gt;, nodes: List&lt;NodeUi&gt;, nodesForSelection: List&lt;NodeUi&gt;? = null, profiles: List&lt;ProfileUi&gt;, onDismiss: () -&gt; Unit, onConfirm: (AppRule) -&gt; Unit )</ID>
     <ID>LongParameterList:CommonDialogs.kt$( title: String, profiles: List&lt;ProfileUi&gt;, nodesForSelection: List&lt;NodeUi&gt;, selectedNodeRef: String?, onSelect: (String) -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
     <ID>LongParameterList:NetworkHelper.kt$NetworkHelper$( network: Network, vpnStartedAtMs: Long, startupWindowMs: Long, defaultInterfaceName: String, lastKnownNetwork: Network?, lastSetUnderlyingAtMs: Long, debounceMs: Long, isRunning: Boolean, settings: AppSettings?, setUnderlyingNetworks: (Array&lt;Network&gt;) -&gt; Unit, updateInterfaceListener: (String, Int, Boolean, Boolean) -&gt; Unit, updateState: (Network, String, Long) -&gt; Unit, requestCoreReset: (String, Boolean) -&gt; Unit, resetConnections: (String, Boolean) -&gt; Unit )</ID>
-    <ID>LongParameterList:NetworkHelper.kt$NetworkHelper$( networkCallbackReady: Boolean, lastKnownNetwork: Network?, networkManager: com.kunk.singbox.service.network.NetworkManager?, findBestPhysicalNetwork: () -&gt; Network?, updateNetworkState: (Network?, Boolean) -&gt; Unit, lastRuleSetCheckMs: Long, ruleSetCheckIntervalMs: Long, onRuleSetChecked: (Long) -&gt; Unit )</ID>
+    <ID>LongParameterList:NetworkHelper.kt$NetworkHelper$( networkCallbackReady: Boolean, lastKnownNetwork: Network?, networkManager: com.kunbox.singbox.service.network.NetworkManager?, findBestPhysicalNetwork: () -&gt; Network?, updateNetworkState: (Network?, Boolean) -&gt; Unit, lastRuleSetCheckMs: Long, ruleSetCheckIntervalMs: Long, onRuleSetChecked: (Long) -&gt; Unit )</ID>
     <ID>LongParameterList:NetworkHelper.kt$NetworkHelper$( reason: String, skipDebounce: Boolean, lastResetAtMs: Long, debounceMs: Long, commandManager: CommandManager, closeRecentFn: (String) -&gt; Unit, updateLastReset: (Long) -&gt; Unit )</ID>
     <ID>LongParameterList:NodeCard.kt$( name: String, type: String, latency: Long? = null, isSelected: Boolean, isTesting: Boolean = false, regionFlag: String? = null, trafficUsed: Long = 0, onClick: () -&gt; Unit, onEdit: () -&gt; Unit, onExport: () -&gt; Unit, onLatency: () -&gt; Unit, onDelete: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
     <ID>LongParameterList:NodesScreen.kt$( query: String, onQueryChange: (String) -&gt; Unit, isExpanded: Boolean, onToggle: () -&gt; Unit, totalCount: Int, filteredCount: Int, activeNodeName: String?, modifier: Modifier = Modifier )</ID>
@@ -657,7 +657,7 @@
     <ID>MaxLineLength:NodeCard.kt$Text(stringResource(R.string.common_edit), color = MaterialTheme.colorScheme.onSurfaceVariant)</ID>
     <ID>MaxLineLength:NodeCard.kt$Text(stringResource(R.string.common_export), color = MaterialTheme.colorScheme.onSurfaceVariant)</ID>
     <ID>MaxLineLength:NodeCard.kt$Text(stringResource(R.string.common_latency), color = MaterialTheme.colorScheme.onSurfaceVariant)</ID>
-    <ID>MaxLineLength:NodeDetailScreen.kt$"reality" -&gt; tls.copy(enabled = true, reality = com.kunk.singbox.model.RealityConfig(enabled = true))</ID>
+    <ID>MaxLineLength:NodeDetailScreen.kt$"reality" -&gt; tls.copy(enabled = true, reality = com.kunbox.singbox.model.RealityConfig(enabled = true))</ID>
     <ID>MaxLineLength:NodeDetailScreen.kt$Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = MaterialTheme.colorScheme.onBackground)</ID>
     <ID>MaxLineLength:NodeDetailScreen.kt$Icon(Icons.Rounded.Save, contentDescription = stringResource(R.string.common_save), tint = MaterialTheme.colorScheme.onBackground)</ID>
     <ID>MaxLineLength:NodeDetailScreen.kt$editingOutbound = outbound.copy(tls = tls.copy(ech = ech.copy(config = configs)))</ID>
@@ -685,7 +685,7 @@
     <ID>MaxLineLength:NodeDetailScreen.kt$options = listOf("") + listOf("chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random", "randomized")</ID>
     <ID>MaxLineLength:NodeDetailScreen.kt$val configs = it.split("\n").map { s -&gt; s.trim() }.filter { s -&gt; s.isNotEmpty() }</ID>
     <ID>MaxLineLength:NodeDetailScreen.kt$val newObfs = if (it.isEmpty()) null else (outbound.obfs?.copy(type = it) ?: ObfsConfig(type = it))</ID>
-    <ID>MaxLineLength:NodeDetailScreen.kt$val newUtls = if (fp.isEmpty()) null else com.kunk.singbox.model.UtlsConfig(enabled = true, fingerprint = fp)</ID>
+    <ID>MaxLineLength:NodeDetailScreen.kt$val newUtls = if (fp.isEmpty()) null else com.kunbox.singbox.model.UtlsConfig(enabled = true, fingerprint = fp)</ID>
     <ID>MaxLineLength:NodeLatencyDao.kt$NodeLatencyDao$@Query("INSERT OR REPLACE INTO node_latencies (nodeId, latencyMs, testedAt) VALUES (:nodeId, :latencyMs, :testedAt)")</ID>
     <ID>MaxLineLength:NodeLinkParser.kt$NodeLinkParser$val</ID>
     <ID>MaxLineLength:NodeLinkParser.kt$NodeLinkParser$val insecure = params["insecure"] == "1" || params["allow_insecure"] == "1" || params["allowInsecure"] == "1"</ID>
@@ -802,11 +802,11 @@
     <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$Log.d(TAG, "Batch test config: outbounds count=${safeOutbounds.size}, first node type=${batchOutbounds.firstOrNull()?.type}")</ID>
     <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$Log.d(TAG, "First node TLS: enabled=${firstNode.tls?.enabled}, sni=${firstNode.tls?.serverName}, reality=${firstNode.tls?.reality?.enabled}")</ID>
     <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$Log.d(TAG, "First node: tag=${firstNode.tag}, type=${firstNode.type}, server=${firstNode.server}, port=${firstNode.serverPort}")</ID>
-    <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$com.kunk.singbox.model.DnsServer(tag = "dns-backup", address = "119.29.29.29", detour = "direct", strategy = "ipv4_only")</ID>
-    <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$com.kunk.singbox.model.DnsServer(tag = "dns-direct", address = "223.5.5.5", detour = "direct", strategy = "ipv4_only")</ID>
-    <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$if (safeOutbounds.none { it.tag == "block" }) safeOutbounds.add(com.kunk.singbox.model.Outbound(type = "block", tag = "block"))</ID>
-    <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$if (safeOutbounds.none { it.tag == "direct" }) safeOutbounds.add(com.kunk.singbox.model.Outbound(type = "direct", tag = "direct"))</ID>
-    <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$if (safeOutbounds.none { it.tag == "dns-out" }) safeOutbounds.add(com.kunk.singbox.model.Outbound(type = "dns", tag = "dns-out"))</ID>
+    <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$com.kunbox.singbox.model.DnsServer(tag = "dns-backup", address = "119.29.29.29", detour = "direct", strategy = "ipv4_only")</ID>
+    <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$com.kunbox.singbox.model.DnsServer(tag = "dns-direct", address = "223.5.5.5", detour = "direct", strategy = "ipv4_only")</ID>
+    <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$if (safeOutbounds.none { it.tag == "block" }) safeOutbounds.add(com.kunbox.singbox.model.Outbound(type = "block", tag = "block"))</ID>
+    <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$if (safeOutbounds.none { it.tag == "direct" }) safeOutbounds.add(com.kunbox.singbox.model.Outbound(type = "direct", tag = "direct"))</ID>
+    <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$if (safeOutbounds.none { it.tag == "dns-out" }) safeOutbounds.add(com.kunbox.singbox.model.Outbound(type = "dns", tag = "dns-out"))</ID>
     <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$testOutboundsLatencyOfflineWithTemporaryService(outbounds, url, fallbackUrl, timeoutMs, settings.latencyTestMethod, onResult)</ID>
     <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$testWithTemporaryServiceUrlTestOnRunning(outbound, url, fallbackUrl, timeoutMs, settings.latencyTestMethod, dependencyOutbounds)</ID>
     <ID>MaxLineLength:SingBoxCore.kt$SingBoxCore$try { connectivityManager.bindProcessToNetwork(previousNetwork) } catch (e: Exception) { Log.w(TAG, "Failed to restore network binding after port allocation failure", e) }</ID>
@@ -854,7 +854,7 @@
     <ID>NestedBlockDepth:LogRepository.kt$LogRepository$fun setLogUiActive(active: Boolean)</ID>
     <ID>NestedBlockDepth:NetworkHelper.kt$NetworkHelper$fun findBestPhysicalNetworkFallback(): Network?</ID>
     <ID>NestedBlockDepth:NetworkHelper.kt$NetworkHelper$fun updateDefaultInterface( network: Network, vpnStartedAtMs: Long, startupWindowMs: Long, defaultInterfaceName: String, lastKnownNetwork: Network?, lastSetUnderlyingAtMs: Long, debounceMs: Long, isRunning: Boolean, settings: AppSettings?, setUnderlyingNetworks: (Array&lt;Network&gt;) -&gt; Unit, updateInterfaceListener: (String, Int, Boolean, Boolean) -&gt; Unit, updateState: (Network, String, Long) -&gt; Unit, requestCoreReset: (String, Boolean) -&gt; Unit, resetConnections: (String, Boolean) -&gt; Unit )</ID>
-    <ID>NestedBlockDepth:NetworkHelper.kt$NetworkHelper$suspend fun waitForUsablePhysicalNetwork( lastKnownNetwork: Network?, networkManager: com.kunk.singbox.service.network.NetworkManager?, findBestPhysicalNetwork: () -&gt; Network?, timeoutMs: Long ): Network?</ID>
+    <ID>NestedBlockDepth:NetworkHelper.kt$NetworkHelper$suspend fun waitForUsablePhysicalNetwork( lastKnownNetwork: Network?, networkManager: com.kunbox.singbox.service.network.NetworkManager?, findBestPhysicalNetwork: () -&gt; Network?, timeoutMs: Long ): Network?</ID>
     <ID>NestedBlockDepth:NetworkManager.kt$NetworkManager$fun findBestPhysicalNetwork(): Network?</ID>
     <ID>NestedBlockDepth:NodeExtractor.kt$NodeExtractor$private fun createNodeUi( outbound: Outbound, profileId: String, nodeToGroup: Map&lt;String, String&gt;, trafficRepo: TrafficRepository ): NodeUi?</ID>
     <ID>NestedBlockDepth:NodeLinkParser.kt$NodeLinkParser$private fun parseAnyTLSLink(link: String): Outbound?</ID>
@@ -1007,54 +1007,54 @@
     <ID>NoTrailingSpaces:VersionInfo.kt$VersionInfo$ </ID>
     <ID>NoTrailingSpaces:VpnServiceManager.kt$VpnServiceManager$ </ID>
     <ID>NoTrailingSpaces:VpnTileService.kt$VpnTileService$ </ID>
-    <ID>NoUnusedImports:AppGroupsScreen.kt$com.kunk.singbox.ui.screens.AppGroupsScreen.kt</ID>
-    <ID>NoUnusedImports:AppNavigation.kt$com.kunk.singbox.ui.navigation.AppNavigation.kt</ID>
-    <ID>NoUnusedImports:AppRoutingComponents.kt$com.kunk.singbox.ui.screens.AppRoutingComponents.kt</ID>
-    <ID>NoUnusedImports:BigToggle.kt$com.kunk.singbox.ui.components.BigToggle.kt</ID>
-    <ID>NoUnusedImports:ClickableDropdownField.kt$com.kunk.singbox.ui.components.ClickableDropdownField.kt</ID>
-    <ID>NoUnusedImports:CommonDialogs.kt$com.kunk.singbox.ui.components.CommonDialogs.kt</ID>
-    <ID>NoUnusedImports:ConfigRepository.kt$com.kunk.singbox.repository.ConfigRepository.kt</ID>
-    <ID>NoUnusedImports:CoreManager.kt$com.kunk.singbox.service.manager.CoreManager.kt</ID>
-    <ID>NoUnusedImports:CustomRulesScreen.kt$com.kunk.singbox.ui.screens.CustomRulesScreen.kt</ID>
-    <ID>NoUnusedImports:DashboardScreen.kt$com.kunk.singbox.ui.screens.DashboardScreen.kt</ID>
-    <ID>NoUnusedImports:DiagnosticsScreen.kt$com.kunk.singbox.ui.screens.DiagnosticsScreen.kt</ID>
-    <ID>NoUnusedImports:DiagnosticsViewModel.kt$com.kunk.singbox.viewmodel.DiagnosticsViewModel.kt</ID>
-    <ID>NoUnusedImports:DomainRulesScreen.kt$com.kunk.singbox.ui.screens.DomainRulesScreen.kt</ID>
-    <ID>NoUnusedImports:EditableSettingItem.kt$com.kunk.singbox.ui.components.EditableSettingItem.kt</ID>
-    <ID>NoUnusedImports:InfoCard.kt$com.kunk.singbox.ui.components.InfoCard.kt</ID>
-    <ID>NoUnusedImports:LatencyTester.kt$com.kunk.singbox.repository.LatencyTester.kt</ID>
-    <ID>NoUnusedImports:LogsScreen.kt$com.kunk.singbox.ui.screens.LogsScreen.kt</ID>
-    <ID>NoUnusedImports:MainActivity.kt$com.kunk.singbox.MainActivity.kt</ID>
-    <ID>NoUnusedImports:NetworkClient.kt$com.kunk.singbox.utils.NetworkClient.kt</ID>
-    <ID>NoUnusedImports:NodeDetailScreen.kt$com.kunk.singbox.ui.screens.NodeDetailScreen.kt</ID>
-    <ID>NoUnusedImports:NodeLinkParser.kt$com.kunk.singbox.utils.parser.NodeLinkParser.kt</ID>
-    <ID>NoUnusedImports:NodeSwitchManager.kt$com.kunk.singbox.service.manager.NodeSwitchManager.kt</ID>
-    <ID>NoUnusedImports:NodesScreen.kt$com.kunk.singbox.ui.screens.NodesScreen.kt</ID>
+    <ID>NoUnusedImports:AppGroupsScreen.kt$com.kunbox.singbox.ui.screens.AppGroupsScreen.kt</ID>
+    <ID>NoUnusedImports:AppNavigation.kt$com.kunbox.singbox.ui.navigation.AppNavigation.kt</ID>
+    <ID>NoUnusedImports:AppRoutingComponents.kt$com.kunbox.singbox.ui.screens.AppRoutingComponents.kt</ID>
+    <ID>NoUnusedImports:BigToggle.kt$com.kunbox.singbox.ui.components.BigToggle.kt</ID>
+    <ID>NoUnusedImports:ClickableDropdownField.kt$com.kunbox.singbox.ui.components.ClickableDropdownField.kt</ID>
+    <ID>NoUnusedImports:CommonDialogs.kt$com.kunbox.singbox.ui.components.CommonDialogs.kt</ID>
+    <ID>NoUnusedImports:ConfigRepository.kt$com.kunbox.singbox.repository.ConfigRepository.kt</ID>
+    <ID>NoUnusedImports:CoreManager.kt$com.kunbox.singbox.service.manager.CoreManager.kt</ID>
+    <ID>NoUnusedImports:CustomRulesScreen.kt$com.kunbox.singbox.ui.screens.CustomRulesScreen.kt</ID>
+    <ID>NoUnusedImports:DashboardScreen.kt$com.kunbox.singbox.ui.screens.DashboardScreen.kt</ID>
+    <ID>NoUnusedImports:DiagnosticsScreen.kt$com.kunbox.singbox.ui.screens.DiagnosticsScreen.kt</ID>
+    <ID>NoUnusedImports:DiagnosticsViewModel.kt$com.kunbox.singbox.viewmodel.DiagnosticsViewModel.kt</ID>
+    <ID>NoUnusedImports:DomainRulesScreen.kt$com.kunbox.singbox.ui.screens.DomainRulesScreen.kt</ID>
+    <ID>NoUnusedImports:EditableSettingItem.kt$com.kunbox.singbox.ui.components.EditableSettingItem.kt</ID>
+    <ID>NoUnusedImports:InfoCard.kt$com.kunbox.singbox.ui.components.InfoCard.kt</ID>
+    <ID>NoUnusedImports:LatencyTester.kt$com.kunbox.singbox.repository.LatencyTester.kt</ID>
+    <ID>NoUnusedImports:LogsScreen.kt$com.kunbox.singbox.ui.screens.LogsScreen.kt</ID>
+    <ID>NoUnusedImports:MainActivity.kt$com.kunbox.singbox.MainActivity.kt</ID>
+    <ID>NoUnusedImports:NetworkClient.kt$com.kunbox.singbox.utils.NetworkClient.kt</ID>
+    <ID>NoUnusedImports:NodeDetailScreen.kt$com.kunbox.singbox.ui.screens.NodeDetailScreen.kt</ID>
+    <ID>NoUnusedImports:NodeLinkParser.kt$com.kunbox.singbox.utils.parser.NodeLinkParser.kt</ID>
+    <ID>NoUnusedImports:NodeSwitchManager.kt$com.kunbox.singbox.service.manager.NodeSwitchManager.kt</ID>
+    <ID>NoUnusedImports:NodesScreen.kt$com.kunbox.singbox.ui.screens.NodesScreen.kt</ID>
     <ID>NoUnusedImports:NodesScreen.kt$import androidx.compose.ui.graphics.graphicsLayer</ID>
-    <ID>NoUnusedImports:NodesViewModel.kt$com.kunk.singbox.viewmodel.NodesViewModel.kt</ID>
-    <ID>NoUnusedImports:PreciseLatencyTester.kt$com.kunk.singbox.utils.PreciseLatencyTester.kt</ID>
-    <ID>NoUnusedImports:ProfileCard.kt$com.kunk.singbox.ui.components.ProfileCard.kt</ID>
-    <ID>NoUnusedImports:ProfileEditorScreen.kt$com.kunk.singbox.ui.screens.ProfileEditorScreen.kt</ID>
-    <ID>NoUnusedImports:ProfilesScreen.kt$com.kunk.singbox.ui.screens.ProfilesScreen.kt</ID>
-    <ID>NoUnusedImports:ProxyOnlyService.kt$com.kunk.singbox.service.ProxyOnlyService.kt</ID>
-    <ID>NoUnusedImports:RouteGroupSelector.kt$com.kunk.singbox.service.manager.RouteGroupSelector.kt</ID>
-    <ID>NoUnusedImports:RoutingSettingsScreen.kt$com.kunk.singbox.ui.screens.RoutingSettingsScreen.kt</ID>
+    <ID>NoUnusedImports:NodesViewModel.kt$com.kunbox.singbox.viewmodel.NodesViewModel.kt</ID>
+    <ID>NoUnusedImports:PreciseLatencyTester.kt$com.kunbox.singbox.utils.PreciseLatencyTester.kt</ID>
+    <ID>NoUnusedImports:ProfileCard.kt$com.kunbox.singbox.ui.components.ProfileCard.kt</ID>
+    <ID>NoUnusedImports:ProfileEditorScreen.kt$com.kunbox.singbox.ui.screens.ProfileEditorScreen.kt</ID>
+    <ID>NoUnusedImports:ProfilesScreen.kt$com.kunbox.singbox.ui.screens.ProfilesScreen.kt</ID>
+    <ID>NoUnusedImports:ProxyOnlyService.kt$com.kunbox.singbox.service.ProxyOnlyService.kt</ID>
+    <ID>NoUnusedImports:RouteGroupSelector.kt$com.kunbox.singbox.service.manager.RouteGroupSelector.kt</ID>
+    <ID>NoUnusedImports:RoutingSettingsScreen.kt$com.kunbox.singbox.ui.screens.RoutingSettingsScreen.kt</ID>
     <ID>NoUnusedImports:RoutingSettingsScreen.kt$import androidx.compose.foundation.layout.Spacer</ID>
-    <ID>NoUnusedImports:RuleSetHubScreen.kt$com.kunk.singbox.ui.screens.RuleSetHubScreen.kt</ID>
-    <ID>NoUnusedImports:RuleSetRepository.kt$com.kunk.singbox.repository.RuleSetRepository.kt</ID>
-    <ID>NoUnusedImports:RuleSetViewModel.kt$com.kunk.singbox.viewmodel.RuleSetViewModel.kt</ID>
-    <ID>NoUnusedImports:RuleSetsScreen.kt$com.kunk.singbox.ui.screens.RuleSetsScreen.kt</ID>
-    <ID>NoUnusedImports:SecurityUtils.kt$com.kunk.singbox.utils.SecurityUtils.kt</ID>
-    <ID>NoUnusedImports:SettingItem.kt$com.kunk.singbox.ui.components.SettingItem.kt</ID>
-    <ID>NoUnusedImports:SettingsRepository.kt$com.kunk.singbox.repository.SettingsRepository.kt</ID>
-    <ID>NoUnusedImports:SettingsScreen.kt$com.kunk.singbox.ui.screens.SettingsScreen.kt</ID>
-    <ID>NoUnusedImports:ShutdownManager.kt$com.kunk.singbox.service.manager.ShutdownManager.kt</ID>
-    <ID>NoUnusedImports:SingBoxCore.kt$com.kunk.singbox.core.SingBoxCore.kt</ID>
-    <ID>NoUnusedImports:SingBoxService.kt$com.kunk.singbox.service.SingBoxService.kt</ID>
-    <ID>NoUnusedImports:SplashScreen.kt$com.kunk.singbox.ui.screens.SplashScreen.kt</ID>
-    <ID>NoUnusedImports:StartupManager.kt$com.kunk.singbox.service.manager.StartupManager.kt</ID>
-    <ID>NoUnusedImports:StatusChip.kt$com.kunk.singbox.ui.components.StatusChip.kt</ID>
-    <ID>NoUnusedImports:VpnTunManager.kt$com.kunk.singbox.service.tun.VpnTunManager.kt</ID>
+    <ID>NoUnusedImports:RuleSetHubScreen.kt$com.kunbox.singbox.ui.screens.RuleSetHubScreen.kt</ID>
+    <ID>NoUnusedImports:RuleSetRepository.kt$com.kunbox.singbox.repository.RuleSetRepository.kt</ID>
+    <ID>NoUnusedImports:RuleSetViewModel.kt$com.kunbox.singbox.viewmodel.RuleSetViewModel.kt</ID>
+    <ID>NoUnusedImports:RuleSetsScreen.kt$com.kunbox.singbox.ui.screens.RuleSetsScreen.kt</ID>
+    <ID>NoUnusedImports:SecurityUtils.kt$com.kunbox.singbox.utils.SecurityUtils.kt</ID>
+    <ID>NoUnusedImports:SettingItem.kt$com.kunbox.singbox.ui.components.SettingItem.kt</ID>
+    <ID>NoUnusedImports:SettingsRepository.kt$com.kunbox.singbox.repository.SettingsRepository.kt</ID>
+    <ID>NoUnusedImports:SettingsScreen.kt$com.kunbox.singbox.ui.screens.SettingsScreen.kt</ID>
+    <ID>NoUnusedImports:ShutdownManager.kt$com.kunbox.singbox.service.manager.ShutdownManager.kt</ID>
+    <ID>NoUnusedImports:SingBoxCore.kt$com.kunbox.singbox.core.SingBoxCore.kt</ID>
+    <ID>NoUnusedImports:SingBoxService.kt$com.kunbox.singbox.service.SingBoxService.kt</ID>
+    <ID>NoUnusedImports:SplashScreen.kt$com.kunbox.singbox.ui.screens.SplashScreen.kt</ID>
+    <ID>NoUnusedImports:StartupManager.kt$com.kunbox.singbox.service.manager.StartupManager.kt</ID>
+    <ID>NoUnusedImports:StatusChip.kt$com.kunbox.singbox.ui.components.StatusChip.kt</ID>
+    <ID>NoUnusedImports:VpnTunManager.kt$com.kunbox.singbox.service.tun.VpnTunManager.kt</ID>
     <ID>PrintStackTrace:ConfigRepository.kt$ConfigRepository$e</ID>
     <ID>PropertyWrapping:AppRoutingScreen.kt$val tabs = listOf(stringResource(R.string.app_rules_tabs_groups), stringResource(R.string.app_rules_tabs_individual))</ID>
     <ID>PropertyWrapping:ConfigRepository.kt$ConfigRepository$val customRuleSetRules = buildCustomRuleSetRules(settings, selectorTag, outbounds, nodeTagResolver, validRuleSets)</ID>
@@ -1077,7 +1077,7 @@
     <ID>ReturnCount:DashboardViewModel.kt$DashboardViewModel$private fun setConnectionState(newState: ConnectionState)</ID>
     <ID>ReturnCount:DiagnosticsViewModel.kt$DiagnosticsViewModel$private fun findMatch(config: SingBoxConfig, domain: String): MatchResult</ID>
     <ID>ReturnCount:LatencyTester.kt$LatencyTester$suspend fun testNode( nodeId: String, outbound: Outbound, allOutbounds: List&lt;Outbound&gt; = emptyList(), onResult: ((Long) -&gt; Unit)? = null ): Long</ID>
-    <ID>ReturnCount:NetworkHelper.kt$NetworkHelper$suspend fun waitForUsablePhysicalNetwork( lastKnownNetwork: Network?, networkManager: com.kunk.singbox.service.network.NetworkManager?, findBestPhysicalNetwork: () -&gt; Network?, timeoutMs: Long ): Network?</ID>
+    <ID>ReturnCount:NetworkHelper.kt$NetworkHelper$suspend fun waitForUsablePhysicalNetwork( lastKnownNetwork: Network?, networkManager: com.kunbox.singbox.service.network.NetworkManager?, findBestPhysicalNetwork: () -&gt; Network?, timeoutMs: Long ): Network?</ID>
     <ID>ReturnCount:NetworkManager.kt$NetworkManager$fun findBestPhysicalNetwork(): Network?</ID>
     <ID>ReturnCount:NetworkManager.kt$NetworkManager$fun updateDefaultInterface(network: Network, vpnStartedAtMs: Long, vpnStartupWindowMs: Long): Boolean</ID>
     <ID>ReturnCount:NodeExtractor.kt$NodeExtractor$fun detectRegionFlag(name: String): String</ID>
@@ -1149,7 +1149,7 @@
     <ID>TooManyFunctions:PlatformInterfaceImpl.kt$PlatformInterfaceImpl$Callbacks</ID>
     <ID>TooManyFunctions:ProfileDao.kt$ProfileDao</ID>
     <ID>TooManyFunctions:SettingsRepository.kt$SettingsRepository</ID>
-    <ID>TooManyFunctions:SettingsStoreExt.kt$com.kunk.singbox.repository.store.SettingsStoreExt.kt</ID>
+    <ID>TooManyFunctions:SettingsStoreExt.kt$com.kunbox.singbox.repository.store.SettingsStoreExt.kt</ID>
     <ID>TooManyFunctions:SettingsViewModel.kt$SettingsViewModel : AndroidViewModel</ID>
     <ID>TooManyFunctions:ShutdownManager.kt$ShutdownManager$Callbacks</ID>
     <ID>TooManyFunctions:StartupManager.kt$StartupManager$Callbacks</ID>

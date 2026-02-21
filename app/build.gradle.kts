@@ -237,7 +237,7 @@ val stripLibboxAar = tasks.register("stripLibboxAar") {
 }
 
 configure<ApplicationExtension> {
-    namespace = "com.kunk.singbox"
+    namespace = "com.kunbox.singbox"
     compileSdk = 36
 
     ndkVersion = providers.gradleProperty("ndkVersion").orNull ?: "29.0.14206865"
@@ -246,7 +246,7 @@ configure<ApplicationExtension> {
     val preferCompressedApk = providers.gradleProperty("preferCompressedApk").orNull?.toBoolean() ?: true
 
     defaultConfig {
-        applicationId = "com.kunk.singbox"
+        applicationId = "com.kunbox.singbox"
         minSdk = 24
         targetSdk = 36
         

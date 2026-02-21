@@ -283,6 +283,9 @@
     <string name="nodes_filter_cleared">Filter cleared</string>
     <string name="nodes_unsupported_format">Unsupported link format</string>
     <string name="nodes_add_failed">Add failed</string>
+    <string name="nodes_delete_confirm">Delete node \"%1$s\"? It will be removed from this profile and filtered out in future subscription updates.</string>
+    <string name="nodes_deleted">Deleted node: %1$s</string>
+    <string name="nodes_delete_failed">Failed to delete node</string>
     <string name="nodes_group_auto_generated">Groups are auto-generated from profiles, to delete please go to \'Profile Management\' and delete the corresponding profile</string>
 
     <!-- Node Sort -->

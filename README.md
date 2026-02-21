@@ -131,7 +131,7 @@ This project follows best practices of modern Android architecture, adopting MVV
 
 ```
 KunBox-Android/
-├── app/src/main/java/com/kunk/singbox/
+├── app/src/main/java/com/kunbox/singbox/
 │   ├── core/              # libbox JNI wrapper (BoxWrapperManager, SingBoxCore)
 │   ├── database/          # Room database (dao/, entity/)
 │   ├── ipc/               # VPN inter-process communication (SingBoxIpcHub, VpnStateStore)
@@ -274,10 +274,10 @@ cd ..\..
 .\gradlew testDebugUnitTest
 
 # Run specific test class
-.\gradlew testDebugUnitTest --tests "com.kunk.singbox.utils.parser.NodeLinkParserTest"
+.\gradlew testDebugUnitTest --tests "com.kunbox.singbox.utils.parser.NodeLinkParserTest"
 
 # Run specific test method
-.\gradlew testDebugUnitTest --tests "com.kunk.singbox.utils.parser.NodeLinkParserTest.testVmessLink"
+.\gradlew testDebugUnitTest --tests "com.kunbox.singbox.utils.parser.NodeLinkParserTest.testVmessLink"
 
 # Run Detekt code check
 .\gradlew detekt

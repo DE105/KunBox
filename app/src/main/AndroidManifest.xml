@@ -73,7 +73,7 @@
             android:process=":bg"
             android:theme="@style/Theme.SingBoxAndroid.Transparent">
             <intent-filter>
-                <action android:name="com.kunk.singbox.action.TOGGLE" />
+                <action android:name="com.kunbox.singbox.action.TOGGLE" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
@@ -113,7 +113,7 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.USER_UNLOCKED" />
-                <action android:name="com.kunk.singbox.action.BOOT_AUTOSTART_RETRY" />
+                <action android:name="com.kunbox.singbox.action.BOOT_AUTOSTART_RETRY" />
                 <action android:name="oplus.intent.action.BOOT_COMPLETED" />
                 <action android:name="oplus.intent.action.OPLUS_BOOT_COMPLETED" />
                 <action android:name="oppo.intent.action.BOOT_COMPLETED" />
