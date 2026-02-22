@@ -507,6 +507,10 @@
     <string name="app_list_show_system">显示系统应用</string>
     <string name="app_list_show_no_launcher">显示无启动入口应用</string>
     <string name="app_list_quick_select">常见</string>
+    <string name="app_list_quick_select_exclude">非常见</string>
+    <string name="app_list_quick_select_loading">加载中...</string>
+    <string name="app_list_quick_select_failed">在线列表获取失败，请稍后重试</string>
+    <string name="app_list_quick_select_applied">已新增 %1$d 个应用</string>
 
     <!-- QR Scanner -->
     <string name="qr_scanner_no_qr_found">未发现二维码</string>

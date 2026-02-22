@@ -1,96 +1,99 @@
 package com.kunbox.singbox.ui.components
 
 import android.content.Intent
-import androidx.compose.ui.res.stringResource
-import com.kunbox.singbox.R
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.Divider
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.RadioButtonChecked
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.graphics.drawable.toBitmap
-import com.kunbox.singbox.model.InstalledApp
-import com.kunbox.singbox.repository.InstalledAppsRepository
-import com.kunbox.singbox.ui.theme.Destructive
-import com.kunbox.singbox.ui.theme.Neutral500
+import com.kunbox.singbox.R
 import com.kunbox.singbox.model.FilterMode
+import com.kunbox.singbox.model.InstalledApp
 import com.kunbox.singbox.model.NodeFilter
 import com.kunbox.singbox.model.NodeUi
 import com.kunbox.singbox.model.ProfileUi
+import com.kunbox.singbox.repository.InstalledAppsRepository
+import com.kunbox.singbox.ui.theme.Destructive
+import com.kunbox.singbox.ui.theme.Neutral500
+import com.kunbox.singbox.utils.ProxyPackageListFetcher
+import kotlinx.coroutines.launch
 
 @Composable
 fun ConfirmDialog(
@@ -99,26 +102,26 @@ fun ConfirmDialog(
     confirmText: String = stringResource(R.string.common_confirm),
     isDestructive: Boolean = false,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
-                .padding(24.dp)
+                .padding(24.dp),
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -127,14 +130,14 @@ fun ConfirmDialog(
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isDestructive) Destructive else MaterialTheme.colorScheme.primary,
-                    contentColor = if (isDestructive) Color.White else MaterialTheme.colorScheme.onPrimary
+                    contentColor = if (isDestructive) Color.White else MaterialTheme.colorScheme.onPrimary,
                 ),
-                shape = RoundedCornerShape(25.dp)
+                shape = RoundedCornerShape(25.dp),
             ) {
                 Text(
                     text = confirmText,
                     fontWeight = FontWeight.Bold,
-                    color = if (isDestructive) Color.White else MaterialTheme.colorScheme.onPrimary
+                    color = if (isDestructive) Color.White else MaterialTheme.colorScheme.onPrimary,
                 )
             }
 
@@ -143,7 +146,7 @@ fun ConfirmDialog(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
+                colors = ButtonDefaults.textButtonColors(contentColor = Neutral500),
             ) {
                 Text(stringResource(R.string.common_cancel))
             }
@@ -162,7 +165,7 @@ fun InputDialog(
     minLines: Int = 1,
     maxLines: Int = if (singleLine) 1 else 6,
     onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     var text by remember { mutableStateOf(initialValue) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -173,13 +176,13 @@ fun InputDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
-                .padding(24.dp)
+                .padding(24.dp),
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -193,7 +196,7 @@ fun InputDialog(
                 minLines = minLines,
                 maxLines = maxLines,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 interactionSource = interactionSource,
@@ -208,7 +211,7 @@ fun InputDialog(
                         placeholder = {
                             Text(
                                 text = placeholder,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                             )
                         },
                         colors = OutlinedTextFieldDefaults.colors(
@@ -217,7 +220,7 @@ fun InputDialog(
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
                             unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                             focusedLabelColor = MaterialTheme.colorScheme.primary,
-                            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         ),
                         container = {
                             OutlinedTextFieldDefaults.Container(
@@ -226,13 +229,13 @@ fun InputDialog(
                                 interactionSource = interactionSource,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                                 ),
-                                shape = RoundedCornerShape(16.dp)
+                                shape = RoundedCornerShape(16.dp),
                             )
-                        }
+                        },
                     )
-                }
+                },
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -240,13 +243,16 @@ fun InputDialog(
             Button(
                 onClick = { onConfirm(text) },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                shape = RoundedCornerShape(25.dp)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+                shape = RoundedCornerShape(25.dp),
             ) {
                 Text(
                     text = confirmText,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
 
@@ -255,7 +261,7 @@ fun InputDialog(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = Neutral500)
+                colors = ButtonDefaults.textButtonColors(contentColor = Neutral500),
             ) {
                 Text(stringResource(R.string.common_cancel))
             }
@@ -271,15 +277,14 @@ fun AppMultiSelectDialog(
     enableQuickSelectCommonApps: Boolean = false,
     quickSelectExcludeCommonApps: Boolean = false,
     onConfirm: (List<String>) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
-
     // 内部数据类，用于增强应用信息（添加 hasLauncher 属性）
     data class EnhancedApp(
         val label: String,
         val packageName: String,
         val isSystemApp: Boolean,
-        val hasLauncher: Boolean
+        val hasLauncher: Boolean,
     )
 
     val context = LocalContext.current
@@ -303,7 +308,7 @@ fun AppMultiSelectDialog(
                 label = app.appName,
                 packageName = app.packageName,
                 isSystemApp = app.isSystemApp,
-                hasLauncher = hasLauncher
+                hasLauncher = hasLauncher,
             )
         }
     }
@@ -312,52 +317,9 @@ fun AppMultiSelectDialog(
     var showSystemApps by remember { mutableStateOf(false) }
     var showNoLauncherApps by remember { mutableStateOf(false) }
     var tempSelected by remember(selectedPackages) { mutableStateOf(selectedPackages.toMutableSet()) }
-
-    val commonExactPackages = remember {
-        setOf(
-            "com.google.android.gms",
-            "com.google.android.gsf",
-            "com.google.android.gsf.login",
-            "com.android.vending",
-            "com.google.android.youtube",
-            "org.telegram.messenger",
-            "org.thunderdog.challegram",
-            "com.twitter.android",
-            "com.instagram.android",
-            "com.discord",
-            "com.reddit.frontpage",
-            "com.whatsapp",
-            "com.facebook.katana",
-            "com.facebook.orca",
-            "com.google.android.apps.googleassistant"
-        )
-    }
-
-    val commonPrefixPackages = remember {
-        listOf(
-            "com.google.",
-            "com.android.vending",
-            "org.telegram.",
-            "com.twitter.",
-            "com.instagram.",
-            "com.discord",
-            "com.reddit.",
-            "com.whatsapp"
-        )
-    }
-
-    val commonMatches = remember(allApps, commonExactPackages, commonPrefixPackages) {
-        allApps
-            .asSequence()
-            .map { it.packageName }
-            .filter { pkg ->
-                pkg in commonExactPackages || commonPrefixPackages.any { prefix -> pkg.startsWith(prefix) }
-            }
-            .toSet()
-    }
+    var quickSelectLoading by remember { mutableStateOf(false) }
 
     val filteredApps = remember(query, showSystemApps, showNoLauncherApps, allApps, tempSelected) {
-
         val q = query.trim().lowercase()
         allApps
             .asSequence()
@@ -369,7 +331,7 @@ fun AppMultiSelectDialog(
             .toList()
             .sortedWith(
                 compareByDescending<EnhancedApp> { tempSelected.contains(it.packageName) }
-                    .thenBy { it.label.lowercase() }
+                    .thenBy { it.label.lowercase() },
             )
     }
 
@@ -382,23 +344,23 @@ fun AppMultiSelectDialog(
                 .fillMaxWidth()
                 .fillMaxHeight(0.92f)
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
-                .padding(16.dp)
+                .padding(16.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
                 IconButton(
                     onClick = { scope.launch { repository.reloadApps() } },
                     enabled = !isLoading,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(32.dp),
                 ) {
                     val tintColor = if (isLoading) {
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -409,7 +371,7 @@ fun AppMultiSelectDialog(
                         imageVector = Icons.Rounded.Refresh,
                         contentDescription = stringResource(R.string.common_refresh),
                         tint = tintColor,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
@@ -420,33 +382,33 @@ fun AppMultiSelectDialog(
                 val loading = loadingState as InstalledAppsRepository.LoadingState.Loading
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     CircularProgressIndicator(
                         progress = { loading.progress },
                         modifier = Modifier.size(48.dp),
                         color = MaterialTheme.colorScheme.primary,
                         strokeWidth = 4.dp,
-                        trackColor = MaterialTheme.colorScheme.outline
+                        trackColor = MaterialTheme.colorScheme.outline,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = stringResource(R.string.app_list_loading),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = stringResource(R.string.app_list_loaded, loading.current, loading.total),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     LinearProgressIndicator(
                         progress = { loading.progress },
                         modifier = Modifier.fillMaxWidth().height(4.dp),
                         color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.outline
+                        trackColor = MaterialTheme.colorScheme.outline,
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                 }
@@ -455,7 +417,13 @@ fun AppMultiSelectDialog(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text(stringResource(R.string.app_list_search_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
+                placeholder = {
+                    Text(
+                        stringResource(R.string.app_list_search_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium,
@@ -466,31 +434,35 @@ fun AppMultiSelectDialog(
                     unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                     focusedLabelColor = MaterialTheme.colorScheme.primary,
                     unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    cursorColor = MaterialTheme.colorScheme.primary
+                    cursorColor = MaterialTheme.colorScheme.primary,
                 ),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { showSystemApps = !showSystemApps }
                         .padding(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(
                         checked = showSystemApps,
                         onCheckedChange = { showSystemApps = it },
-                        modifier = Modifier.scale(0.8f).size(16.dp)
+                        modifier = Modifier.scale(0.8f).size(16.dp),
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.app_list_show_system), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(R.string.app_list_show_system),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
@@ -500,15 +472,19 @@ fun AppMultiSelectDialog(
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { showNoLauncherApps = !showNoLauncherApps }
                         .padding(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(
                         checked = showNoLauncherApps,
                         onCheckedChange = { showNoLauncherApps = it },
-                        modifier = Modifier.scale(0.8f).size(16.dp)
+                        modifier = Modifier.scale(0.8f).size(16.dp),
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.app_list_show_no_launcher), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(R.string.app_list_show_no_launcher),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
@@ -519,41 +495,90 @@ fun AppMultiSelectDialog(
                             .padding(end = 2.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .clickable {
-                                val matches = if (quickSelectExcludeCommonApps) {
-                                    allApps
-                                        .asSequence()
-                                        .map { it.packageName }
-                                        .filter { pkg -> pkg !in commonMatches }
-                                        .toSet()
-                                } else {
-                                    commonMatches
-                                }
+                                if (quickSelectLoading) return@clickable
+                                quickSelectLoading = true
+                                scope.launch {
+                                    try {
+                                        val matcher = ProxyPackageListFetcher.fetchMatcherNoCache()
+                                        if (matcher.isEmpty()) {
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.app_list_quick_select_failed),
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                            return@launch
+                                        }
 
-                                tempSelected = tempSelected.toMutableSet().apply {
-                                    addAll(matches)
+                                        val commonMatches = allApps
+                                            .asSequence()
+                                            .map { it.packageName }
+                                            .filter { pkg -> matcher.matches(pkg) }
+                                            .toSet()
+
+                                        val matches = if (quickSelectExcludeCommonApps) {
+                                            allApps
+                                                .asSequence()
+                                                .map { it.packageName }
+                                                .filter { pkg -> pkg !in commonMatches }
+                                                .toSet()
+                                        } else {
+                                            commonMatches
+                                        }
+
+                                        val beforeCount = tempSelected.size
+                                        tempSelected = tempSelected.toMutableSet().apply {
+                                            addAll(matches)
+                                        }
+                                        val addedCount = (tempSelected.size - beforeCount).coerceAtLeast(0)
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.app_list_quick_select_applied, addedCount),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    } finally {
+                                        quickSelectLoading = false
+                                    }
                                 }
                             }
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .background(
+                                if (quickSelectLoading) {
+                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                                } else {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                },
+                            )
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                     ) {
-                        Text(
-                            text = stringResource(R.string.app_list_quick_select),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        if (quickSelectLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.AutoAwesome,
+                                contentDescription = if (quickSelectExcludeCommonApps) {
+                                    stringResource(R.string.app_list_quick_select_exclude)
+                                } else {
+                                    stringResource(R.string.app_list_quick_select)
+                                },
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
-            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
             Spacer(modifier = Modifier.height(8.dp))
 
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
+                    .weight(1f),
             ) {
                 items(filteredApps, key = { it.packageName }) { app ->
                     val checked = tempSelected.contains(app.packageName)
@@ -577,7 +602,7 @@ fun AppMultiSelectDialog(
                                 }
                             }
                             .padding(vertical = 4.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Checkbox(
                             checked = checked,
@@ -585,7 +610,7 @@ fun AppMultiSelectDialog(
                                 tempSelected = tempSelected.toMutableSet().apply {
                                     if (newChecked) add(app.packageName) else remove(app.packageName)
                                 }
-                            }
+                            },
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         if (iconBitmap != null) {
@@ -595,14 +620,14 @@ fun AppMultiSelectDialog(
                                 modifier = Modifier
                                     .size(iconSize)
                                     .clip(RoundedCornerShape(10.dp)),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Crop,
                             )
                         } else {
                             Box(
                                 modifier = Modifier
                                     .size(iconSize)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
@@ -610,12 +635,12 @@ fun AppMultiSelectDialog(
                             Text(
                                 text = app.label,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                style = MaterialTheme.typography.bodyLarge
+                                style = MaterialTheme.typography.bodyLarge,
                             )
                             Text(
                                 text = app.packageName,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall
+                                style = MaterialTheme.typography.bodySmall,
                             )
                         }
                         if (app.isSystemApp || !app.hasLauncher) {
@@ -625,7 +650,7 @@ fun AppMultiSelectDialog(
                                     else -> stringResource(R.string.common_background)
                                 },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall
+                                style = MaterialTheme.typography.bodySmall,
                             )
                         }
                     }
@@ -636,12 +661,12 @@ fun AppMultiSelectDialog(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 TextButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
                 ) {
                     Text(stringResource(R.string.common_cancel))
                 }
@@ -649,8 +674,11 @@ fun AppMultiSelectDialog(
                 Button(
                     onClick = { onConfirm(tempSelected.toList().sorted()) },
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                    shape = RoundedCornerShape(25.dp)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    shape = RoundedCornerShape(25.dp),
                 ) {
                     Text(text = confirmText, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                 }
@@ -666,7 +694,7 @@ fun SingleSelectDialog(
     selectedIndex: Int,
     optionsHeight: androidx.compose.ui.unit.Dp? = null,
     onSelect: (Int) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     // Use selectedIndex as the initial value, but update it when selectedIndex changes
     var tempSelectedIndex by remember(selectedIndex) { mutableStateOf(selectedIndex) }
@@ -676,13 +704,13 @@ fun SingleSelectDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
-                .padding(24.dp)
+                .padding(24.dp),
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -693,9 +721,9 @@ fun SingleSelectDialog(
                             Modifier.height(optionsHeight)
                         } else {
                             Modifier.weight(weight = 1f, fill = false) // Allow flexible height but constrained by screen
-                        }
+                        },
                     )
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()),
             ) {
                 options.forEachIndexed { index, option ->
                     val isSelected = index == tempSelectedIndex
@@ -703,22 +731,30 @@ fun SingleSelectDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
+                            .background(
+                                if (isSelected) {
+                                    MaterialTheme.colorScheme.primary.copy(
+                                        alpha = 0.1f,
+                                    )
+                                } else {
+                                    Color.Transparent
+                                },
+                            )
                             .clickable { tempSelectedIndex = index }
                             .padding(vertical = 12.dp, horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
                             imageVector = if (isSelected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
                             contentDescription = null,
                             tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(24.dp),
                         )
                         Spacer(modifier = Modifier.width(16.dp))
                         Text(
                             text = option,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
@@ -729,13 +765,16 @@ fun SingleSelectDialog(
             Button(
                 onClick = { onSelect(tempSelectedIndex) },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                shape = RoundedCornerShape(25.dp)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+                shape = RoundedCornerShape(25.dp),
             ) {
                 Text(
                     text = stringResource(R.string.common_ok),
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
 
@@ -744,7 +783,7 @@ fun SingleSelectDialog(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
             ) {
                 Text(stringResource(R.string.common_cancel))
             }
@@ -759,7 +798,7 @@ fun ProfileNodeSelectDialog(
     nodesForSelection: List<NodeUi>,
     selectedNodeRef: String?,
     onSelect: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     fun toNodeRef(node: NodeUi): String = "${node.sourceProfileId}::${node.name}"
 
@@ -776,13 +815,13 @@ fun ProfileNodeSelectDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
-                .padding(24.dp)
+                .padding(24.dp),
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -790,7 +829,7 @@ fun ProfileNodeSelectDialog(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.72f)
+                    .fillMaxHeight(0.72f),
             ) {
                 profileOrder.forEach { profile ->
                     val itemsForProfile = nodesByProfile[profile.id].orEmpty()
@@ -803,7 +842,7 @@ fun ProfileNodeSelectDialog(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                .animateContentSize(animationSpec = tween(durationMillis = 220))
+                                .animateContentSize(animationSpec = tween(durationMillis = 220)),
                         ) {
                             Row(
                                 modifier = Modifier
@@ -812,37 +851,43 @@ fun ProfileNodeSelectDialog(
                                         expandedProfileId = if (isExpanded) null else profile.id
                                     }
                                     .padding(vertical = 12.dp, horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = profile.name,
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
                                     )
                                     Text(
                                         text = stringResource(R.string.rulesets_nodes_count, itemsForProfile.size),
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                                 Icon(
                                     imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                                     contentDescription = null,
-                                    tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    tint = if (enabled) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                            alpha = 0.5f,
+                                        )
+                                    },
                                 )
                             }
 
                             AnimatedVisibility(
                                 visible = isExpanded,
                                 enter = fadeIn(animationSpec = tween(180)),
-                                exit = fadeOut(animationSpec = tween(120))
+                                exit = fadeOut(animationSpec = tween(120)),
                             ) {
                                 LazyColumn(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .heightIn(max = 260.dp)
+                                        .heightIn(max = 260.dp),
                                 ) {
                                     items(itemsForProfile, key = { it.id }) { node ->
                                         val ref = toNodeRef(node)
@@ -850,32 +895,40 @@ fun ProfileNodeSelectDialog(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
+                                                .background(
+                                                    if (selected) {
+                                                        MaterialTheme.colorScheme.primary.copy(
+                                                            alpha = 0.1f,
+                                                        )
+                                                    } else {
+                                                        Color.Transparent
+                                                    },
+                                                )
                                                 .clickable {
                                                     onSelect(ref)
                                                     onDismiss()
                                                 }
                                                 .padding(vertical = 10.dp, horizontal = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                            verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             Icon(
                                                 imageVector = if (selected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
                                                 contentDescription = null,
                                                 tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(20.dp)
+                                                modifier = Modifier.size(20.dp),
                                             )
                                             Spacer(modifier = Modifier.width(10.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
                                                     text = node.name,
                                                     style = MaterialTheme.typography.bodyLarge,
-                                                    color = MaterialTheme.colorScheme.onSurface
+                                                    color = MaterialTheme.colorScheme.onSurface,
                                                 )
                                                 Text(
                                                     text = node.group,
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1
+                                                    maxLines = 1,
                                                 )
                                             }
                                         }
@@ -901,7 +954,7 @@ fun ProfileNodeSelectDialog(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                .animateContentSize(animationSpec = tween(durationMillis = 220))
+                                .animateContentSize(animationSpec = tween(durationMillis = 220)),
                         ) {
                             Row(
                                 modifier = Modifier
@@ -910,37 +963,43 @@ fun ProfileNodeSelectDialog(
                                         expandedProfileId = if (isExpanded) null else profileId
                                     }
                                     .padding(vertical = 12.dp, horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = stringResource(R.string.rulesets_unknown_profile, profileId),
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
                                     )
                                     Text(
                                         text = stringResource(R.string.rulesets_nodes_count, itemsForProfile.size),
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                                 Icon(
                                     imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                                     contentDescription = null,
-                                    tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    tint = if (enabled) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                            alpha = 0.5f,
+                                        )
+                                    },
                                 )
                             }
 
                             AnimatedVisibility(
                                 visible = isExpanded,
                                 enter = fadeIn(animationSpec = tween(180)),
-                                exit = fadeOut(animationSpec = tween(120))
+                                exit = fadeOut(animationSpec = tween(120)),
                             ) {
                                 LazyColumn(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .heightIn(max = 260.dp)
+                                        .heightIn(max = 260.dp),
                                 ) {
                                     items(itemsForProfile, key = { it.id }) { node ->
                                         val ref = toNodeRef(node)
@@ -948,32 +1007,40 @@ fun ProfileNodeSelectDialog(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
+                                                .background(
+                                                    if (selected) {
+                                                        MaterialTheme.colorScheme.primary.copy(
+                                                            alpha = 0.1f,
+                                                        )
+                                                    } else {
+                                                        Color.Transparent
+                                                    },
+                                                )
                                                 .clickable {
                                                     onSelect(ref)
                                                     onDismiss()
                                                 }
                                                 .padding(vertical = 10.dp, horizontal = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                            verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             Icon(
                                                 imageVector = if (selected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
                                                 contentDescription = null,
                                                 tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(20.dp)
+                                                modifier = Modifier.size(20.dp),
                                             )
                                             Spacer(modifier = Modifier.width(10.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
                                                     text = node.name,
                                                     style = MaterialTheme.typography.bodyLarge,
-                                                    color = MaterialTheme.colorScheme.onSurface
+                                                    color = MaterialTheme.colorScheme.onSurface,
                                                 )
                                                 Text(
                                                     text = node.group,
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1
+                                                    maxLines = 1,
                                                 )
                                             }
                                         }
@@ -990,7 +1057,7 @@ fun ProfileNodeSelectDialog(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
             ) {
                 Text(stringResource(R.string.common_cancel))
             }
@@ -1045,8 +1112,8 @@ fun AboutDialog(onDismiss: () -> Unit) {
         withStyle(
             style = SpanStyle(
                 color = linkColor,
-                textDecoration = TextDecoration.Underline
-            )
+                textDecoration = TextDecoration.Underline,
+            ),
         ) {
             append("KunBoxForAndroid")
         }
@@ -1059,16 +1126,17 @@ fun AboutDialog(onDismiss: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
-                .padding(24.dp)
+                .padding(24.dp),
         ) {
             Text(
                 text = stringResource(R.string.settings_about_kunbox),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            @Suppress("DEPRECATION")
             ClickableText(
                 text = annotatedString,
                 style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
@@ -1078,7 +1146,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
                             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
                             context.startActivity(intent)
                         }
-                }
+                },
             )
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -1089,14 +1157,14 @@ fun AboutDialog(onDismiss: () -> Unit) {
                     .height(50.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
-                shape = RoundedCornerShape(25.dp)
+                shape = RoundedCornerShape(25.dp),
             ) {
                 Text(
                     text = stringResource(R.string.common_ok),
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
         }
@@ -1104,11 +1172,7 @@ fun AboutDialog(onDismiss: () -> Unit) {
 }
 
 @Composable
-fun NodeFilterDialog(
-    currentFilter: NodeFilter,
-    onConfirm: (NodeFilter) -> Unit,
-    onDismiss: () -> Unit
-) {
+fun NodeFilterDialog(currentFilter: NodeFilter, onConfirm: (NodeFilter) -> Unit, onDismiss: () -> Unit) {
     var filterMode by remember { mutableStateOf(currentFilter.filterMode) }
     // 分别保存 INCLUDE 和 EXCLUDE 的关键字，切换模式时不会丢失
     var includeKeywordsText by remember {
@@ -1123,13 +1187,13 @@ fun NodeFilterDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
-                .padding(24.dp)
+                .padding(24.dp),
         ) {
             Text(
                 text = stringResource(R.string.node_filter_title),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -1138,7 +1202,7 @@ fun NodeFilterDialog(
             Text(
                 text = stringResource(R.string.node_filter_mode),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -1148,22 +1212,48 @@ fun NodeFilterDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (filterMode == FilterMode.NONE) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
+                    .background(
+                        if (filterMode == FilterMode.NONE) {
+                            MaterialTheme.colorScheme.primary.copy(
+                                alpha = 0.1f,
+                            )
+                        } else {
+                            Color.Transparent
+                        },
+                    )
                     .clickable { filterMode = FilterMode.NONE }
                     .padding(vertical = 12.dp, horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = if (filterMode == FilterMode.NONE) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                    imageVector = if (filterMode ==
+                        FilterMode.NONE
+                    ) {
+                        Icons.Rounded.RadioButtonChecked
+                    } else {
+                        Icons.Rounded.RadioButtonUnchecked
+                    },
                     contentDescription = null,
-                    tint = if (filterMode == FilterMode.NONE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
+                    tint = if (filterMode ==
+                        FilterMode.NONE
+                    ) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(24.dp),
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
                     text = stringResource(R.string.node_filter_none),
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (filterMode == FilterMode.NONE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    color = if (filterMode ==
+                        FilterMode.NONE
+                    ) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                 )
             }
 
@@ -1172,22 +1262,48 @@ fun NodeFilterDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (filterMode == FilterMode.INCLUDE) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
+                    .background(
+                        if (filterMode == FilterMode.INCLUDE) {
+                            MaterialTheme.colorScheme.primary.copy(
+                                alpha = 0.1f,
+                            )
+                        } else {
+                            Color.Transparent
+                        },
+                    )
                     .clickable { filterMode = FilterMode.INCLUDE }
                     .padding(vertical = 12.dp, horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = if (filterMode == FilterMode.INCLUDE) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                    imageVector = if (filterMode ==
+                        FilterMode.INCLUDE
+                    ) {
+                        Icons.Rounded.RadioButtonChecked
+                    } else {
+                        Icons.Rounded.RadioButtonUnchecked
+                    },
                     contentDescription = null,
-                    tint = if (filterMode == FilterMode.INCLUDE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
+                    tint = if (filterMode ==
+                        FilterMode.INCLUDE
+                    ) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(24.dp),
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
                     text = stringResource(R.string.node_filter_include),
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (filterMode == FilterMode.INCLUDE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    color = if (filterMode ==
+                        FilterMode.INCLUDE
+                    ) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                 )
             }
 
@@ -1196,22 +1312,48 @@ fun NodeFilterDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (filterMode == FilterMode.EXCLUDE) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
+                    .background(
+                        if (filterMode == FilterMode.EXCLUDE) {
+                            MaterialTheme.colorScheme.primary.copy(
+                                alpha = 0.1f,
+                            )
+                        } else {
+                            Color.Transparent
+                        },
+                    )
                     .clickable { filterMode = FilterMode.EXCLUDE }
                     .padding(vertical = 12.dp, horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = if (filterMode == FilterMode.EXCLUDE) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+                    imageVector = if (filterMode ==
+                        FilterMode.EXCLUDE
+                    ) {
+                        Icons.Rounded.RadioButtonChecked
+                    } else {
+                        Icons.Rounded.RadioButtonUnchecked
+                    },
                     contentDescription = null,
-                    tint = if (filterMode == FilterMode.EXCLUDE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
+                    tint = if (filterMode ==
+                        FilterMode.EXCLUDE
+                    ) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(24.dp),
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
                     text = stringResource(R.string.node_filter_exclude),
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (filterMode == FilterMode.EXCLUDE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    color = if (filterMode ==
+                        FilterMode.EXCLUDE
+                    ) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                 )
             }
 
@@ -1226,7 +1368,7 @@ fun NodeFilterDialog(
                         stringResource(R.string.node_filter_exclude)
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1246,7 +1388,12 @@ fun NodeFilterDialog(
                             excludeKeywordsText = newValue
                         }
                     },
-                    placeholder = { Text(stringResource(R.string.node_filter_keywords_hint), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
+                    placeholder = {
+                        Text(
+                            stringResource(R.string.node_filter_keywords_hint),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = false,
                     minLines = 2,
@@ -1257,9 +1404,9 @@ fun NodeFilterDialog(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                         focusedLabelColor = MaterialTheme.colorScheme.primary,
-                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     ),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(16.dp),
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1267,7 +1414,7 @@ fun NodeFilterDialog(
                 Text(
                     text = stringResource(R.string.node_filter_keywords_tip),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -1276,7 +1423,7 @@ fun NodeFilterDialog(
             // 按钮区域
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // 清空按钮
                 TextButton(
@@ -1287,7 +1434,7 @@ fun NodeFilterDialog(
                     },
 
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = Destructive)
+                    colors = ButtonDefaults.textButtonColors(contentColor = Destructive),
                 ) {
                     Text(stringResource(R.string.common_clear))
                 }
@@ -1296,7 +1443,7 @@ fun NodeFilterDialog(
                 TextButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
                 ) {
                     Text(stringResource(R.string.common_cancel))
                 }
@@ -1314,20 +1461,25 @@ fun NodeFilterDialog(
                             .map { it.trim() }
                             .filter { it.isNotEmpty() }
                         // 保存两个独立的关键字列表，切换模式不会丢失
-                        onConfirm(NodeFilter(
-                            filterMode = filterMode,
-                            includeKeywords = includeKeywords,
-                            excludeKeywords = excludeKeywords
-                        ))
+                        onConfirm(
+                            NodeFilter(
+                                filterMode = filterMode,
+                                includeKeywords = includeKeywords,
+                                excludeKeywords = excludeKeywords,
+                            ),
+                        )
                     },
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                    shape = RoundedCornerShape(25.dp)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    shape = RoundedCornerShape(25.dp),
                 ) {
                     Text(
                         text = stringResource(R.string.common_ok),
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimary
+                        color = MaterialTheme.colorScheme.onPrimary,
                     )
                 }
             }
@@ -1342,7 +1494,7 @@ fun NodeSelectorDialog(
     selectedNodeId: String?,
     testingNodeIds: Set<String> = emptySet(),
     onSelect: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -1350,13 +1502,13 @@ fun NodeSelectorDialog(
                 .fillMaxWidth()
                 .fillMaxHeight(0.75f)
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
-                .padding(24.dp)
+                .padding(24.dp),
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -1366,12 +1518,12 @@ fun NodeSelectorDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = stringResource(R.string.dashboard_no_nodes_available),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             } else {
@@ -1379,7 +1531,7 @@ fun NodeSelectorDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(nodes, key = { it.id }) { node ->
                         val isSelected = node.id == selectedNodeId
@@ -1392,7 +1544,7 @@ fun NodeSelectorDialog(
                             onClick = {
                                 onSelect(node.id)
                                 onDismiss()
-                            }
+                            },
                         )
                     }
                 }
@@ -1403,7 +1555,7 @@ fun NodeSelectorDialog(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
             ) {
                 Text(stringResource(R.string.common_cancel))
             }
@@ -1412,12 +1564,7 @@ fun NodeSelectorDialog(
 }
 
 @Composable
-private fun NodeSelectorItem(
-    node: NodeUi,
-    isSelected: Boolean,
-    isTesting: Boolean,
-    onClick: () -> Unit
-) {
+private fun NodeSelectorItem(node: NodeUi, isSelected: Boolean, isTesting: Boolean, onClick: () -> Unit) {
     val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
     val backgroundColor = if (isSelected) {
         MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
@@ -1432,28 +1579,28 @@ private fun NodeSelectorItem(
             .border(
                 width = if (isSelected) 1.5.dp else 0.dp,
                 color = borderColor,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
             )
             .clickable(onClick = onClick)
             .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier.size(20.dp),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             if (isSelected) {
                 Box(
                     modifier = Modifier
                         .size(20.dp)
                         .background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = androidx.compose.material.icons.Icons.Rounded.Check,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(14.dp),
                     )
                 }
             }
@@ -1467,7 +1614,7 @@ private fun NodeSelectorItem(
                     Text(
                         text = node.regionFlag,
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(end = 6.dp)
+                        modifier = Modifier.padding(end = 6.dp),
                     )
                 }
                 Text(
@@ -1476,7 +1623,7 @@ private fun NodeSelectorItem(
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
-                    modifier = Modifier.weight(1f, fill = false)
+                    modifier = Modifier.weight(1f, fill = false),
                 )
             }
 
@@ -1486,7 +1633,7 @@ private fun NodeSelectorItem(
                 Text(
                     text = node.protocolDisplay,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 Spacer(modifier = Modifier.width(8.dp))
@@ -1495,7 +1642,7 @@ private fun NodeSelectorItem(
                     CircularProgressIndicator(
                         modifier = Modifier.size(10.dp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                        strokeWidth = 1.5.dp
+                        strokeWidth = 1.5.dp,
                     )
                 } else {
                     val latency = node.latencyMs
@@ -1515,7 +1662,7 @@ private fun NodeSelectorItem(
                         text = latencyText,
                         style = MaterialTheme.typography.labelSmall,
                         color = latencyColor,
-                        fontWeight = if (latency != null && latency > 0) FontWeight.Bold else FontWeight.Normal
+                        fontWeight = if (latency != null && latency > 0) FontWeight.Bold else FontWeight.Normal,
                     )
                 }
             }
