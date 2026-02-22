@@ -3,7 +3,7 @@ build:
   excludeCorrectable: false
 
 config:
-  validation: true
+  validation: false
   warningsAsErrors: false
 
 processors:

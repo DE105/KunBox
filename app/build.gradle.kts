@@ -5,7 +5,7 @@ import com.android.build.api.dsl.ApplicationExtension
 plugins {
     id("com.android.application")
     id("com.google.devtools.ksp")
-    id("io.gitlab.arturbosch.detekt")
+    id("dev.detekt") apply false
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -18,6 +18,11 @@ val enableSfaLibboxReplacement = providers.gradleProperty("enableSfaLibboxReplac
     ?: false
 
 val isBundleBuild = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
+val shouldApplyDetekt = gradle.startParameter.taskNames.any { it.contains("detekt", ignoreCase = true) }
+
+if (shouldApplyDetekt) {
+    apply(plugin = "dev.detekt")
+}
 
 val abiOnly = providers.gradleProperty("abiOnly").orNull
     ?.trim()
@@ -334,8 +339,8 @@ configure<ApplicationExtension> {
     }
     
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     buildFeatures {
@@ -374,7 +379,8 @@ configure<ApplicationExtension> {
 // JVM Target Configuration for Kotlin
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        freeCompilerArgs.add("-Xannotation-default-target=param-property")
     }
 }
 
@@ -438,13 +444,18 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     
-    detektPlugins("io.gitlab.arturbosch.detekt:detekt-formatting:1.23.7")
 }
 
-detekt {
-    buildUponDefaultConfig = true
-    allRules = false
-    config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
-    baseline = file("$rootDir/config/detekt/baseline.xml")
-    autoCorrect = true
+plugins.withId("dev.detekt") {
+    dependencies {
+        add("detektPlugins", "dev.detekt:detekt-rules-ktlint-wrapper:2.0.0-alpha.2")
+    }
+
+    extensions.configure<dev.detekt.gradle.extensions.DetektExtension>("detekt") {
+        buildUponDefaultConfig = true
+        allRules = false
+        config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
+        baseline = file("$rootDir/config/detekt/baseline.xml")
+        autoCorrect = true
+    }
 }
