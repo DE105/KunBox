@@ -136,6 +136,7 @@ class VpnTunManager(
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun logEffectiveMtuIfNeeded(options: TunOptions?, settings: AppSettings?, effectiveMtu: Int) {
         val now = SystemClock.elapsedRealtime()
         val elapsed = now - lastMtuLogAtMs.get()
@@ -189,6 +190,7 @@ class VpnTunManager(
         return minOf(configuredMtu, recommendedMtu)
     }
 
+    @Suppress("DEPRECATION")
     private fun getNetworkCapabilities(): NetworkCapabilities? {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return null

@@ -889,6 +889,7 @@ class SingBoxCore private constructor(private val context: Context) {
      * 获取当前活动的物理网络接口名称（非 VPN）
      * 用于测速服务显式绑定到物理网络，避免流量被 VPN 拦截
      */
+    @Suppress("DEPRECATION")
     private fun getPhysicalNetworkInterface(): String? {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return null

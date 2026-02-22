@@ -152,11 +152,6 @@ class DataExportRepository(private val context: Context) {
                 )
             }
 
-            // 验证必要字段
-            if (exportData.settings == null) {
-                return@withContext Result.failure(Exception("Data format error: missing settings info"))
-            }
-
             Result.success(exportData)
         } catch (e: JsonSyntaxException) {
             Log.e(TAG, "Invalid JSON format", e)
@@ -380,9 +375,7 @@ class DataExportRepository(private val context: Context) {
         settingsRepository.setLatencyTestUrl(settings.latencyTestUrl)
 
         // 镜像设置
-        if (settings.ghProxyMirror != null) {
-            settingsRepository.setGhProxyMirror(settings.ghProxyMirror)
-        }
+        settingsRepository.setGhProxyMirror(settings.ghProxyMirror)
 
         // 代理端口设置
         settingsRepository.setProxyPort(settings.proxyPort)

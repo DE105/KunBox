@@ -62,6 +62,7 @@ fun SingBoxTheme(
     val colorScheme = if (useDarkTheme) OLEDColorScheme else LightColorScheme
     val view = LocalView.current
     if (!view.isInEditMode) {
+        @Suppress("DEPRECATION")
         SideEffect {
             val window = (view.context as Activity).window
             // 设置透明状态栏和导航栏，让内容延伸到系统栏下方

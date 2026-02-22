@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
@@ -454,7 +455,7 @@ fun NodesScreen(
                         )
                     }
                     IconButton(onClick = { showSortDialog = true }) {
-                        Icon(Icons.Rounded.Sort, contentDescription = stringResource(R.string.nodes_sort), tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = stringResource(R.string.nodes_sort), tint = MaterialTheme.colorScheme.onBackground)
                     }
                 }
             }
@@ -574,7 +575,7 @@ fun NodesScreen(
                             onLatency = onLatency,
                             onDelete = onDelete,
                             modifier = Modifier
-                                .animateItemPlacement()
+                                .animateItem()
                                 .graphicsLayer(
                                     alpha = alpha,
                                     translationY = translateY

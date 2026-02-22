@@ -44,6 +44,7 @@ class QrScannerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 使用淡入淡出动画，避免相机加载时的黑屏造成的视觉卡顿
+        @Suppress("DEPRECATION")
         overridePendingTransition(R.anim.fade_in, R.anim.hold)
         setContentView(R.layout.activity_qr_scanner)
 
@@ -142,6 +143,7 @@ class QrScannerActivity : AppCompatActivity() {
 
     override fun finish() {
         super.finish()
+        @Suppress("DEPRECATION")
         overridePendingTransition(0, R.anim.fade_out)
     }
 

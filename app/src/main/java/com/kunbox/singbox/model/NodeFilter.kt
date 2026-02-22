@@ -18,11 +18,13 @@ data class NodeFilter(
     @SerializedName("keywords") val keywords: List<String> = emptyList()
 ) {
     // 兼容性：如果旧数据只有 keywords，迁移到对应的字段
+    @Suppress("DEPRECATION")
     val effectiveIncludeKeywords: List<String>
         get() = includeKeywords.ifEmpty {
             if (filterMode == FilterMode.INCLUDE) keywords else emptyList()
         }
 
+    @Suppress("DEPRECATION")
     val effectiveExcludeKeywords: List<String>
         get() = excludeKeywords.ifEmpty {
             if (filterMode == FilterMode.EXCLUDE) keywords else emptyList()

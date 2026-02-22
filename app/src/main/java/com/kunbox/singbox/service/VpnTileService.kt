@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.app.PendingIntent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.VpnService
@@ -141,7 +142,7 @@ class VpnTileService : TileService() {
         // 1. 检查 VPN 权限，如果需要授权则无法抢跑，必须跳转 Activity
         val prepareIntent = VpnService.prepare(this)
         if (prepareIntent != null) {
-            startActivityAndCollapse(prepareIntent)
+            startActivityAndCollapseCompat(prepareIntent)
             return
         }
 
@@ -266,12 +267,29 @@ class VpnTileService : TileService() {
         tile.updateTile()
     }
 
+    @Suppress("DEPRECATION")
     private fun hasSystemVpnTransport(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
         val cm = getSystemService(ConnectivityManager::class.java) ?: return false
         return cm.allNetworks.any { network ->
             val caps = cm.getNetworkCapabilities(network) ?: return@any false
             caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        }
+    }
+
+    private fun startActivityAndCollapseCompat(intent: Intent) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            startActivityAndCollapse(pendingIntent)
+        } else {
+            @Suppress("DEPRECATION")
+            startActivityAndCollapse(intent)
         }
     }
 
@@ -340,8 +358,7 @@ class VpnTileService : TileService() {
                         // 需要授权,回滚 UI 并跳转
                         withContext(Dispatchers.Main) {
                             revertToInactive()
-                            prepareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            runCatching { startActivityAndCollapse(prepareIntent) }
+                            runCatching { startActivityAndCollapseCompat(prepareIntent) }
                         }
                         return@launch
                     }

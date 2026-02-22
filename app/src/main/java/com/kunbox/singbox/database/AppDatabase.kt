@@ -76,8 +76,8 @@ abstract class AppDatabase : RoomDatabase() {
          * 数据库迁移: v1 -> v2 (添加 settings 表)
          */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("""
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
                     CREATE TABLE IF NOT EXISTS settings (
                         id INTEGER NOT NULL PRIMARY KEY,
                         version INTEGER NOT NULL,
@@ -93,21 +93,21 @@ abstract class AppDatabase : RoomDatabase() {
          * 由于 SQLite 不支持直接删除外键，需要重建表
          */
         private val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("""
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
                     CREATE TABLE IF NOT EXISTS node_latencies_new (
                         nodeId TEXT NOT NULL PRIMARY KEY,
                         latencyMs INTEGER NOT NULL,
                         testedAt INTEGER NOT NULL
                     )
                 """.trimIndent())
-                database.execSQL("""
+                db.execSQL("""
                     INSERT OR IGNORE INTO node_latencies_new (nodeId, latencyMs, testedAt)
                     SELECT nodeId, latencyMs, testedAt FROM node_latencies
                 """.trimIndent())
-                database.execSQL("DROP TABLE IF EXISTS node_latencies")
-                database.execSQL("ALTER TABLE node_latencies_new RENAME TO node_latencies")
-                database.execSQL("CREATE INDEX IF NOT EXISTS index_node_latencies_nodeId ON node_latencies(nodeId)")
+                db.execSQL("DROP TABLE IF EXISTS node_latencies")
+                db.execSQL("ALTER TABLE node_latencies_new RENAME TO node_latencies")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_node_latencies_nodeId ON node_latencies(nodeId)")
             }
         }
 
@@ -115,9 +115,9 @@ abstract class AppDatabase : RoomDatabase() {
          * 数据库迁移: v3 -> v4 (添加 DNS 预解析字段)
          */
         private val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE profiles ADD COLUMN dnsPreResolve INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE profiles ADD COLUMN dnsServer TEXT DEFAULT NULL")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE profiles ADD COLUMN dnsPreResolve INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE profiles ADD COLUMN dnsServer TEXT DEFAULT NULL")
             }
         }
 

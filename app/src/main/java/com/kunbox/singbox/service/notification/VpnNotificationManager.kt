@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
@@ -238,21 +239,21 @@ class VpnNotificationManager(
             .setOngoing(true)
             .addAction(
                 Notification.Action.Builder(
-                    android.R.drawable.ic_menu_revert,
+                    Icon.createWithResource(context, android.R.drawable.ic_menu_revert),
                     context.getString(R.string.notification_switch_node),
                     switchPendingIntent
                 ).build()
             )
             .addAction(
                 Notification.Action.Builder(
-                    android.R.drawable.ic_menu_rotate,
+                    Icon.createWithResource(context, android.R.drawable.ic_menu_rotate),
                     context.getString(R.string.notification_reset_connections),
                     resetPendingIntent
                 ).build()
             )
             .addAction(
                 Notification.Action.Builder(
-                    android.R.drawable.ic_menu_close_clear_cancel,
+                    Icon.createWithResource(context, android.R.drawable.ic_menu_close_clear_cancel),
                     context.getString(R.string.notification_disconnect),
                     stopPendingIntent
                 ).build()

@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.kunbox.singbox.ui.screens
 
 import com.kunbox.singbox.R

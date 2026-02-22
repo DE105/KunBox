@@ -609,7 +609,7 @@ private fun ImportLoadingDialog(message: String, onCancel: () -> Unit = {}) {
         ) {
             if (progress != null) {
                 androidx.compose.material3.LinearProgressIndicator(
-                    progress = progress,
+                    progress = { progress },
                     modifier = Modifier.fillMaxWidth().height(8.dp),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.outline,

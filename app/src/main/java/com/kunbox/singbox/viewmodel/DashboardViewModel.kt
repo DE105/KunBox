@@ -35,6 +35,7 @@ import com.kunbox.singbox.repository.ConfigRepository
 import com.kunbox.singbox.viewmodel.shared.NodeDisplaySettings
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -58,6 +59,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
@@ -302,10 +304,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 val context = getApplication<Application>()
                 val cm = context.getSystemService(ConnectivityManager::class.java)
                 val hasSystemVpn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    cm?.allNetworks?.any { network ->
-                        val caps = cm.getNetworkCapabilities(network) ?: return@any false
-                        caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                    } == true
+                    hasVpnTransport(cm)
                 } else {
                     false
                 }
@@ -611,16 +610,22 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 val cm = context.getSystemService(ConnectivityManager::class.java)
-                cm?.allNetworks?.any { network ->
-                    val caps = cm.getNetworkCapabilities(network) ?: return@any false
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                } == true
+                hasVpnTransport(cm)
             } else {
                 false
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to check system VPN", e)
             false
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun hasVpnTransport(cm: ConnectivityManager?): Boolean {
+        if (cm == null) return false
+        return cm.allNetworks.any { network ->
+            val caps = cm.getNetworkCapabilities(network) ?: return@any false
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
         }
     }
 
@@ -1060,7 +1065,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
                 // 再次检查 VPN 是否还在运行（测试可能需要一些时间）
                 if (_connectionState.value == ConnectionState.Connected && pingTestJob?.isActive == true) {
-                    if (delay != null && delay > 0) {
+                    if (delay > 0) {
                         _currentNodePing.value = delay
                     } else {
                         // 超时或失败，设置为 -1 表示超时
